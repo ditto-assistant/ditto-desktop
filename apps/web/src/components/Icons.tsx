@@ -214,6 +214,22 @@ export const GrokIcon: Icon = ({ className, ...props }) => (
   </svg>
 );
 
+export const DittoIcon: Icon = ({ className, ...props }) => (
+  <svg
+    {...props}
+    viewBox="0 0 24 24"
+    fill="none"
+    className={cn("text-[#18A0A5] dark:text-[#2DD4BF]", className)}
+  >
+    <rect x="2.5" y="2.5" width="19" height="19" rx="5" fill="currentColor" opacity=".14" />
+    <path
+      d="M7.25 6.5h4.6c3.05 0 5.15 2.14 5.15 5.5s-2.1 5.5-5.15 5.5h-4.6v-11Zm4.43 8.38c1.5 0 2.47-1.13 2.47-2.88s-.97-2.88-2.47-2.88H10v5.76h1.68Z"
+      fill="currentColor"
+    />
+    <path d="M18.25 6.5h-1.8v1.8h1.8v-1.8Z" fill="currentColor" opacity=".75" />
+  </svg>
+);
+
 export const TraeIcon: Icon = (props) => (
   <svg {...props} viewBox="0 0 24 24" fill="currentColor">
     {/* Back rectangle: left strip + bottom strip drawn separately — empty bottom-left corner is the gap between them */}

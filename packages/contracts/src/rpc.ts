@@ -14,6 +14,18 @@ import {
   HostPowerSnapshot,
 } from "./background.ts";
 import {
+  DittoHarnessDreamInput,
+  DittoHarnessDreamResult,
+  DittoHarnessError,
+  DittoHarnessSaveMemoryInput,
+  DittoHarnessSaveMemoryResult,
+  DittoHarnessSearchMemoriesInput,
+  DittoHarnessSearchMemoriesResult,
+  DittoHarnessSearchSubjectsInput,
+  DittoHarnessSearchSubjectsResult,
+  DittoHarnessStatus,
+} from "./dittoHarness.ts";
+import {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
   FilesystemBrowseError,
@@ -292,6 +304,13 @@ export const WS_METHODS = {
   serverGetBackgroundPolicy: "server.getBackgroundPolicy",
   serverGetUsageSummary: "server.getUsageSummary",
 
+  // Local Ditto memory and chat harness methods
+  dittoHarnessStatus: "dittoHarness.status",
+  dittoHarnessSaveMemory: "dittoHarness.saveMemory",
+  dittoHarnessSearchMemories: "dittoHarness.searchMemories",
+  dittoHarnessSearchSubjects: "dittoHarness.searchSubjects",
+  dittoHarnessDream: "dittoHarness.dream",
+
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
@@ -457,6 +476,36 @@ export const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess,
   payload: ServerSignalProcessInput,
   success: ServerSignalProcessResult,
   error: EnvironmentAuthorizationError,
+});
+
+export const WsDittoHarnessStatusRpc = Rpc.make(WS_METHODS.dittoHarnessStatus, {
+  payload: Schema.Struct({}),
+  success: DittoHarnessStatus,
+  error: EnvironmentAuthorizationError,
+});
+
+export const WsDittoHarnessSaveMemoryRpc = Rpc.make(WS_METHODS.dittoHarnessSaveMemory, {
+  payload: DittoHarnessSaveMemoryInput,
+  success: DittoHarnessSaveMemoryResult,
+  error: Schema.Union([DittoHarnessError, EnvironmentAuthorizationError]),
+});
+
+export const WsDittoHarnessSearchMemoriesRpc = Rpc.make(WS_METHODS.dittoHarnessSearchMemories, {
+  payload: DittoHarnessSearchMemoriesInput,
+  success: DittoHarnessSearchMemoriesResult,
+  error: Schema.Union([DittoHarnessError, EnvironmentAuthorizationError]),
+});
+
+export const WsDittoHarnessSearchSubjectsRpc = Rpc.make(WS_METHODS.dittoHarnessSearchSubjects, {
+  payload: DittoHarnessSearchSubjectsInput,
+  success: DittoHarnessSearchSubjectsResult,
+  error: Schema.Union([DittoHarnessError, EnvironmentAuthorizationError]),
+});
+
+export const WsDittoHarnessDreamRpc = Rpc.make(WS_METHODS.dittoHarnessDream, {
+  payload: DittoHarnessDreamInput,
+  success: DittoHarnessDreamResult,
+  error: Schema.Union([DittoHarnessError, EnvironmentAuthorizationError]),
 });
 
 export const WsCloudGetRelayClientStatusRpc = Rpc.make(WS_METHODS.cloudGetRelayClientStatus, {
@@ -1036,6 +1085,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRetryResourceTelemetryRpc,
   WsServerGetUsageSummaryRpc,
   WsServerSignalProcessRpc,
+  WsDittoHarnessStatusRpc,
+  WsDittoHarnessSaveMemoryRpc,
+  WsDittoHarnessSearchMemoriesRpc,
+  WsDittoHarnessSearchSubjectsRpc,
+  WsDittoHarnessDreamRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,

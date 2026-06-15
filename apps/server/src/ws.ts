@@ -73,6 +73,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
+import { DittoHarnessService } from "./dittoHarness/DittoHarnessService.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import {
@@ -551,6 +552,7 @@ const makeWsRpcLayer = (
       const resourceTelemetry = yield* ResourceTelemetry.ResourceTelemetry;
       const usage = yield* UsageService.UsageService;
       const relayClient = yield* RelayClient.RelayClient;
+      const dittoHarness = yield* DittoHarnessService;
       const authorizationError = (requiredScope: AuthEnvironmentScope) =>
         new EnvironmentAuthorizationError({
           message: `The authenticated token is missing required scope: ${requiredScope}.`,
@@ -1773,6 +1775,30 @@ const makeWsRpcLayer = (
         [WS_METHODS.serverSignalProcess]: (input) =>
           observeRpcEffect(WS_METHODS.serverSignalProcess, processDiagnostics.signal(input), {
             "rpc.aggregate": "server",
+          }),
+        [WS_METHODS.dittoHarnessStatus]: (_input) =>
+          observeRpcEffect(WS_METHODS.dittoHarnessStatus, dittoHarness.status, {
+            "rpc.aggregate": "ditto-harness",
+          }),
+        [WS_METHODS.dittoHarnessSaveMemory]: (input) =>
+          observeRpcEffect(WS_METHODS.dittoHarnessSaveMemory, dittoHarness.saveMemory(input), {
+            "rpc.aggregate": "ditto-harness",
+          }),
+        [WS_METHODS.dittoHarnessSearchMemories]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.dittoHarnessSearchMemories,
+            dittoHarness.searchMemories(input),
+            { "rpc.aggregate": "ditto-harness" },
+          ),
+        [WS_METHODS.dittoHarnessSearchSubjects]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.dittoHarnessSearchSubjects,
+            dittoHarness.searchSubjects(input),
+            { "rpc.aggregate": "ditto-harness" },
+          ),
+        [WS_METHODS.dittoHarnessDream]: (input) =>
+          observeRpcEffect(WS_METHODS.dittoHarnessDream, dittoHarness.dream(input), {
+            "rpc.aggregate": "ditto-harness",
           }),
         [WS_METHODS.serverReportClientActivity]: (input, metadata) =>
           Ref.update(rpcClientIds, (clientIds) => {

@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { ThreadEnvMode } from "./environment.ts";
+import { DittoHarnessChatProvider, DittoHarnessEmbedder } from "./dittoHarness.ts";
 import {
   DEFAULT_TEXT_GENERATION_MODEL,
   DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
@@ -278,10 +279,16 @@ const makeBinaryPathSetting = (fallback: string) =>
     Schema.withDecodingDefault(Effect.succeed(fallback)),
   );
 
-export type ProviderSettingsFormControl = "text" | "password" | "textarea" | "switch";
+export type ProviderSettingsFormControl = "text" | "password" | "textarea" | "switch" | "select";
+
+export interface ProviderSettingsFormOption {
+  readonly value: string;
+  readonly label: string;
+}
 
 export interface ProviderSettingsFormAnnotation {
   readonly control?: ProviderSettingsFormControl | undefined;
+  readonly options?: ReadonlyArray<ProviderSettingsFormOption> | undefined;
   readonly placeholder?: string | undefined;
   readonly hidden?: boolean | undefined;
   readonly clearWhenEmpty?: "omit" | "persist" | undefined;
@@ -550,11 +557,182 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
 );
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
 
+export const DEFAULT_DITTO_CHAT_MODEL = "qwen3:4b";
+export const DEFAULT_DITTO_LOCAL_BASE_URL = "http://127.0.0.1:11434";
+
+const DITTO_CHAT_PROVIDER_FORM_OPTIONS = [
+  { value: "ollama", label: "Ollama" },
+  { value: "openrouter", label: "OpenRouter" },
+  { value: "vllm", label: "vLLM / OpenAI-compatible" },
+] as const satisfies ReadonlyArray<ProviderSettingsFormOption>;
+
+export const DittoSettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    userId: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("local")),
+      Schema.annotateKey({
+        title: "User ID",
+        description: "Local Ditto user id for memory and subject retrieval.",
+        providerSettingsForm: { placeholder: "local", clearWhenEmpty: "omit" },
+      }),
+    ),
+    databasePath: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Database path",
+        description: "SQLite database path. Blank stores Ditto memory in the local app state.",
+        providerSettingsForm: { placeholder: "ditto-harness.sqlite", clearWhenEmpty: "omit" },
+      }),
+    ),
+    embedder: DittoHarnessEmbedder.pipe(
+      Schema.withDecodingDefault(Effect.succeed("ollama")),
+      Schema.annotateKey({
+        title: "Embedder",
+        description: "Use Ollama locally, or hash for deterministic offline smoke tests.",
+        providerSettingsForm: {
+          control: "select",
+          options: [
+            { value: "ollama", label: "Ollama" },
+            { value: "hash", label: "Hash" },
+          ],
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    ollamaBaseUrl: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed(DEFAULT_DITTO_LOCAL_BASE_URL)),
+      Schema.annotateKey({
+        title: "Ollama URL",
+        description: "Local Ollama endpoint used for embeddings.",
+        providerSettingsForm: {
+          placeholder: DEFAULT_DITTO_LOCAL_BASE_URL,
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    chatProvider: DittoHarnessChatProvider.pipe(
+      Schema.withDecodingDefault(Effect.succeed("ollama")),
+      Schema.annotateKey({
+        title: "Chat provider",
+        description: "Backend used by the local Ditto chat loop.",
+        providerSettingsForm: {
+          control: "select",
+          options: DITTO_CHAT_PROVIDER_FORM_OPTIONS,
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    chatModel: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed(DEFAULT_DITTO_CHAT_MODEL)),
+      Schema.annotateKey({
+        title: "Chat model",
+        description: "Model passed to the local Ditto chat loop.",
+        providerSettingsForm: {
+          placeholder: DEFAULT_DITTO_CHAT_MODEL,
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    chatBaseUrl: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Chat URL",
+        description: "Optional endpoint override. Blank uses the provider default.",
+        providerSettingsForm: {
+          placeholder: DEFAULT_DITTO_LOCAL_BASE_URL,
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    saveMemory: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({
+        title: "Save turns",
+        description: "Persist provider exchanges into the local Ditto memory store.",
+        providerSettingsForm: { control: "switch", clearWhenEmpty: "omit" },
+      }),
+    ),
+    actionProvider: Schema.optionalKey(DittoHarnessChatProvider).pipe(
+      Schema.annotateKey({
+        title: "Action provider",
+        description: "Optional stronger backend for Ditto actions.",
+        providerSettingsForm: {
+          control: "select",
+          options: DITTO_CHAT_PROVIDER_FORM_OPTIONS,
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    actionModel: Schema.optionalKey(TrimmedString).pipe(
+      Schema.annotateKey({
+        title: "Action model",
+        description: "Optional stronger model for Ditto actions.",
+        providerSettingsForm: { placeholder: "model slug", clearWhenEmpty: "omit" },
+      }),
+    ),
+    actionBaseUrl: Schema.optionalKey(TrimmedString).pipe(
+      Schema.annotateKey({
+        title: "Action URL",
+        description: "Optional action endpoint override.",
+        providerSettingsForm: { placeholder: "Provider default", clearWhenEmpty: "omit" },
+      }),
+    ),
+    customModels: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  {
+    order: [
+      "userId",
+      "databasePath",
+      "embedder",
+      "ollamaBaseUrl",
+      "chatProvider",
+      "chatModel",
+      "chatBaseUrl",
+      "saveMemory",
+      "actionProvider",
+      "actionModel",
+      "actionBaseUrl",
+    ],
+  },
+);
+export type DittoSettings = typeof DittoSettings.Type;
+
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   otlpMetricsUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
 });
 export type ObservabilitySettings = typeof ObservabilitySettings.Type;
+
+export const DittoHarnessSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  userId: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("local"))),
+  databasePath: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  embedder: DittoHarnessEmbedder.pipe(Schema.withDecodingDefault(Effect.succeed("ollama"))),
+  ollamaBaseUrl: TrimmedString.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_DITTO_LOCAL_BASE_URL)),
+  ),
+  chatProvider: DittoHarnessChatProvider.pipe(Schema.withDecodingDefault(Effect.succeed("ollama"))),
+  chatModel: TrimmedString.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_DITTO_CHAT_MODEL)),
+  ),
+  chatBaseUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  actionProvider: Schema.optionalKey(DittoHarnessChatProvider),
+  actionModel: Schema.optionalKey(TrimmedString),
+  actionBaseUrl: Schema.optionalKey(TrimmedString),
+  dreamEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  enablePromptContext: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  promptContextLimit: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 20 })).pipe(
+    Schema.withDecodingDefault(Effect.succeed(5)),
+  ),
+});
+export type DittoHarnessSettings = typeof DittoHarnessSettings.Type;
 
 export const SourceControlWritingStyleMode = Schema.Literals([
   "repo_conventions",
@@ -687,6 +865,7 @@ export const ServerSettings = Schema.Struct({
   // owns its config in its own package, this struct shrinks to nothing and
   // is removed entirely.
   providers: Schema.Struct({
+    ditto: DittoSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     codex: CodexSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -702,6 +881,7 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  dittoHarness: DittoHarnessSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -845,6 +1025,41 @@ const OpenCodeSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const DittoSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  userId: Schema.optionalKey(TrimmedString),
+  databasePath: Schema.optionalKey(TrimmedString),
+  embedder: Schema.optionalKey(DittoHarnessEmbedder),
+  ollamaBaseUrl: Schema.optionalKey(TrimmedString),
+  chatProvider: Schema.optionalKey(DittoHarnessChatProvider),
+  chatModel: Schema.optionalKey(TrimmedString),
+  chatBaseUrl: Schema.optionalKey(TrimmedString),
+  saveMemory: Schema.optionalKey(Schema.Boolean),
+  actionProvider: Schema.optionalKey(DittoHarnessChatProvider),
+  actionModel: Schema.optionalKey(TrimmedString),
+  actionBaseUrl: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
+const DittoHarnessSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  userId: Schema.optionalKey(TrimmedString),
+  databasePath: Schema.optionalKey(TrimmedString),
+  embedder: Schema.optionalKey(DittoHarnessEmbedder),
+  ollamaBaseUrl: Schema.optionalKey(TrimmedString),
+  chatProvider: Schema.optionalKey(DittoHarnessChatProvider),
+  chatModel: Schema.optionalKey(TrimmedString),
+  chatBaseUrl: Schema.optionalKey(TrimmedString),
+  actionProvider: Schema.optionalKey(DittoHarnessChatProvider),
+  actionModel: Schema.optionalKey(TrimmedString),
+  actionBaseUrl: Schema.optionalKey(TrimmedString),
+  dreamEnabled: Schema.optionalKey(Schema.Boolean),
+  enablePromptContext: Schema.optionalKey(Schema.Boolean),
+  promptContextLimit: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 20 })),
+  ),
+});
+
 export const ServerSettingsPatch = Schema.Struct({
   // Server settings
   enableLegacyTokenStreaming: Schema.optionalKey(Schema.Boolean),
@@ -879,8 +1094,10 @@ export const ServerSettingsPatch = Schema.Struct({
       otlpMetricsUrl: Schema.optionalKey(TrimmedString),
     }),
   ),
+  dittoHarness: Schema.optionalKey(DittoHarnessSettingsPatch),
   providers: Schema.optionalKey(
     Schema.Struct({
+      ditto: Schema.optionalKey(DittoSettingsPatch),
       codex: Schema.optionalKey(CodexSettingsPatch),
       claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
       cursor: Schema.optionalKey(CursorSettingsPatch),
