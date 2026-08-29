@@ -1,8 +1,8 @@
 import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
-export type ComposerTriggerKind = "path" | "slash-command" | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default";
+export type ComposerTriggerKind = "path" | "chat-context" | "slash-command" | "skill";
+export type ComposerSlashCommand = "model" | "plan" | "default" | "chat" | "discord" | "telegram";
 export type ComposerSubmissionIntent = "foreground" | "background";
 
 export interface ComposerTrigger {
@@ -10,6 +10,7 @@ export interface ComposerTrigger {
   query: string;
   rangeStart: number;
   rangeEnd: number;
+  chatService?: "discord" | "telegram";
 }
 
 export function composerSubmissionIntentForEnter(input: {
@@ -233,6 +234,20 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
   const lineStart = text.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
   const linePrefix = text.slice(lineStart, cursor);
 
+  const chatCommandMatch = /(?:^|\s)\/(chat|discord|telegram)(?:\s+([^\n]*))?$/i.exec(linePrefix);
+  if (chatCommandMatch) {
+    const matchedText = chatCommandMatch[0] ?? "";
+    const leadingWhitespace = /^\s/.test(matchedText) ? 1 : 0;
+    const command = chatCommandMatch[1]?.toLowerCase();
+    return {
+      kind: "chat-context",
+      query: chatCommandMatch[2] ?? "",
+      rangeStart: lineStart + (chatCommandMatch.index ?? 0) + leadingWhitespace,
+      rangeEnd: cursor,
+      ...(command === "discord" || command === "telegram" ? { chatService: command } : {}),
+    };
+  }
+
   if (linePrefix.startsWith("/")) {
     const commandMatch = /^\/(\S*)$/.exec(linePrefix);
     if (commandMatch) {
@@ -268,9 +283,7 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
   };
 }
 
-export function parseStandaloneComposerSlashCommand(
-  text: string,
-): Exclude<ComposerSlashCommand, "model"> | null {
+export function parseStandaloneComposerSlashCommand(text: string): "plan" | "default" | null {
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;

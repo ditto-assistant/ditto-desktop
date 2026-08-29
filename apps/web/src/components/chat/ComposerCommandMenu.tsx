@@ -124,13 +124,17 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
               {props.isLoading
                 ? props.triggerKind === "skill"
                   ? "Searching workspace skills..."
-                  : "Searching chats and workspace..."
+                  : props.triggerKind === "chat-context"
+                    ? "Searching conversations..."
+                    : "Searching workspace..."
                 : (props.emptyStateText ??
                   (props.triggerKind === "skill"
                     ? "No skills found. Try / to browse provider commands."
                     : props.triggerKind === "path"
-                      ? "No matching chats, files, or folders."
-                      : "No matching command."))}
+                      ? "No matching files or folders."
+                      : props.triggerKind === "chat-context"
+                        ? "No matching conversations."
+                        : "No matching command."))}
             </p>
           </div>
         )}

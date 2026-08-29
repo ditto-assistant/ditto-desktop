@@ -1122,14 +1122,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
+  const chatTriggerQuery = composerTrigger?.kind === "chat-context" ? composerTrigger.query : "";
+  const chatTriggerService =
+    composerTrigger?.kind === "chat-context" ? composerTrigger.chatService : undefined;
   const isPathTrigger = composerTriggerKind === "path";
+  const isChatTrigger = composerTriggerKind === "chat-context";
   const workspaceEntries = useComposerPathSearch({
     environmentId,
     cwd: isPathTrigger ? gitCwd : null,
     query: isPathTrigger ? pathTriggerQuery : null,
   });
   const chatConversations = useEnvironmentQuery(
-    isPathTrigger
+    isChatTrigger
       ? serverEnvironment.channelConversations({
           environmentId,
           input: {},
@@ -1140,34 +1144,36 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () =>
       searchComposerChats(
         (chatConversations.data?.conversations ?? []) as ReadonlyArray<ChannelConversation>,
-        pathTriggerQuery,
+        chatTriggerQuery,
+        8,
+        chatTriggerService,
       ),
-    [chatConversations.data?.conversations, pathTriggerQuery],
+    [chatConversations.data?.conversations, chatTriggerQuery, chatTriggerService],
   );
 
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
-      return [
-        ...matchingChats.map((conversation) => ({
-          id: `chat-context:${conversation.accountId}:${conversation.conversationId}`,
-          type: "chat-context" as const,
-          conversation,
-          label: `@${conversation.title}`,
-          description:
-            conversation.kind === "direct"
-              ? "Attach recent messages and available files"
-              : `Attach from ${conversation.containerTitle ?? "chat"}`,
-        })),
-        ...workspaceEntries.entries.map((entry) => ({
-          id: `path:${entry.kind}:${entry.path}`,
-          type: "path" as const,
-          path: entry.path,
-          pathKind: entry.kind,
-          label: basenameOfPath(entry.path),
-          description: entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
-        })),
-      ];
+      return workspaceEntries.entries.map((entry) => ({
+        id: `path:${entry.kind}:${entry.path}`,
+        type: "path" as const,
+        path: entry.path,
+        pathKind: entry.kind,
+        label: basenameOfPath(entry.path),
+        description: entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
+      }));
+    }
+    if (composerTrigger.kind === "chat-context") {
+      return matchingChats.map((conversation) => ({
+        id: `chat-context:${conversation.accountId}:${conversation.conversationId}`,
+        type: "chat-context" as const,
+        conversation,
+        label: conversation.title,
+        description:
+          conversation.kind === "direct"
+            ? "Attach recent messages and available files"
+            : `Attach from ${conversation.containerTitle ?? "chat"}`,
+      }));
     }
     if (composerTrigger.kind === "slash-command") {
       const builtInSlashCommandItems = [
@@ -1177,6 +1183,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           command: "model",
           label: "/model",
           description: "Switch response model for this thread",
+        },
+        {
+          id: "slash:chat",
+          type: "slash-command",
+          command: "chat",
+          label: "/chat",
+          description: "Attach a conversation from any connected chat service",
+        },
+        {
+          id: "slash:discord",
+          type: "slash-command",
+          command: "discord",
+          label: "/discord",
+          description: "Attach a Discord conversation",
+        },
+        {
+          id: "slash:telegram",
+          type: "slash-command",
+          command: "telegram",
+          label: "/telegram",
+          description: "Attach a Telegram conversation",
         },
         ...(planModeUiEnabled
           ? ([
@@ -1259,7 +1286,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const composerMenuOpen = Boolean(composerTrigger);
   const composerMenuSearchKey = composerTrigger
-    ? `${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
+    ? `${composerTrigger.kind}:${composerTrigger.chatService ?? "all"}:${composerTrigger.query.trim().toLowerCase()}`
     : null;
   const activeComposerMenuItem = useMemo(() => {
     const activeItemId = resolveComposerMenuActiveItemId({
@@ -1319,16 +1346,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   ]);
 
   const isComposerMenuLoading =
-    composerTriggerKind === "path" &&
-    pathTriggerQuery.length > 0 &&
-    (workspaceEntries.isPending || chatConversations.isPending);
+    (composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending) ||
+    (composerTriggerKind === "chat-context" && chatConversations.isPending);
   const composerMenuEmptyState = useMemo(() => {
     if (composerTriggerKind === "skill") {
       return "No skills found. Try / to browse provider commands.";
     }
     return composerTriggerKind === "path"
-      ? "No matching chats, files, or folders."
-      : "No matching command.";
+      ? "No matching files or folders."
+      : composerTriggerKind === "chat-context"
+        ? "No matching conversations."
+        : "No matching command.";
   }, [composerTriggerKind]);
 
   // ------------------------------------------------------------------
@@ -1873,6 +1901,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
       if (item.type === "slash-command") {
+        if (item.command === "chat" || item.command === "discord" || item.command === "telegram") {
+          const replacement = `/${item.command} `;
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            trigger.rangeEnd,
+            replacement,
+            {
+              expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+            },
+          );
+          if (applied) setComposerHighlightedItemId(null);
+          return;
+        }
         if (item.command === "model") {
           const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
             expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),

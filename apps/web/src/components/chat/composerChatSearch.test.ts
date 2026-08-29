@@ -50,11 +50,18 @@ describe("searchComposerChats", () => {
     expect(searchComposerChats(conversations, "omarzanji")[0]?.conversationId).toBe("omar-dm");
   });
 
-  it("shows recent direct chats first for a bare at-sign", () => {
+  it("shows recent direct chats first for an empty query", () => {
     expect(searchComposerChats(conversations, "").map((chat) => chat.conversationId)).toEqual([
       "liam-dm",
       "omar-dm",
       "channel-1",
     ]);
+  });
+
+  it("filters to an explicit provider", () => {
+    expect(searchComposerChats(conversations, "", 8, "telegram").map((chat) => chat.title)).toEqual(
+      ["Omar Barazanji"],
+    );
+    expect(searchComposerChats(conversations, "liam", 8, "telegram")).toEqual([]);
   });
 });

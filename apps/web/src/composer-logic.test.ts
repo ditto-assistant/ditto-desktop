@@ -106,6 +106,29 @@ describe("detectComposerTrigger", () => {
     });
   });
 
+  it("detects provider-scoped chat attachment commands", () => {
+    const text = "Implement this with /discord Liam";
+
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "chat-context",
+      query: "Liam",
+      rangeStart: "Implement this with ".length,
+      rangeEnd: text.length,
+      chatService: "discord",
+    });
+  });
+
+  it("detects cross-service chat attachment commands", () => {
+    const text = "/chat Omar";
+
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "chat-context",
+      query: "Omar",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
   it("does not keep a subcommand trigger active after /model arguments", () => {
     const text = "/model spark";
     const trigger = detectComposerTrigger(text, text.length);

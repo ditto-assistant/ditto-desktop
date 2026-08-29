@@ -1,4 +1,4 @@
-import type { ChannelConversation } from "@t3tools/contracts";
+import type { ChannelConversation, ChatService } from "@t3tools/contracts";
 
 function searchableConversationText(conversation: ChannelConversation): string {
   return [
@@ -31,12 +31,14 @@ export function searchComposerChats(
   conversations: ReadonlyArray<ChannelConversation>,
   rawQuery: string,
   limit = 8,
+  service?: ChatService,
 ): ReadonlyArray<ChannelConversation> {
   const query = rawQuery.trim().replace(/^@/, "").toLocaleLowerCase();
   return conversations
     .filter(
       (conversation) =>
-        query.length === 0 || searchableConversationText(conversation).includes(query),
+        (!service || conversation.service === service) &&
+        (query.length === 0 || searchableConversationText(conversation).includes(query)),
     )
     .sort((left, right) => {
       const rankDifference = matchRank(left, query) - matchRank(right, query);
