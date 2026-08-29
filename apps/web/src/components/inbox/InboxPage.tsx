@@ -48,6 +48,7 @@ function failureMessage(result: AsyncResult.AsyncResult<unknown, unknown>): stri
 }
 
 const KEEP_VIRTUAL_LIST_POSITION = { data: true, size: true } as const;
+const EMPTY_CHANNEL_ACCOUNTS: ReadonlyArray<ConnectedChannelAccount> = [];
 
 function openExternal(url: string) {
   const request = readLocalApi()?.shell.openExternal(url);
@@ -126,34 +127,22 @@ function ConnectedInbox({
   const refreshAccounts = useAtomRefresh(accountsAtom);
   const loadedAccounts = Option.getOrNull(AsyncResult.value(accountsResult))?.accounts;
   const [stableAccounts, setStableAccounts] = useState<ReadonlyArray<ConnectedChannelAccount>>([]);
-  const configuredAccount = useChannelAccountConnectionStore(
-    (state) => state.configuredByEnvironment[environmentId] ?? null,
+  const sharedAccounts = useChannelAccountConnectionStore(
+    (state) => state.accountsByEnvironment[environmentId] ?? EMPTY_CHANNEL_ACCOUNTS,
   );
-  const clearConfiguredAccount = useChannelAccountConnectionStore((state) => state.clearConfigured);
   useEffect(() => {
     if (loadedAccounts !== undefined && loadedAccounts.length > 0) {
       setStableAccounts(loadedAccounts);
-      if (
-        configuredAccount !== null &&
-        loadedAccounts.some(
-          (account) =>
-            account.accountId === configuredAccount.accountId && account.state === "ready",
-        )
-      ) {
-        clearConfiguredAccount(environmentId);
-      }
     }
-  }, [clearConfiguredAccount, configuredAccount, environmentId, loadedAccounts]);
+  }, [loadedAccounts]);
   const accounts = loadedAccounts?.length
     ? loadedAccounts
     : stableAccounts.length > 0
       ? stableAccounts
-      : configuredAccount === null
-        ? []
-        : [configuredAccount];
+      : sharedAccounts;
   const syncing = accounts.some((account) => account.state === "syncing");
   useVisiblePolling(refreshAccounts, {
-    enabled: syncing || configuredAccount !== null || accounts.length === 0,
+    enabled: syncing || loadedAccounts === undefined || loadedAccounts.length === 0,
     intervalMs: 1_500,
   });
   const selectedAccount =

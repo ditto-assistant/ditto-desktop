@@ -95,6 +95,10 @@ export function ChannelSidebar({ environmentId }: { readonly environmentId: Envi
   }, [loadedAccounts]);
 
   const accounts = loadedAccounts?.length ? loadedAccounts : stableAccounts;
+  const setSharedAccounts = useChannelAccountConnectionStore((state) => state.setAccounts);
+  useEffect(() => {
+    if (accounts.length > 0) setSharedAccounts(environmentId, accounts);
+  }, [accounts, environmentId, setSharedAccounts]);
   const [query, setQuery] = useState("");
 
   return (
@@ -149,9 +153,7 @@ function ChannelAccountGroup({
   const [expanded, setExpanded] = useState(true);
   const [configuring, setConfiguring] = useState(false);
   const [configuredAccount, setConfiguredAccount] = useState<ConnectedChannelAccount | null>(null);
-  const setSharedConfiguredAccount = useChannelAccountConnectionStore(
-    (state) => state.setConfigured,
-  );
+  const upsertSharedAccount = useChannelAccountConnectionStore((state) => state.upsertAccount);
   const [setupUrl, setSetupUrl] = useState<string | null>(null);
   const configure = useAtomCommand(serverEnvironment.configureChannel, {
     reportFailure: false,
@@ -193,7 +195,7 @@ function ChannelAccountGroup({
     setConfiguring(false);
     if (result._tag === "Success") {
       setConfiguredAccount(result.value.account);
-      setSharedConfiguredAccount(environmentId, result.value.account);
+      upsertSharedAccount(environmentId, result.value.account);
       setSetupUrl(result.value.account.setupUrl ?? null);
       onConfigured();
     }
