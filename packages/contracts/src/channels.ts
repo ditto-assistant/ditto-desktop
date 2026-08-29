@@ -143,6 +143,13 @@ export const ChannelAttachment = Schema.Struct({
 });
 export type ChannelAttachment = typeof ChannelAttachment.Type;
 
+export const ChannelResolvedMention = Schema.Struct({
+  id: Schema.String,
+  kind: Schema.Literals(["user", "channel", "role"]),
+  displayName: Schema.String,
+});
+export type ChannelResolvedMention = typeof ChannelResolvedMention.Type;
+
 export const ChannelConversation = Schema.Struct({
   accountId: ChannelAccountId,
   conversationId: ChannelConversationId,
@@ -173,6 +180,7 @@ export const ChannelMessage = Schema.Struct({
   replyToMessageId: Schema.optionalKey(ChannelMessageId),
   threadId: Schema.optionalKey(Schema.String),
   attachments: Schema.Array(ChannelAttachment),
+  resolvedMentions: Schema.optionalKey(Schema.Array(ChannelResolvedMention)),
   rawPermalink: Schema.optionalKey(Schema.String),
 });
 export type ChannelMessage = typeof ChannelMessage.Type;

@@ -122,6 +122,64 @@ it.effect("joins attachments and identifies the local Discord author", () =>
   }),
 );
 
+it.effect("resolves Discord user and channel mentions with one bounded lookup", () =>
+  Effect.gen(function* () {
+    const sqlQueries: Array<string> = [];
+    const run: ChannelCommandRun = (input) => {
+      if (input.args.includes("messages")) {
+        return Effect.succeed({
+          stdout: JSON.stringify({
+            messages: [
+              {
+                id: "message-1",
+                channel_id: "123",
+                author_id: "111",
+                author_name: "Peyton",
+                content: "Hi <@222> in <#333>",
+                timestamp: "2026-08-28T00:00:00.000Z",
+              },
+            ],
+          }),
+          stderr: "",
+          code: 0,
+        });
+      }
+      if (input.args.includes("attachments")) {
+        return Effect.succeed({ stdout: '{"attachments":[]}', stderr: "", code: 0 });
+      }
+      const query = input.args.at(-1) ?? "";
+      sqlQueries.push(query);
+      if (query.includes("UNION ALL")) {
+        return Effect.succeed({
+          stdout: JSON.stringify({
+            columns: ["kind", "id", "display_name"],
+            rows: [
+              ["user", "222", "Omar"],
+              ["channel", "333", "product-dev"],
+            ],
+          }),
+          stderr: "",
+          code: 0,
+        });
+      }
+      return Effect.succeed({
+        stdout: JSON.stringify({ columns: ["author_id"], rows: [["111"]] }),
+        stderr: "",
+        code: 0,
+      });
+    };
+
+    const adapter = makeDiscrawlAdapter(run);
+    const messages = yield* adapter.listMessages(ChannelConversationId.make("123"), 150);
+
+    expect(messages[0]?.resolvedMentions).toEqual([
+      { id: "222", kind: "user", displayName: "Omar" },
+      { id: "333", kind: "channel", displayName: "product-dev" },
+    ]);
+    expect(sqlQueries.filter((query) => query.includes("UNION ALL"))).toHaveLength(1);
+  }),
+);
+
 it.effect("keeps Discord local sync off until the user enables it", () =>
   Effect.gen(function* () {
     let enabled = false;

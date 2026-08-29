@@ -7,6 +7,7 @@ import {
   type ChannelCapability,
   type ChannelConversation,
   type ChannelMessage,
+  type ChannelResolvedMention,
   type ConnectedChannelAccount,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -181,6 +182,7 @@ function normalizeMessage(
   value: unknown,
   selfAuthorId: string | undefined,
   attachmentsByMessage: ReadonlyMap<string, ReadonlyArray<ChannelAttachment>>,
+  resolvedMentionByToken: ReadonlyMap<string, ChannelResolvedMention>,
 ): ChannelMessage | null {
   const row = unknownRecord(value);
   if (row === null) return null;
@@ -195,6 +197,11 @@ function normalizeMessage(
     authorId,
     readString(row, "author_avatar", "authorAvatar", "avatar"),
   );
+  const text = readString(row, "content", "text", "body") ?? "";
+  const resolvedMentions = [...discordMentionTokens(text)].flatMap((token) => {
+    const mention = resolvedMentionByToken.get(token);
+    return mention === undefined ? [] : [mention];
+  });
   return {
     accountId: DISCRAWL_ACCOUNT_ID,
     conversationId: ChannelConversationId.make(conversationId),
@@ -208,15 +215,84 @@ function normalizeMessage(
       ...(avatarUrl !== undefined ? { avatarUrl } : {}),
       isSelf: selfAuthorId !== undefined && authorId === selfAuthorId,
     },
-    text: readString(row, "content", "text", "body") ?? "",
+    text,
     sentAt: readString(row, "timestamp", "sent_at", "created_at") ?? "1970-01-01T00:00:00.000Z",
     ...(editedAt !== undefined ? { editedAt } : {}),
     ...(replyToMessageId !== undefined
       ? { replyToMessageId: ChannelMessageId.make(replyToMessageId) }
       : {}),
     attachments: [...(attachmentsByMessage.get(id) ?? [])],
+    ...(resolvedMentions.length > 0 ? { resolvedMentions } : {}),
     ...(rawPermalink !== undefined ? { rawPermalink } : {}),
   };
+}
+
+const DISCORD_MENTION_PATTERN = /<(@!?|#|@&)(\d+)>/g;
+
+function discordMentionTokens(text: string): ReadonlySet<string> {
+  const tokens = new Set<string>();
+  for (const match of text.matchAll(DISCORD_MENTION_PATTERN)) {
+    const token = match[0];
+    if (token !== undefined) tokens.add(token);
+  }
+  return tokens;
+}
+
+function mentionLookupSql(rows: ReadonlyArray<unknown>): string | null {
+  const userIds = new Set<string>();
+  const channelIds = new Set<string>();
+  for (const value of rows) {
+    const row = unknownRecord(value);
+    const text = row === null ? undefined : readString(row, "content", "text", "body");
+    if (text === undefined) continue;
+    for (const token of discordMentionTokens(text)) {
+      const match = /^<(@!?|#|@&)(\d+)>$/.exec(token);
+      const kind = match?.[1];
+      const id = match?.[2];
+      if (id === undefined) continue;
+      if (kind === "#") channelIds.add(id);
+      else if (kind === "@" || kind === "@!") userIds.add(id);
+    }
+  }
+
+  const selects: Array<string> = [];
+  if (userIds.size > 0) {
+    const ids = [...userIds]
+      .slice(0, 500)
+      .map((id) => `'${id}'`)
+      .join(",");
+    selects.push(
+      `SELECT 'user' AS kind, author_id AS id, MAX(COALESCE(json_extract(raw_json, '$.author.global_name'), json_extract(raw_json, '$.author.username'), author_id)) AS display_name FROM messages WHERE author_id IN (${ids}) GROUP BY author_id`,
+    );
+  }
+  if (channelIds.size > 0) {
+    const ids = [...channelIds]
+      .slice(0, 500)
+      .map((id) => `'${id}'`)
+      .join(",");
+    selects.push(
+      `SELECT 'channel' AS kind, id, name AS display_name FROM channels WHERE id IN (${ids})`,
+    );
+  }
+  return selects.length === 0 ? null : selects.join(" UNION ALL ");
+}
+
+function resolvedMentionMap(
+  rows: ReadonlyArray<Readonly<Record<string, unknown>>>,
+): ReadonlyMap<string, ChannelResolvedMention> {
+  const mentions = new Map<string, ChannelResolvedMention>();
+  for (const row of rows) {
+    const kind = readString(row, "kind");
+    const id = readString(row, "id");
+    const displayName = readString(row, "display_name");
+    if ((kind !== "user" && kind !== "channel") || id === undefined || displayName === undefined) {
+      continue;
+    }
+    const mention: ChannelResolvedMention = { id, kind, displayName };
+    mentions.set(kind === "channel" ? `<#${id}>` : `<@${id}>`, mention);
+    if (kind === "user") mentions.set(`<@!${id}>`, mention);
+  }
+  return mentions;
 }
 
 type DiscrawlRuntime = Pick<
@@ -382,7 +458,19 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
             ),
           ]),
         ),
-        Effect.map(([rows, attachmentRows, selfRows]) => {
+        Effect.flatMap(([rows, attachmentRows, selfRows]) => {
+          const lookupSql = mentionLookupSql(rows);
+          return Effect.map(
+            lookupSql === null
+              ? Effect.succeed([])
+              : execute(["--json", "sql", lookupSql]).pipe(
+                  Effect.flatMap(decodeSqlRows),
+                  Effect.orElseSucceed(() => []),
+                ),
+            (mentionRows) => ({ rows, attachmentRows, selfRows, mentionRows }),
+          );
+        }),
+        Effect.map(({ rows, attachmentRows, selfRows, mentionRows }) => {
           const attachmentsByMessage = new Map<string, Array<ChannelAttachment>>();
           for (const value of attachmentRows) {
             const normalized = normalizeAttachment(value);
@@ -392,8 +480,9 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
             attachmentsByMessage.set(normalized.messageId, existing);
           }
           const selfAuthorId = readString(selfRows[0] ?? {}, "author_id");
+          const mentions = resolvedMentionMap(mentionRows);
           return rows
-            .map((row) => normalizeMessage(row, selfAuthorId, attachmentsByMessage))
+            .map((row) => normalizeMessage(row, selfAuthorId, attachmentsByMessage, mentions))
             .filter((message): message is ChannelMessage => message !== null);
         }),
       ),

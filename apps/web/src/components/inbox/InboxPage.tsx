@@ -10,7 +10,7 @@ import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { ArrowUpIcon, InboxIcon, RefreshCwIcon, ExternalLinkIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { isElectron } from "../../env";
 import { readLocalApi } from "../../localApi";
@@ -18,10 +18,12 @@ import { cn, randomUUID } from "../../lib/utils";
 import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import ChatMarkdown from "../ChatMarkdown";
 import { Button } from "../ui/button";
 import { SidebarInset } from "../ui/sidebar";
 import { Textarea } from "../ui/textarea";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { resolveDiscordMessageText } from "./discordMessageText";
 
 function formatTime(value?: string) {
   if (!value) return "";
@@ -239,8 +241,12 @@ function MessagePanel({
     [loadedMessages],
   );
   const [stableMessages, setStableMessages] = useState<ReadonlyArray<ChannelMessage>>([]);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   useEffect(() => {
-    if (loadedMessages !== undefined) setStableMessages(sortedLoadedMessages);
+    if (loadedMessages !== undefined) {
+      setStableMessages(sortedLoadedMessages);
+      setLoadingOlder(false);
+    }
   }, [loadedMessages, sortedLoadedMessages]);
   const messages = loadedMessages === undefined ? stableMessages : sortedLoadedMessages;
   const canSend = account.capabilities.some(
@@ -248,6 +254,11 @@ function MessagePanel({
       capability.operation === "message.send" && capability.availability === "available",
   );
   const canLoadOlder = messages.length >= messageLimit && messageLimit < 5_000;
+  const loadOlder = useCallback(() => {
+    if (!canLoadOlder || loadingOlder) return;
+    setLoadingOlder(true);
+    setMessageLimit((current) => Math.min(current + 250, 5_000));
+  }, [canLoadOlder, loadingOlder]);
 
   return (
     <section className="flex min-h-0 min-w-0 flex-col">
@@ -290,25 +301,34 @@ function MessagePanel({
             initialScrollAtEnd
             keyExtractor={(message) => message.messageId}
             maintainVisibleContentPosition={KEEP_VIRTUAL_LIST_POSITION}
-            renderItem={({ item: message }) => (
-              <div className="mx-auto w-full max-w-3xl py-2">
-                <MessageRow message={message} />
-              </div>
-            )}
-            ListHeaderComponent={
-              canLoadOlder ? (
-                <div className="flex justify-center py-4">
-                  <Button
-                    onClick={() => setMessageLimit((current) => Math.min(current + 250, 5_000))}
-                    size="sm"
-                    variant="outline"
-                  >
-                    Load older messages
-                  </Button>
+            onScroll={(event) => {
+              if (event.nativeEvent.contentOffset.y <= 96) loadOlder();
+            }}
+            renderItem={({ item: message, index }) => {
+              const previous = messages[index - 1];
+              const previousSentAt =
+                previous === undefined ? Number.NaN : Date.parse(previous.sentAt);
+              const sentAt = Date.parse(message.sentAt);
+              const showHeader =
+                previous === undefined ||
+                previous.sender.id !== message.sender.id ||
+                !Number.isFinite(previousSentAt) ||
+                !Number.isFinite(sentAt) ||
+                sentAt - previousSentAt > 7 * 60_000;
+              return (
+                <div className={cn("mx-auto w-full max-w-3xl", showHeader ? "pt-4" : "pt-0.5")}>
+                  <MessageRow
+                    environmentId={environmentId}
+                    message={message}
+                    showHeader={showHeader}
+                  />
                 </div>
-              ) : (
-                <div className="h-4" />
-              )
+              );
+            }}
+            ListHeaderComponent={
+              <div className="flex h-8 items-center justify-center text-[11px] text-muted-foreground">
+                {loadingOlder ? "Loading earlier messages…" : null}
+              </div>
             }
             ListFooterComponent={<div className="h-4" />}
           />
@@ -325,35 +345,49 @@ function MessagePanel({
   );
 }
 
-function MessageRow({ message }: { readonly message: ChannelMessage }) {
-  const isSelf = message.sender.isSelf === true;
+function MessageRow({
+  environmentId,
+  message,
+  showHeader,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly message: ChannelMessage;
+  readonly showHeader: boolean;
+}) {
+  const resolvedText = resolveDiscordMessageText(message.text, message.resolvedMentions);
   return (
-    <article className={cn("group flex gap-2.5", isSelf && "flex-row-reverse")}>
-      <ParticipantAvatar
-        avatarUrl={message.sender.avatarUrl}
-        displayName={message.sender.displayName}
-      />
-      <div className={cn("min-w-0 max-w-[78%]", isSelf && "flex flex-col items-end")}>
-        <div className={cn("flex items-baseline gap-2", isSelf && "flex-row-reverse")}>
-          <span className="max-w-48 truncate text-xs font-semibold">
-            {isSelf ? "You" : message.sender.displayName}
-          </span>
-          <time className="text-[10px] text-muted-foreground">{formatTime(message.sentAt)}</time>
-        </div>
-        {message.text ? (
-          <p
-            className={cn(
-              "mt-1 w-fit whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm leading-relaxed",
-              isSelf
-                ? "rounded-tr-sm bg-primary text-primary-foreground"
-                : "rounded-tl-sm bg-muted text-foreground",
-            )}
-          >
-            {message.text}
-          </p>
+    <article className="group flex min-w-0 gap-3 px-2 py-0.5 hover:bg-muted/20">
+      {showHeader ? (
+        <ParticipantAvatar
+          avatarUrl={message.sender.avatarUrl}
+          displayName={message.sender.displayName}
+        />
+      ) : (
+        <time className="invisible w-8 shrink-0 pt-1 text-right text-[9px] text-muted-foreground group-hover:visible">
+          {formatTime(message.sentAt)}
+        </time>
+      )}
+      <div className="min-w-0 flex-1">
+        {showHeader ? (
+          <div className="flex items-baseline gap-2">
+            <span className="truncate text-sm font-semibold">{message.sender.displayName}</span>
+            <time className="shrink-0 text-[10px] text-muted-foreground">
+              {formatTime(message.sentAt)}
+            </time>
+          </div>
+        ) : null}
+        {resolvedText ? (
+          <ChatMarkdown
+            className="text-foreground [&_p]:my-0 [&_table]:my-2"
+            cwd={undefined}
+            environmentId={environmentId}
+            lineBreaks
+            parseRawHtml={false}
+            text={resolvedText}
+          />
         ) : null}
         {message.attachments.length > 0 ? (
-          <div className={cn("mt-1.5 flex max-w-full flex-col gap-1.5", isSelf && "items-end")}>
+          <div className="mt-1.5 flex max-w-full flex-col items-start gap-1.5">
             {message.attachments.map((attachment) => {
               const url = attachment.remoteUrl;
               const isImage = attachment.mediaType?.startsWith("image/") === true;
