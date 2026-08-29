@@ -38,6 +38,10 @@ interface DiscrawlState {
   readonly enabled: boolean;
 }
 
+export interface DiscrawlSyncState {
+  readonly state: "idle" | "syncing" | "error";
+}
+
 export interface DiscrawlManagerOptions {
   readonly baseDir: string;
   readonly stateDir: string;
@@ -69,6 +73,8 @@ export class DiscrawlManager {
   readonly #statePath: string;
   readonly #installDir: string;
   readonly #binaryPath: string;
+  #syncGeneration = 0;
+  #syncState: DiscrawlSyncState = { state: "idle" };
 
   constructor(options: DiscrawlManagerOptions) {
     this.#options = options;
@@ -115,32 +121,61 @@ export class DiscrawlManager {
     });
   }
 
+  getSyncState(): Effect.Effect<DiscrawlSyncState> {
+    return Effect.sync(() => this.#syncState);
+  }
+
   configure(enabled: boolean): Effect.Effect<void, ChannelOperationError> {
     const statePath = this.#statePath;
     const installed = this.isDiscordInstalled();
     const ensureInstalled = this.ensureInstalled();
     const wiretap = this.execute(["--json", "wiretap"], "2 minutes").pipe(Effect.asVoid);
+    const resetSync = () => {
+      this.#syncGeneration += 1;
+      this.#syncState = { state: "idle" };
+    };
+    const startSync = () => {
+      const generation = ++this.#syncGeneration;
+      this.#syncState = { state: "syncing" };
+      return generation;
+    };
+    const finishSync = (generation: number, state: DiscrawlSyncState["state"]) => {
+      if (this.#syncGeneration === generation) this.#syncState = { state };
+    };
+    const isSyncing = () => this.#syncState.state === "syncing";
+    const saveEnabled = Effect.tryPromise({
+      try: async () => {
+        await NodeFSP.mkdir(NodePath.dirname(statePath), { recursive: true });
+        await NodeFSP.writeFile(statePath, `${JSON.stringify({ enabled }, null, 2)}\n`, "utf8");
+      },
+      catch: (cause) =>
+        operationError("transport_failed", `Could not save Discord sync setting: ${String(cause)}`),
+    });
     return Effect.gen(function* () {
-      if (enabled) {
-        if (!(yield* installed)) {
-          return yield* Effect.fail(
-            operationError("setup_required", "Install and sign in to Discord Desktop first."),
-          );
-        }
-        yield* ensureInstalled;
-        yield* wiretap;
+      if (!enabled) {
+        resetSync();
+        yield* saveEnabled;
+        return;
       }
-      yield* Effect.tryPromise({
-        try: async () => {
-          await NodeFSP.mkdir(NodePath.dirname(statePath), { recursive: true });
-          await NodeFSP.writeFile(statePath, `${JSON.stringify({ enabled }, null, 2)}\n`, "utf8");
-        },
-        catch: (cause) =>
-          operationError(
-            "transport_failed",
-            `Could not save Discord sync setting: ${String(cause)}`,
-          ),
-      });
+
+      if (!(yield* installed)) {
+        return yield* Effect.fail(
+          operationError("setup_required", "Install and sign in to Discord Desktop first."),
+        );
+      }
+
+      yield* saveEnabled;
+      if (isSyncing()) return;
+
+      const generation = startSync();
+      const sync = ensureInstalled.pipe(
+        Effect.andThen(wiretap),
+        Effect.matchEffect({
+          onFailure: () => Effect.sync(() => finishSync(generation, "error")),
+          onSuccess: () => Effect.sync(() => finishSync(generation, "idle")),
+        }),
+      );
+      yield* Effect.forkDetach(sync);
     });
   }
 

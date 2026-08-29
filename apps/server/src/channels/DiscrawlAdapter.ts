@@ -142,13 +142,14 @@ function normalizeMessage(value: unknown): ChannelMessage | null {
 
 type DiscrawlRuntime = Pick<
   DiscrawlManager,
-  "configure" | "execute" | "isDiscordInstalled" | "isEnabled"
+  "configure" | "execute" | "getSyncState" | "isDiscordInstalled" | "isEnabled"
 >;
 
 function runtimeFromRun(run: ChannelCommandRun): DiscrawlRuntime {
   return {
     configure: () => Effect.void,
     execute: (args) => run({ command: "discrawl", args, timeout: "30 seconds" }),
+    getSyncState: () => Effect.succeed({ state: "idle" as const }),
     isDiscordInstalled: () => Effect.succeed(true),
     isEnabled: () => Effect.succeed(true),
   };
@@ -242,8 +243,27 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
         return {
           enabled,
           discordInstalled,
-          ready: false,
-          detail: "Turn on Discord sync to install Discrawl and import the local Discord cache.",
+          state: discordInstalled ? ("setup_required" as const) : ("unavailable" as const),
+          detail: discordInstalled
+            ? "Connect Discord to import chats stored on this device."
+            : "Install and sign in to Discord first.",
+        };
+      }
+      const sync = yield* runtime.getSyncState();
+      if (sync.state === "syncing") {
+        return {
+          enabled,
+          discordInstalled,
+          state: "syncing" as const,
+          detail: "Connecting to Discord…",
+        };
+      }
+      if (sync.state === "error") {
+        return {
+          enabled,
+          discordInstalled,
+          state: "error" as const,
+          detail: "Discord could not finish connecting. Try again.",
         };
       }
       const status = yield* Effect.result(execute(["--json", "status"]));
@@ -251,19 +271,18 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
         ? {
             enabled,
             discordInstalled,
-            ready: true,
-            detail:
-              "Discrawl archive is available. Toggle sync again to refresh the Discord cache.",
+            state: "ready" as const,
+            detail: "Discord chats are available on this device.",
           }
         : {
             enabled,
             discordInstalled,
-            ready: false,
-            detail: status.failure.message,
+            state: "error" as const,
+            detail: "Discord could not finish connecting. Try again.",
           };
     }).pipe(
       Effect.map(
-        ({ enabled, discordInstalled, ready, detail }): ConnectedChannelAccount => ({
+        ({ enabled, state, detail }): ConnectedChannelAccount => ({
           accountId: DISCRAWL_ACCOUNT_ID,
           service: "discord",
           transport: "discord-discrawl",
@@ -271,7 +290,7 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
           identityMode: "archive",
           label: "Discord on this device",
           enabled,
-          state: ready ? "ready" : discordInstalled ? "setup_required" : "unavailable",
+          state,
           capabilities: [...DISCRAWL_CAPABILITIES],
           completeness: "device_cache_partial",
           statusDetail: detail,

@@ -1,4 +1,5 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import { LegendList } from "@legendapp/list/react";
 import type {
   ChannelConversation,
   ChannelMessage,
@@ -17,7 +18,7 @@ import {
   SmartphoneIcon,
 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { isElectron } from "../../env";
 import { cn, randomUUID } from "../../lib/utils";
@@ -25,7 +26,6 @@ import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
-import { ScrollArea } from "../ui/scroll-area";
 import { SidebarInset } from "../ui/sidebar";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
@@ -44,6 +44,23 @@ function formatTime(value?: string) {
 
 function failureMessage(result: AsyncResult.AsyncResult<unknown, unknown>): string | null {
   return result._tag === "Failure" ? String(Cause.squash(result.cause)) : null;
+}
+
+const KEEP_VIRTUAL_LIST_POSITION = { data: true, size: true } as const;
+
+function accountStatus(account: ConnectedChannelAccount): string {
+  if (account.state === "ready") return "Synced locally";
+  if (account.service === "discord") {
+    if (account.state === "syncing") return "Connecting…";
+    if (account.state === "error") return "Couldn’t connect. Try again.";
+    if (account.state === "unavailable") return "Install and sign in to Discord first.";
+    return "Connect Discord";
+  }
+  if (account.service === "imessage" && account.state === "permission_required") {
+    return "Allow Full Disk Access to Ditto in System Settings.";
+  }
+  if (account.state === "error") return "Couldn’t load chats. Try again.";
+  return account.statusDetail ?? "Setup required";
 }
 
 export function InboxPage({
@@ -98,7 +115,20 @@ function ConnectedInbox({
   const accountsAtom = serverEnvironment.channelAccounts({ environmentId, input: {} });
   const accountsResult = useAtomValue(accountsAtom);
   const refreshAccounts = useAtomRefresh(accountsAtom);
-  const accounts = Option.getOrNull(AsyncResult.value(accountsResult))?.accounts ?? [];
+  const loadedAccounts = Option.getOrNull(AsyncResult.value(accountsResult))?.accounts;
+  const [stableAccounts, setStableAccounts] = useState<ReadonlyArray<ConnectedChannelAccount>>([]);
+  useEffect(() => {
+    if (loadedAccounts !== undefined && loadedAccounts.length > 0) {
+      setStableAccounts(loadedAccounts);
+    }
+  }, [loadedAccounts]);
+  const accounts = loadedAccounts?.length ? loadedAccounts : stableAccounts;
+  const syncing = accounts.some((account) => account.state === "syncing");
+  useEffect(() => {
+    if (!syncing) return;
+    const interval = window.setInterval(refreshAccounts, 1_500);
+    return () => window.clearInterval(interval);
+  }, [refreshAccounts, syncing]);
   const navigate = useNavigate();
   const selectedAccount =
     accounts.find((account) => account.accountId === accountId) ?? accounts[0] ?? null;
@@ -109,7 +139,7 @@ function ConnectedInbox({
         <AccountStrip
           accounts={accounts}
           environmentId={environmentId}
-          error={failureMessage(accountsResult)}
+          error={accountsResult._tag === "Failure" ? "Couldn’t load chat accounts." : null}
           onRefresh={refreshAccounts}
           onSelect={(nextAccountId) =>
             void navigate({ to: "/inbox", search: { account: nextAccountId } })
@@ -208,7 +238,7 @@ function AccountStrip({
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-xs font-medium">{account.label}</span>
                 <span className="block truncate text-[11px] text-muted-foreground">
-                  {account.state === "ready" ? "Synced locally" : account.statusDetail}
+                  {accountStatus(account)}
                 </span>
               </span>
               {canToggle ? (
@@ -252,6 +282,31 @@ function ConversationWorkspace({
   readonly onSelect: (conversationId: string) => void;
   readonly requestedConversationId: string | undefined;
 }) {
+  if (!account.enabled || account.state !== "ready") {
+    return <EmptyPanel title={account.label} detail={accountStatus(account)} />;
+  }
+
+  return (
+    <ReadyConversationWorkspace
+      account={account}
+      environmentId={environmentId}
+      onSelect={onSelect}
+      requestedConversationId={requestedConversationId}
+    />
+  );
+}
+
+function ReadyConversationWorkspace({
+  account,
+  environmentId,
+  onSelect,
+  requestedConversationId,
+}: {
+  readonly account: ConnectedChannelAccount;
+  readonly environmentId: EnvironmentId;
+  readonly onSelect: (conversationId: string) => void;
+  readonly requestedConversationId: string | undefined;
+}) {
   const conversationsAtom = serverEnvironment.channelConversations({
     environmentId,
     input: { accountId: account.accountId },
@@ -270,12 +325,6 @@ function ConversationWorkspace({
     conversations[0] ??
     null;
 
-  if (!account.enabled || account.state !== "ready") {
-    return (
-      <EmptyPanel title={account.label} detail={account.statusDetail ?? "Setup is required."} />
-    );
-  }
-
   return (
     <div className="grid min-h-0 flex-1 grid-cols-[minmax(14rem,20rem)_minmax(0,1fr)]">
       <aside className="flex min-h-0 flex-col border-r border-border bg-muted/10">
@@ -292,24 +341,27 @@ function ConversationWorkspace({
             <RefreshCwIcon className="size-3.5" />
           </Button>
         </div>
-        <ScrollArea className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 overflow-hidden">
           {conversations.length === 0 ? (
             <p className="p-4 text-xs leading-relaxed text-muted-foreground">
               {failureMessage(result) ?? "No conversations found in the local archive yet."}
             </p>
           ) : (
-            <div className="p-1.5">
-              {conversations.map((conversation) => (
+            <LegendList<ChannelConversation>
+              className="h-full min-h-0 overflow-x-hidden overscroll-y-contain p-1.5"
+              data={conversations}
+              estimatedItemSize={44}
+              keyExtractor={(conversation) => conversation.conversationId}
+              renderItem={({ item: conversation }) => (
                 <ConversationRow
-                  key={conversation.conversationId}
                   conversation={conversation}
                   onClick={() => onSelect(conversation.conversationId)}
                   selected={selected?.conversationId === conversation.conversationId}
                 />
-              ))}
-            </div>
+              )}
+            />
           )}
-        </ScrollArea>
+        </div>
       </aside>
       {selected === null ? (
         <EmptyPanel
@@ -317,7 +369,12 @@ function ConversationWorkspace({
           detail="Choose a thread from the local inbox."
         />
       ) : (
-        <MessagePanel account={account} conversation={selected} environmentId={environmentId} />
+        <MessagePanel
+          key={selected.conversationId}
+          account={account}
+          conversation={selected}
+          environmentId={environmentId}
+        />
       )}
     </div>
   );
@@ -368,12 +425,13 @@ function MessagePanel({
   readonly conversation: ChannelConversation;
   readonly environmentId: EnvironmentId;
 }) {
+  const [messageLimit, setMessageLimit] = useState(150);
   const messagesAtom = serverEnvironment.channelMessages({
     environmentId,
     input: {
       accountId: account.accountId,
       conversationId: conversation.conversationId,
-      limit: 150,
+      limit: messageLimit,
     },
   });
   const result = useAtomValue(messagesAtom);
@@ -389,6 +447,7 @@ function MessagePanel({
     (capability) =>
       capability.operation === "message.send" && capability.availability === "available",
   );
+  const canLoadOlder = messages.length >= messageLimit && messageLimit < 5_000;
 
   return (
     <section className="flex min-h-0 min-w-0 flex-col">
@@ -403,17 +462,43 @@ function MessagePanel({
           <RefreshCwIcon className="size-3.5" />
         </Button>
       </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-5 py-6">
-          {messages.length === 0 ? (
-            <p className="py-16 text-center text-xs text-muted-foreground">
-              {failureMessage(result) ?? "No messages found."}
-            </p>
-          ) : (
-            messages.map((message) => <MessageRow key={message.messageId} message={message} />)
-          )}
-        </div>
-      </ScrollArea>
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {messages.length === 0 ? (
+          <p className="py-16 text-center text-xs text-muted-foreground">
+            {failureMessage(result) ?? "No messages found."}
+          </p>
+        ) : (
+          <LegendList<ChannelMessage>
+            className="h-full min-h-0 overflow-x-hidden overscroll-y-contain px-5"
+            data={messages}
+            estimatedItemSize={72}
+            initialScrollAtEnd
+            keyExtractor={(message) => message.messageId}
+            maintainVisibleContentPosition={KEEP_VIRTUAL_LIST_POSITION}
+            renderItem={({ item: message }) => (
+              <div className="mx-auto w-full max-w-3xl py-2">
+                <MessageRow message={message} />
+              </div>
+            )}
+            ListHeaderComponent={
+              canLoadOlder ? (
+                <div className="flex justify-center py-4">
+                  <Button
+                    onClick={() => setMessageLimit((current) => Math.min(current + 250, 5_000))}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Load older messages
+                  </Button>
+                </div>
+              ) : (
+                <div className="h-4" />
+              )
+            }
+            ListFooterComponent={<div className="h-4" />}
+          />
+        )}
+      </div>
       <Composer
         account={account}
         canSend={canSend}
@@ -516,7 +601,7 @@ function Composer({
         </div>
       ) : (
         <p className="text-center text-[11px] text-muted-foreground">
-          This transport mirrors history only. Add an official bot transport to reply from Ditto.
+          Replies from Ditto aren’t enabled for this connection yet.
         </p>
       )}
     </div>

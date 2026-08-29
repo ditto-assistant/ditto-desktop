@@ -67,6 +67,7 @@ it.effect("keeps Discord local sync off until the user enables it", () =>
     const adapter = makeDiscrawlAdapter({
       configure: (next) => Effect.sync(() => void (enabled = next)),
       execute: () => Effect.succeed({ stdout: "{}", stderr: "", code: 0 }),
+      getSyncState: () => Effect.succeed({ state: "idle" }),
       isDiscordInstalled: () => Effect.succeed(true),
       isEnabled: () => Effect.sync(() => enabled),
     });
@@ -81,5 +82,28 @@ it.effect("keeps Discord local sync off until the user enables it", () =>
     const enabledAccount = yield* configure(true);
     expect(enabledAccount.enabled).toBe(true);
     expect(enabledAccount.state).toBe("ready");
+  }),
+);
+
+it.effect("reports background Discord setup without probing the archive", () =>
+  Effect.gen(function* () {
+    let executeCount = 0;
+    const adapter = makeDiscrawlAdapter({
+      configure: () => Effect.void,
+      execute: () =>
+        Effect.sync(() => {
+          executeCount += 1;
+          return { stdout: "{}", stderr: "", code: 0 };
+        }),
+      getSyncState: () => Effect.succeed({ state: "syncing" }),
+      isDiscordInstalled: () => Effect.succeed(true),
+      isEnabled: () => Effect.succeed(true),
+    });
+
+    const account = yield* adapter.discover;
+
+    expect(account.state).toBe("syncing");
+    expect(account.statusDetail).toBe("Connecting to Discord…");
+    expect(executeCount).toBe(0);
   }),
 );

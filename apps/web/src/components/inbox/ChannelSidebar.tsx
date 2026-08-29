@@ -4,7 +4,6 @@ import type {
   ConnectedChannelAccount,
   EnvironmentId,
 } from "@t3tools/contracts";
-import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/unstable/reactivity";
 import {
@@ -16,7 +15,7 @@ import {
   SmartphoneIcon,
 } from "lucide-react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { serverEnvironment } from "../../state/server";
@@ -45,13 +44,35 @@ function accountLabel(account: ConnectedChannelAccount): string {
   return account.label;
 }
 
+function accountStatus(account: ConnectedChannelAccount): string {
+  if (account.state === "ready") return "Synced locally";
+  if (account.service === "discord") {
+    if (account.state === "syncing") return "Connecting…";
+    if (account.state === "error") return "Couldn’t connect. Try again.";
+    if (account.state === "unavailable") return "Install and sign in to Discord first.";
+    return "Connect Discord";
+  }
+  if (account.service === "imessage" && account.state === "permission_required") {
+    return "Allow Full Disk Access to Ditto in System Settings.";
+  }
+  if (account.state === "error") return "Couldn’t load chats. Try again.";
+  return account.statusDetail ?? "Setup required";
+}
+
 export function ChannelSidebar({ environmentId }: { readonly environmentId: EnvironmentId }) {
   const accountsAtom = serverEnvironment.channelAccounts({ environmentId, input: {} });
   const accountsResult = useAtomValue(accountsAtom);
   const refreshAccounts = useAtomRefresh(accountsAtom);
-  const accounts = Option.getOrNull(AsyncResult.value(accountsResult))?.accounts ?? [];
+  const loadedAccounts = Option.getOrNull(AsyncResult.value(accountsResult))?.accounts;
+  const [stableAccounts, setStableAccounts] = useState<ReadonlyArray<ConnectedChannelAccount>>([]);
 
-  if (accounts.length === 0) return null;
+  useEffect(() => {
+    if (loadedAccounts !== undefined && loadedAccounts.length > 0) {
+      setStableAccounts(loadedAccounts);
+    }
+  }, [loadedAccounts]);
+
+  const accounts = loadedAccounts?.length ? loadedAccounts : stableAccounts;
 
   return (
     <div className="border-b border-sidebar-border/60 px-[var(--sidebar-content-inset)] pb-2">
@@ -59,14 +80,22 @@ export function ChannelSidebar({ environmentId }: { readonly environmentId: Envi
         Chats
       </div>
       <ul className="flex flex-col gap-px" aria-label="Chat sources">
-        {accounts.map((account) => (
-          <ChannelAccountGroup
-            key={account.accountId}
-            account={account}
-            environmentId={environmentId}
-            onConfigured={refreshAccounts}
-          />
-        ))}
+        {accounts.length === 0 ? (
+          <li className="list-none px-2 py-1.5 text-[11px] text-sidebar-muted-foreground/60">
+            {accountsResult._tag === "Failure"
+              ? "Couldn’t load chats. Try again."
+              : "Loading chats…"}
+          </li>
+        ) : (
+          accounts.map((account) => (
+            <ChannelAccountGroup
+              key={account.accountId}
+              account={account}
+              environmentId={environmentId}
+              onConfigured={refreshAccounts}
+            />
+          ))
+        )}
       </ul>
     </div>
   );
@@ -84,18 +113,6 @@ function ChannelAccountGroup({
   const [expanded, setExpanded] = useState(true);
   const [configuring, setConfiguring] = useState(false);
   const configure = useAtomCommand(serverEnvironment.configureChannel, { reportFailure: false });
-  const conversationsAtom = serverEnvironment.channelConversations({
-    environmentId,
-    input: { accountId: account.accountId },
-  });
-  const conversationsResult = useAtomValue(conversationsAtom);
-  const conversations = useMemo(
-    () =>
-      [...(Option.getOrNull(AsyncResult.value(conversationsResult))?.conversations ?? [])].sort(
-        (left, right) => (right.latestMessageAt ?? "").localeCompare(left.latestMessageAt ?? ""),
-      ),
-    [conversationsResult],
-  );
   const route = useRouterState({
     select: (state) => ({ pathname: state.location.pathname, search: state.location.search }),
   });
@@ -108,6 +125,12 @@ function ChannelAccountGroup({
       ? route.search.conversation
       : null;
 
+  useEffect(() => {
+    if (account.state !== "syncing") return;
+    const interval = window.setInterval(onConfigured, 1_500);
+    return () => window.clearInterval(interval);
+  }, [account.state, onConfigured]);
+
   const enable = async () => {
     setConfiguring(true);
     const result = await configure({
@@ -117,6 +140,10 @@ function ChannelAccountGroup({
     setConfiguring(false);
     if (result._tag === "Success") onConfigured();
   };
+
+  const canConnectDiscord =
+    account.service === "discord" &&
+    (!account.enabled || account.state === "error" || account.state === "setup_required");
 
   const openAccount = () => {
     setExpanded((value) => !value);
@@ -171,7 +198,7 @@ function ChannelAccountGroup({
 
       {expanded ? (
         <ul className="ml-5.5 flex flex-col gap-px border-l border-sidebar-border/60 pl-1.5">
-          {!account.enabled && account.service === "discord" ? (
+          {canConnectDiscord ? (
             <li className="list-none py-1 pr-1">
               <Button
                 type="button"
@@ -182,35 +209,68 @@ function ChannelAccountGroup({
                 className="h-7 w-full justify-start gap-1.5 px-2 text-xs text-sidebar-muted-foreground"
               >
                 <PlusIcon className="size-3" />
-                {configuring ? "Installing Discrawl…" : "Turn on Discord sync"}
+                {configuring ? "Connecting…" : account.enabled ? "Try again" : "Connect Discord"}
               </Button>
             </li>
           ) : account.state !== "ready" ? (
             <li className="list-none px-2 py-1.5 text-[11px] leading-4 text-sidebar-muted-foreground/70">
-              {account.statusDetail ?? "Setup required"}
-            </li>
-          ) : conversations.length === 0 ? (
-            <li className="list-none px-2 py-1.5 text-[11px] text-sidebar-muted-foreground/60">
-              {conversationsResult._tag === "Failure"
-                ? String(Cause.squash(conversationsResult.cause))
-                : "No conversations yet"}
+              {accountStatus(account)}
             </li>
           ) : (
-            conversations
-              .slice(0, 30)
-              .map((conversation) => (
-                <ChannelConversationRow
-                  key={conversation.conversationId}
-                  account={account}
-                  conversation={conversation}
-                  selected={selectedConversation === conversation.conversationId}
-                />
-              ))
+            <ReadyChannelConversations
+              account={account}
+              environmentId={environmentId}
+              selectedConversation={selectedConversation}
+            />
           )}
         </ul>
       ) : null}
     </li>
   );
+}
+
+function ReadyChannelConversations({
+  account,
+  environmentId,
+  selectedConversation,
+}: {
+  readonly account: ConnectedChannelAccount;
+  readonly environmentId: EnvironmentId;
+  readonly selectedConversation: string | null;
+}) {
+  const conversationsAtom = serverEnvironment.channelConversations({
+    environmentId,
+    input: { accountId: account.accountId },
+  });
+  const conversationsResult = useAtomValue(conversationsAtom);
+  const conversations = useMemo(
+    () =>
+      [...(Option.getOrNull(AsyncResult.value(conversationsResult))?.conversations ?? [])].sort(
+        (left, right) => (right.latestMessageAt ?? "").localeCompare(left.latestMessageAt ?? ""),
+      ),
+    [conversationsResult],
+  );
+
+  if (conversations.length === 0) {
+    return (
+      <li className="list-none px-2 py-1.5 text-[11px] text-sidebar-muted-foreground/60">
+        {conversationsResult._tag === "Failure"
+          ? "Couldn’t load conversations."
+          : "No conversations yet"}
+      </li>
+    );
+  }
+
+  return conversations
+    .slice(0, 30)
+    .map((conversation) => (
+      <ChannelConversationRow
+        key={conversation.conversationId}
+        account={account}
+        conversation={conversation}
+        selected={selectedConversation === conversation.conversationId}
+      />
+    ));
 }
 
 function ChannelConversationRow({
