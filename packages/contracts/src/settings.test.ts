@@ -353,6 +353,7 @@ describe("ServerSettingsPatch.providerInstances", () => {
 describe("Ditto settings", () => {
   it("enables the memory harness and prompt context by default", () => {
     expect(DEFAULT_SERVER_SETTINGS.dittoHarness.enabled).toBe(true);
+    expect(DEFAULT_SERVER_SETTINGS.dittoHarness.embedder).toBe("hash");
     expect(DEFAULT_SERVER_SETTINGS.dittoHarness.enablePromptContext).toBe(true);
     expect(DEFAULT_SERVER_SETTINGS.dittoHarness.dreamEnabled).toBe(false);
     expect(DEFAULT_SERVER_SETTINGS.providers.ditto.chatBaseUrl).toBe("");

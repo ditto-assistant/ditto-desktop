@@ -16,7 +16,8 @@ import {
   RefreshCwIcon,
   SmartphoneIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 
 import { isElectron } from "../../env";
 import { cn, randomUUID } from "../../lib/utils";
@@ -45,14 +46,24 @@ function failureMessage(result: AsyncResult.AsyncResult<unknown, unknown>): stri
   return result._tag === "Failure" ? String(Cause.squash(result.cause)) : null;
 }
 
-export function InboxPage() {
+export function InboxPage({
+  accountId,
+  conversationId,
+}: {
+  readonly accountId: string | undefined;
+  readonly conversationId: string | undefined;
+}) {
   const environmentId = useAtomValue(primaryEnvironmentIdAtom);
   return environmentId === null ? (
     <InboxFrame>
       <EmptyPanel title="No local device connected" detail="Connect this desktop to open Inbox." />
     </InboxFrame>
   ) : (
-    <ConnectedInbox environmentId={environmentId} />
+    <ConnectedInbox
+      accountId={accountId}
+      conversationId={conversationId}
+      environmentId={environmentId}
+    />
   );
 }
 
@@ -75,20 +86,22 @@ function InboxFrame({ children }: { readonly children: React.ReactNode }) {
   );
 }
 
-function ConnectedInbox({ environmentId }: { readonly environmentId: EnvironmentId }) {
+function ConnectedInbox({
+  accountId,
+  conversationId,
+  environmentId,
+}: {
+  readonly accountId: string | undefined;
+  readonly conversationId: string | undefined;
+  readonly environmentId: EnvironmentId;
+}) {
   const accountsAtom = serverEnvironment.channelAccounts({ environmentId, input: {} });
   const accountsResult = useAtomValue(accountsAtom);
   const refreshAccounts = useAtomRefresh(accountsAtom);
   const accounts = Option.getOrNull(AsyncResult.value(accountsResult))?.accounts ?? [];
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const navigate = useNavigate();
   const selectedAccount =
-    accounts.find((account) => account.accountId === selectedAccountId) ?? accounts[0] ?? null;
-
-  useEffect(() => {
-    if (selectedAccountId === null && accounts[0] !== undefined) {
-      setSelectedAccountId(accounts[0].accountId);
-    }
-  }, [accounts, selectedAccountId]);
+    accounts.find((account) => account.accountId === accountId) ?? accounts[0] ?? null;
 
   return (
     <InboxFrame>
@@ -98,7 +111,9 @@ function ConnectedInbox({ environmentId }: { readonly environmentId: Environment
           environmentId={environmentId}
           error={failureMessage(accountsResult)}
           onRefresh={refreshAccounts}
-          onSelect={setSelectedAccountId}
+          onSelect={(nextAccountId) =>
+            void navigate({ to: "/inbox", search: { account: nextAccountId } })
+          }
           selectedAccountId={selectedAccount?.accountId ?? null}
         />
         {selectedAccount === null ? (
@@ -107,7 +122,20 @@ function ConnectedInbox({ environmentId }: { readonly environmentId: Environment
             detail="Discord and Messages accounts will appear here when this device reports them."
           />
         ) : (
-          <ConversationWorkspace account={selectedAccount} environmentId={environmentId} />
+          <ConversationWorkspace
+            account={selectedAccount}
+            environmentId={environmentId}
+            requestedConversationId={conversationId}
+            onSelect={(nextConversationId) =>
+              void navigate({
+                to: "/inbox",
+                search: {
+                  account: selectedAccount.accountId,
+                  conversation: nextConversationId,
+                },
+              })
+            }
+          />
         )}
       </div>
     </InboxFrame>
@@ -216,9 +244,13 @@ function AccountStrip({
 function ConversationWorkspace({
   account,
   environmentId,
+  onSelect,
+  requestedConversationId,
 }: {
   readonly account: ConnectedChannelAccount;
   readonly environmentId: EnvironmentId;
+  readonly onSelect: (conversationId: string) => void;
+  readonly requestedConversationId: string | undefined;
 }) {
   const conversationsAtom = serverEnvironment.channelConversations({
     environmentId,
@@ -233,15 +265,10 @@ function ConversationWorkspace({
       ),
     [result],
   );
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected =
-    conversations.find((conversation) => conversation.conversationId === selectedId) ??
+    conversations.find((conversation) => conversation.conversationId === requestedConversationId) ??
     conversations[0] ??
     null;
-
-  useEffect(() => {
-    setSelectedId(null);
-  }, [account.accountId]);
 
   if (!account.enabled || account.state !== "ready") {
     return (
@@ -276,7 +303,7 @@ function ConversationWorkspace({
                 <ConversationRow
                   key={conversation.conversationId}
                   conversation={conversation}
-                  onClick={() => setSelectedId(conversation.conversationId)}
+                  onClick={() => onSelect(conversation.conversationId)}
                   selected={selected?.conversationId === conversation.conversationId}
                 />
               ))}
