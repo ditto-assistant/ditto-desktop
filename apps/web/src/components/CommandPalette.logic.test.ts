@@ -272,6 +272,35 @@ describe("buildThreadActionItems", () => {
     expect(groups[0]?.items.map((item) => item.value)).toEqual(["thread:project-context-only"]);
   });
 
+  it("includes matching chat actions in root search", () => {
+    const chat: CommandPaletteGroup = {
+      value: "chats-search",
+      label: "Chats",
+      items: [
+        {
+          kind: "action",
+          value: "chat:discord:123",
+          searchTerms: ["Trupan", "Discord direct message"],
+          title: "Trupan",
+          icon: null,
+          run: async () => undefined,
+        },
+      ],
+    };
+
+    const groups = filterCommandPaletteGroups({
+      activeGroups: [],
+      query: "trupan",
+      isInSubmenu: false,
+      projectSearchItems: [],
+      threadSearchItems: [],
+      additionalSearchGroups: [chat],
+    });
+
+    expect(groups.map((group) => group.value)).toEqual(["chats-search"]);
+    expect(groups[0]?.items.map((item) => item.value)).toEqual(["chat:discord:123"]);
+  });
+
   it("keeps message excerpts searchable without replacing thread metadata", () => {
     const [item] = buildThreadActionItems({
       threads: [makeThread({ branch: "feat/search" })],

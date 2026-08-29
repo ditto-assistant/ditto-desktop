@@ -18,6 +18,7 @@ import { useAssetUrl } from "../../assets/assetUrls";
 import { isElectron } from "../../env";
 import { readLocalApi } from "../../localApi";
 import { cn, randomUUID } from "../../lib/utils";
+import { useVisiblePolling } from "../../hooks/useVisiblePolling";
 import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -114,7 +115,10 @@ function ConnectedInbox({
   readonly conversationId: string | undefined;
   readonly environmentId: EnvironmentId;
 }) {
-  const accountsAtom = serverEnvironment.channelAccounts({ environmentId, input: {} });
+  const accountsAtom = serverEnvironment.channelAccounts({
+    environmentId,
+    input: {},
+  });
   const accountsResult = useAtomValue(accountsAtom);
   const refreshAccounts = useAtomRefresh(accountsAtom);
   const loadedAccounts = Option.getOrNull(AsyncResult.value(accountsResult))?.accounts;
@@ -237,6 +241,10 @@ function MessagePanel({
   });
   const result = useAtomValue(messagesAtom);
   const refresh = useAtomRefresh(messagesAtom);
+  useVisiblePolling(refresh, {
+    enabled: account.service === "discord",
+    intervalMs: 3_000,
+  });
   const loadedMessages = Option.getOrNull(AsyncResult.value(result))?.messages;
   const sortedLoadedMessages = useMemo(
     () =>
@@ -427,7 +435,10 @@ function DiscordAttachment({
   if (attachment.cachedAttachmentId) {
     return (
       <CachedDiscordAttachment
-        attachment={{ ...attachment, cachedAttachmentId: attachment.cachedAttachmentId }}
+        attachment={{
+          ...attachment,
+          cachedAttachmentId: attachment.cachedAttachmentId,
+        }}
         environmentId={environmentId}
       />
     );
@@ -548,7 +559,9 @@ function Composer({
   readonly environmentId: EnvironmentId;
   readonly onSent: () => void;
 }) {
-  const send = useAtomCommand(serverEnvironment.sendChannelMessage, { reportFailure: false });
+  const send = useAtomCommand(serverEnvironment.sendChannelMessage, {
+    reportFailure: false,
+  });
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);

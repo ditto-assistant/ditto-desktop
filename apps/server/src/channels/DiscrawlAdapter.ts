@@ -153,9 +153,10 @@ function discordGuildAvatarUrl(guildId: string, icon?: string): string | undefin
   return icon ? `https://cdn.discordapp.com/icons/${guildId}/${icon}.png?size=80` : undefined;
 }
 
-function normalizeAttachment(
-  value: unknown,
-): { readonly messageId: string; readonly attachment: ChannelAttachment } | null {
+function normalizeAttachment(value: unknown): {
+  readonly messageId: string;
+  readonly attachment: ChannelAttachment;
+} | null {
   const row = unknownRecord(value);
   if (row === null) return null;
   const id = readString(row, "attachment_id", "attachmentId", "id");
@@ -298,12 +299,18 @@ function resolvedMentionMap(
 
 type DiscrawlRuntime = Pick<
   DiscrawlManager,
-  "configure" | "execute" | "getSyncState" | "isDiscordInstalled" | "isEnabled"
+  | "configure"
+  | "ensureContinuousSync"
+  | "execute"
+  | "getSyncState"
+  | "isDiscordInstalled"
+  | "isEnabled"
 >;
 
 function runtimeFromRun(run: ChannelCommandRun): DiscrawlRuntime {
   return {
     configure: () => Effect.void,
+    ensureContinuousSync: () => Effect.void,
     execute: (args) => run({ command: "discrawl", args, timeout: "30 seconds" }),
     getSyncState: () => Effect.succeed({ state: "idle" as const }),
     isDiscordInstalled: () => Effect.succeed(true),
@@ -343,6 +350,7 @@ export function makeDiscrawlAdapter(
               }),
             ),
       ),
+      Effect.andThen(Effect.suspend(() => runtime.ensureContinuousSync())),
       Effect.andThen(
         Effect.all([
           execute(["--json", "channels", "list"]).pipe(
@@ -393,28 +401,43 @@ export function makeDiscrawlAdapter(
           });
         }
 
-        return [...channels, ...dms].flatMap((row) => {
+        const conversationsById = new Map<string, ChannelConversation>();
+        for (const row of channels) {
           const conversation = normalizeConversation(row);
-          if (conversation === null) return [];
+          if (conversation === null) continue;
+          conversationsById.set(conversation.conversationId, conversation);
+        }
+        for (const row of dms) {
+          const conversation = normalizeConversation(row);
+          if (conversation === null) continue;
+          const existing = conversationsById.get(conversation.conversationId);
+          conversationsById.set(conversation.conversationId, {
+            ...existing,
+            ...conversation,
+            kind: "direct",
+          });
+        }
+
+        return [...conversationsById.values()].map((conversation) => {
           if (conversation.kind === "direct") {
             const participant = dmParticipants.get(conversation.conversationId);
-            return [
-              participant === undefined
-                ? conversation
-                : { ...conversation, participants: [participant], title: participant.displayName },
-            ];
+            return participant === undefined
+              ? conversation
+              : {
+                  ...conversation,
+                  participants: [participant],
+                  title: participant.displayName,
+                };
           }
           const containerId = conversation.containerId;
           const guild = containerId === undefined ? undefined : guilds.get(containerId);
-          if (containerId === undefined || guild === undefined) return [conversation];
+          if (containerId === undefined || guild === undefined) return conversation;
           const containerAvatarUrl = discordGuildAvatarUrl(containerId, guild.icon);
-          return [
-            {
-              ...conversation,
-              containerTitle: guild.name,
-              ...(containerAvatarUrl !== undefined ? { containerAvatarUrl } : {}),
-            },
-          ];
+          return {
+            ...conversation,
+            containerTitle: guild.name,
+            ...(containerAvatarUrl !== undefined ? { containerAvatarUrl } : {}),
+          };
         });
       }),
     ),
@@ -431,6 +454,7 @@ export function makeDiscrawlAdapter(
                 }),
               ),
         ),
+        Effect.andThen(Effect.suspend(() => runtime.ensureContinuousSync())),
         Effect.andThen(
           Effect.all([
             execute([
@@ -483,7 +507,10 @@ export function makeDiscrawlAdapter(
             });
             const cachedAttachments =
               options.mediaCache === undefined
-                ? normalizedAttachments.map((normalized) => ({ normalized, cached: undefined }))
+                ? normalizedAttachments.map((normalized) => ({
+                    normalized,
+                    cached: undefined,
+                  }))
                 : yield* Effect.forEach(
                     normalizedAttachments,
                     (normalized) =>
@@ -497,7 +524,10 @@ export function makeDiscrawlAdapter(
               existing.push({
                 ...normalized.attachment,
                 ...(cached?.state === "cached"
-                  ? { cachedAttachmentId: cached.attachmentId, cacheState: cached.state }
+                  ? {
+                      cachedAttachmentId: cached.attachmentId,
+                      cacheState: cached.state,
+                    }
                   : cached === undefined
                     ? {}
                     : { cacheState: cached.state }),
@@ -524,7 +554,7 @@ export function makeDiscrawlAdapter(
       ),
   };
 
-  function discoverAccount(): Effect.Effect<ConnectedChannelAccount> {
+  function discoverAccount(): Effect.Effect<ConnectedChannelAccount, ChannelOperationError> {
     return Effect.gen(function* () {
       const enabled = yield* runtime.isEnabled();
       const discordInstalled = yield* runtime.isDiscordInstalled();
@@ -538,6 +568,7 @@ export function makeDiscrawlAdapter(
             : "Install and sign in to Discord first.",
         };
       }
+      yield* runtime.ensureContinuousSync();
       const sync = yield* runtime.getSyncState();
       if (sync.state === "syncing") {
         return {

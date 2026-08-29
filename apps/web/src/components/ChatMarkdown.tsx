@@ -180,6 +180,27 @@ export function shouldUseMarkdownFileBrowserPrimaryAction(input: {
   );
 }
 
+export function discordAppUrlForWebUrl(href: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const host = url.hostname.toLowerCase();
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (host === "discord.gg" && parts.length >= 1) {
+    return `discord://-/invite/${parts[0]}`;
+  }
+  if (host !== "discord.com" && host !== "www.discord.com" && host !== "discordapp.com") {
+    return null;
+  }
+  if (parts[0] === "invite" && parts[1]) return `discord://-/invite/${parts[1]}`;
+  if (parts[0] !== "channels" || parts.length < 3) return null;
+  return `discord://-/channels/${parts.slice(1, 4).join("/")}`;
+}
+
 const EMPTY_MARKDOWN_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
@@ -2035,6 +2056,14 @@ function ChatMarkdown({
                 onClick?.(event);
                 if (isSameDocumentLink && href) {
                   handleMarkdownFragmentClick(event, href);
+                  return;
+                }
+                const discordAppUrl = href ? discordAppUrlForWebUrl(href) : null;
+                const localApi = readLocalApi();
+                if (discordAppUrl && localApi) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void localApi.shell.openExternal(discordAppUrl);
                   return;
                 }
                 // A link to a change request in a workspace project opens beside the

@@ -2,8 +2,10 @@
 // @effect-diagnostics preferSchemaOverJson:off -- The persisted state is one private boolean.
 // @effect-diagnostics globalFetchInEffect:off -- Download failures are captured by Effect.tryPromise.
 import * as NodeCrypto from "node:crypto";
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import * as NodePerfHooks from "node:perf_hooks";
 
 import { ChannelAccountId, ChannelOperationError } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -12,6 +14,9 @@ import type { ChannelCommandOutput, ChannelCommandRun } from "./ChannelAdapter.t
 const DISCRAWL_ACCOUNT_ID = ChannelAccountId.make("discord:discrawl:local");
 
 const DISCRAWL_VERSION = "0.13.3";
+const DISCRAWL_SYNC_COOLDOWN_MS = 2 * 60 * 1_000;
+const PARENT_BOUND_PROCESS =
+  'child=""; cleanup() { if [ -n "$child" ]; then kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; fi; }; trap cleanup EXIT HUP INT TERM; "$@" & child=$!; while kill -0 "$child" 2>/dev/null; do if [ "$PPID" -eq 1 ]; then exit 143; fi; sleep 1; done; wait "$child"; status=$?; child=""; exit "$status"';
 
 const releaseAssets = {
   "darwin-arm64": {
@@ -75,6 +80,9 @@ export class DiscrawlManager {
   readonly #binaryPath: string;
   #syncGeneration = 0;
   #syncState: DiscrawlSyncState = { state: "idle" };
+  #continuousSyncRunning = false;
+  #lastSyncCompletedAt = 0;
+  #syncProcess: NodeChildProcess.ChildProcess | undefined;
 
   constructor(options: DiscrawlManagerOptions) {
     this.#options = options;
@@ -125,24 +133,104 @@ export class DiscrawlManager {
     return Effect.sync(() => this.#syncState);
   }
 
-  configure(enabled: boolean): Effect.Effect<void, ChannelOperationError> {
-    const statePath = this.#statePath;
-    const installed = this.isDiscordInstalled();
-    const ensureInstalled = this.ensureInstalled();
-    const wiretap = this.execute(["--json", "wiretap"], "2 minutes").pipe(Effect.asVoid);
-    const resetSync = () => {
-      this.#syncGeneration += 1;
-      this.#syncState = { state: "idle" };
+  ensureContinuousSync(): Effect.Effect<void, ChannelOperationError> {
+    const isRunning = () => this.#continuousSyncRunning;
+    const isCoolingDown = () =>
+      this.#lastSyncCompletedAt > 0 &&
+      NodePerfHooks.performance.now() - this.#lastSyncCompletedAt < DISCRAWL_SYNC_COOLDOWN_MS;
+    const isCurrentGeneration = (generation: number) => this.#syncGeneration === generation;
+    const resolveBinary = () => this.resolveBinary();
+    const setProcess = (process: NodeChildProcess.ChildProcess) => {
+      this.#syncProcess = process;
     };
-    const startSync = () => {
+    const start = () => {
       const generation = ++this.#syncGeneration;
+      this.#continuousSyncRunning = true;
       this.#syncState = { state: "syncing" };
       return generation;
     };
-    const finishSync = (generation: number, state: DiscrawlSyncState["state"]) => {
-      if (this.#syncGeneration === generation) this.#syncState = { state };
+    const setState = (state: DiscrawlSyncState["state"]) => {
+      this.#syncState = { state };
     };
-    const isSyncing = () => this.#syncState.state === "syncing";
+    const finish = (generation: number) => {
+      if (isCurrentGeneration(generation)) {
+        this.#continuousSyncRunning = false;
+        this.#lastSyncCompletedAt = NodePerfHooks.performance.now();
+        this.#syncProcess = undefined;
+      }
+    };
+    const enabled = this.isEnabled();
+    const installed = this.isDiscordInstalled();
+    const wakeDiscord =
+      this.#options.platform === "darwin"
+        ? this.#options
+            .run({
+              command: "/usr/bin/open",
+              args: ["-gj", "-a", "Discord"],
+              timeout: "30 seconds",
+            })
+            .pipe(Effect.ignore)
+        : Effect.void;
+    return Effect.gen(function* () {
+      if (isRunning() || !(yield* enabled)) return;
+      if (!(yield* installed)) return;
+      if (isCoolingDown()) return;
+
+      const generation = start();
+      yield* wakeDiscord;
+      const binary = yield* resolveBinary();
+      const spawned = yield* Effect.result(
+        Effect.try({
+          try: () => {
+            const child = NodeChildProcess.spawn(
+              "/bin/sh",
+              ["-c", PARENT_BOUND_PROCESS, "ditto-discrawl", binary, "--quiet", "wiretap"],
+              { stdio: "ignore" },
+            );
+            setProcess(child);
+            child.once("error", () => {
+              if (isCurrentGeneration(generation)) setState("error");
+              finish(generation);
+            });
+            child.once("exit", (code, signal) => {
+              if (
+                isCurrentGeneration(generation) &&
+                code !== 0 &&
+                signal !== "SIGTERM" &&
+                signal !== "SIGINT"
+              ) {
+                setState("error");
+              }
+              finish(generation);
+            });
+          },
+          catch: (cause: unknown): ChannelOperationError =>
+            operationError("transport_failed", `Could not start Discord sync: ${String(cause)}`),
+        }),
+      );
+      if (spawned._tag === "Failure") {
+        setState("error");
+        finish(generation);
+        return yield* spawned.failure;
+      }
+      setState("idle");
+    });
+  }
+
+  configure(enabled: boolean): Effect.Effect<void, ChannelOperationError> {
+    const statePath = this.#statePath;
+    const installed = this.isDiscordInstalled();
+    const ensureContinuousSync = this.ensureContinuousSync();
+    const resetSync = Effect.suspend(() => {
+      this.#syncGeneration += 1;
+      this.#continuousSyncRunning = false;
+      this.#lastSyncCompletedAt = 0;
+      this.#syncState = { state: "idle" };
+      const child = this.#syncProcess;
+      this.#syncProcess = undefined;
+      child?.kill("SIGTERM");
+      return Effect.void;
+    });
     const saveEnabled = Effect.tryPromise({
       try: async () => {
         await NodeFSP.mkdir(NodePath.dirname(statePath), { recursive: true });
@@ -153,7 +241,7 @@ export class DiscrawlManager {
     });
     return Effect.gen(function* () {
       if (!enabled) {
-        resetSync();
+        yield* resetSync;
         yield* saveEnabled;
         return;
       }
@@ -165,17 +253,7 @@ export class DiscrawlManager {
       }
 
       yield* saveEnabled;
-      if (isSyncing()) return;
-
-      const generation = startSync();
-      const sync = ensureInstalled.pipe(
-        Effect.andThen(wiretap),
-        Effect.matchEffect({
-          onFailure: () => Effect.sync(() => finishSync(generation, "error")),
-          onSuccess: () => Effect.sync(() => finishSync(generation, "idle")),
-        }),
-      );
-      yield* Effect.forkDetach(sync);
+      yield* ensureContinuousSync;
     });
   }
 
@@ -273,7 +351,9 @@ export class DiscrawlManager {
 
       yield* Effect.tryPromise({
         try: async () => {
-          await NodeFSP.mkdir(NodePath.dirname(installDir), { recursive: true });
+          await NodeFSP.mkdir(NodePath.dirname(installDir), {
+            recursive: true,
+          });
           await NodeFSP.rm(installDir, { recursive: true, force: true });
           await NodeFSP.rename(stagingDir, installDir);
         },

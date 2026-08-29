@@ -117,6 +117,7 @@ export class DiscordMediaCache {
   readonly #fetch: (input: string | URL, init?: RequestInit) => Promise<Response>;
   readonly #now: () => number;
   readonly #inflight = new Map<string, Promise<DiscordMediaCacheResult>>();
+  readonly #sessionResults = new Map<string, DiscordMediaCacheResult>();
   #lastSweepAt = 0;
 
   constructor(options: DiscordMediaCacheOptions) {
@@ -126,10 +127,22 @@ export class DiscordMediaCache {
   }
 
   cache(source: DiscordMediaSource): Promise<DiscordMediaCacheResult> {
-    const current = this.#inflight.get(source.id);
+    const cacheKey = `${source.id}\u0000${source.mediaType ?? ""}\u0000${source.remoteUrl ?? ""}`;
+    const settled = this.#sessionResults.get(cacheKey);
+    if (settled) return Promise.resolve(settled);
+    const current = this.#inflight.get(cacheKey);
     if (current) return current;
-    const pending = this.#cache(source).finally(() => this.#inflight.delete(source.id));
-    this.#inflight.set(source.id, pending);
+    const pending = this.#cache(source)
+      .then((result) => {
+        this.#sessionResults.set(cacheKey, result);
+        if (this.#sessionResults.size > 10_000) {
+          const oldest = this.#sessionResults.keys().next().value;
+          if (oldest !== undefined) this.#sessionResults.delete(oldest);
+        }
+        return result;
+      })
+      .finally(() => this.#inflight.delete(cacheKey));
+    this.#inflight.set(cacheKey, pending);
     return pending;
   }
 
@@ -172,7 +185,10 @@ export class DiscordMediaCache {
     let response: Response | undefined;
     try {
       for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
-        response = await this.#fetch(url, { redirect: "manual", signal: controller.signal });
+        response = await this.#fetch(url, {
+          redirect: "manual",
+          signal: controller.signal,
+        });
         if (response.status < 300 || response.status >= 400) break;
         const location = response.headers.get("location");
         if (!location || redirects === MAX_REDIRECTS) return { state: "unavailable" };
@@ -214,7 +230,9 @@ export class DiscordMediaCache {
     this.#lastSweepAt = now;
     let entries;
     try {
-      entries = await NodeFSP.readdir(this.#attachmentsDir, { withFileTypes: true });
+      entries = await NodeFSP.readdir(this.#attachmentsDir, {
+        withFileTypes: true,
+      });
     } catch {
       return;
     }

@@ -20,6 +20,7 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "../../lib/utils";
+import { useVisiblePolling } from "../../hooks/useVisiblePolling";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
@@ -63,7 +64,10 @@ function accountStatus(account: ConnectedChannelAccount): string {
 }
 
 export function ChannelSidebar({ environmentId }: { readonly environmentId: EnvironmentId }) {
-  const accountsAtom = serverEnvironment.channelAccounts({ environmentId, input: {} });
+  const accountsAtom = serverEnvironment.channelAccounts({
+    environmentId,
+    input: {},
+  });
   const accountsResult = useAtomValue(accountsAtom);
   const refreshAccounts = useAtomRefresh(accountsAtom);
   const loadedAccounts = Option.getOrNull(AsyncResult.value(accountsResult))?.accounts;
@@ -129,9 +133,14 @@ function ChannelAccountGroup({
 }) {
   const [expanded, setExpanded] = useState(true);
   const [configuring, setConfiguring] = useState(false);
-  const configure = useAtomCommand(serverEnvironment.configureChannel, { reportFailure: false });
+  const configure = useAtomCommand(serverEnvironment.configureChannel, {
+    reportFailure: false,
+  });
   const route = useRouterState({
-    select: (state) => ({ pathname: state.location.pathname, search: state.location.search }),
+    select: (state) => ({
+      pathname: state.location.pathname,
+      search: state.location.search,
+    }),
   });
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -263,6 +272,11 @@ function ReadyChannelConversations({
     input: { accountId: account.accountId },
   });
   const conversationsResult = useAtomValue(conversationsAtom);
+  const refreshConversations = useAtomRefresh(conversationsAtom);
+  useVisiblePolling(refreshConversations, {
+    enabled: account.service === "discord",
+    intervalMs: 10_000,
+  });
   const loadedConversations = Option.getOrNull(
     AsyncResult.value(conversationsResult),
   )?.conversations;
@@ -322,7 +336,11 @@ function ReadyChannelConversations({
   );
   const guilds = new Map<
     string,
-    { title: string; avatarUrl?: string; conversations: Array<ChannelConversation> }
+    {
+      title: string;
+      avatarUrl?: string;
+      conversations: Array<ChannelConversation>;
+    }
   >();
   for (const conversation of filteredConversations) {
     if (conversation.containerId === undefined) continue;

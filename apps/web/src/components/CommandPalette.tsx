@@ -24,6 +24,8 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   type DesktopWslState,
+  ChannelAccountId,
+  type ChannelConversation,
   type EnvironmentId,
   type FilesystemBrowseResult,
   type ProjectId,
@@ -146,7 +148,11 @@ import {
   ThreadCommandSubtitle,
 } from "./ThreadCommandSubtitle";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
-import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
+import {
+  primaryServerKeybindingsAtom,
+  primaryServerProvidersAtom,
+  serverEnvironment,
+} from "../state/server";
 import {
   deriveProviderInstanceEntries,
   resolveDefaultProviderModelSelection,
@@ -607,6 +613,19 @@ function OpenCommandPaletteDialog(props: {
   }, [environments, primaryEnvironmentId, providers]);
   const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
   const currentView = viewStack.at(-1) ?? null;
+  const shouldSearchChats =
+    primaryEnvironmentId !== null &&
+    currentView === null &&
+    !isActionsOnly &&
+    deferredQuery.trim().length > 0;
+  const discordConversations = useEnvironmentQuery(
+    shouldSearchChats
+      ? serverEnvironment.channelConversations({
+          environmentId: primaryEnvironmentId,
+          input: { accountId: ChannelAccountId.make("discord:discrawl:local") },
+        })
+      : null,
+  );
   const environmentIds = useMemo(
     () =>
       environments
@@ -1019,6 +1038,40 @@ function OpenCommandPaletteDialog(props: {
         runProject: openProjectFromSearch,
       }),
     [openProjectFromSearch, pickerProjects, projectGroupByTargetKey],
+  );
+
+  const chatSearchItems = useMemo<ReadonlyArray<CommandPaletteActionItem>>(
+    () =>
+      (discordConversations.data?.conversations ?? []).map((conversation: ChannelConversation) => ({
+        kind: "action",
+        value: `chat:discord:${conversation.conversationId}`,
+        searchTerms: [
+          conversation.title,
+          conversation.containerTitle ?? "",
+          ...conversation.participants.flatMap((participant) => [
+            participant.displayName,
+            participant.handle ?? "",
+          ]),
+          "discord",
+          conversation.kind === "direct" ? "dm direct message" : "channel server guild",
+        ],
+        title: conversation.title,
+        description:
+          conversation.kind === "direct"
+            ? "Discord direct message"
+            : `Discord · ${conversation.containerTitle ?? "Server"}`,
+        icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          await navigate({
+            to: "/inbox",
+            search: {
+              account: "discord:discrawl:local",
+              conversation: conversation.conversationId,
+            },
+          });
+        },
+      })),
+    [discordConversations.data?.conversations, navigate],
   );
 
   const projectThreadItems = useMemo(
@@ -1669,6 +1722,10 @@ function OpenCommandPaletteDialog(props: {
     isInSubmenu: currentView !== null,
     projectSearchItems: projectSearchItems,
     threadSearchItems: allThreadItems,
+    additionalSearchGroups:
+      chatSearchItems.length === 0
+        ? []
+        : [{ value: "chats-search", label: "Chats", items: chatSearchItems }],
   });
 
   const handleAddProjectForEnvironment = useCallback(

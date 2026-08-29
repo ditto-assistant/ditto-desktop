@@ -25,6 +25,15 @@ if (arch !== "arm64" && arch !== "x64") {
 NodeFS.mkdirSync(NodePath.dirname(output), { recursive: true });
 const target = `${arch === "x64" ? "x86_64" : "arm64"}-apple-macos13.0`;
 const source = NodePath.join(desktopRoot, "native", "discord-accessibility", "main.swift");
+const script = NodeURL.fileURLToPath(import.meta.url);
+if (NodeFS.existsSync(output)) {
+  const outputModifiedAt = NodeFS.statSync(output).mtimeMs;
+  const newestInputModifiedAt = Math.max(
+    NodeFS.statSync(source).mtimeMs,
+    NodeFS.statSync(script).mtimeMs,
+  );
+  if (outputModifiedAt >= newestInputModifiedAt) process.exit(0);
+}
 const result = NodeChildProcess.spawnSync(
   "xcrun",
   [

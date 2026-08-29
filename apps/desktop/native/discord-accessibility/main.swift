@@ -81,7 +81,10 @@ private func childElements(_ element: AXUIElement) -> [AXUIElement] {
 }
 
 private func normalizeTitle(_ value: String) -> String {
-    var normalized = value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    var normalized = value
+        .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        .lowercased()
+    normalized = normalized.replacingOccurrences(of: "send a message to ", with: "")
     normalized = normalized.replacingOccurrences(of: "message to ", with: "")
     normalized = normalized.replacingOccurrences(of: "message ", with: "")
     normalized = normalized.replacingOccurrences(of: "@", with: "")
@@ -100,11 +103,13 @@ private struct ComposerMatch {
 private func matchingComposers(in root: AXUIElement, expectedTitle: String) -> [ComposerMatch] {
     let expected = normalizeTitle(expectedTitle)
     var queue: [(AXUIElement, Int)] = [(root, 0)]
+    var queueIndex = 0
     var visited = 0
     var matches: [ComposerMatch] = []
 
-    while !queue.isEmpty && visited < 3_000 {
-        let (element, depth) = queue.removeFirst()
+    while queueIndex < queue.count && visited < 20_000 {
+        let (element, depth) = queue[queueIndex]
+        queueIndex += 1
         visited += 1
         let role = stringAttribute(element, kAXRoleAttribute as CFString) ?? ""
         if role == (kAXTextAreaRole as String) || role == (kAXTextFieldRole as String) {
@@ -113,20 +118,25 @@ private func matchingComposers(in root: AXUIElement, expectedTitle: String) -> [
                 stringAttribute(element, kAXDescriptionAttribute as CFString),
                 stringAttribute(element, kAXHelpAttribute as CFString),
                 stringAttribute(element, kAXTitleAttribute as CFString),
+                stringAttribute(element, kAXValueAttribute as CFString),
             ].compactMap { $0 }
             if let descriptor = descriptors.first(where: { normalizeTitle($0) == expected }) {
                 matches.append(ComposerMatch(element: element, descriptor: descriptor))
             }
         }
-        if depth < 14 {
+        if depth < 30 {
             queue.append(contentsOf: childElements(element).map { ($0, depth + 1) })
         }
     }
     return matches
 }
 
-private func discordApplication(deadline: Date) -> NSRunningApplication? {
+private func discordApplication(
+    deadline: Date,
+    restoringFocusTo previousApplication: NSRunningApplication?
+) -> NSRunningApplication? {
     while Date() < deadline {
+        restore(previousApplication)
         if let app = NSWorkspace.shared.runningApplications.first(where: {
             guard let bundleIdentifier = $0.bundleIdentifier else { return false }
             return discordBundleIDs.contains(bundleIdentifier)
@@ -138,9 +148,28 @@ private func discordApplication(deadline: Date) -> NSRunningApplication? {
     return nil
 }
 
-private func verifiedComposer(app: NSRunningApplication, expectedTitle: String, deadline: Date) -> ComposerMatch? {
+private func verifiedComposer(
+    app: NSRunningApplication,
+    expectedTitle: String,
+    deadline: Date,
+    restoringFocusTo previousApplication: NSRunningApplication?
+) -> ComposerMatch? {
     let appElement = AXUIElementCreateApplication(app.processIdentifier)
+    // Electron/Chromium can keep its renderer accessibility tree dormant until an
+    // assistive client explicitly opts in. Computer Use does this automatically;
+    // the standalone helper must do it before asking for Discord's windows.
+    _ = AXUIElementSetAttributeValue(
+        appElement,
+        "AXManualAccessibility" as CFString,
+        true as CFTypeRef
+    )
+    _ = AXUIElementSetAttributeValue(
+        appElement,
+        "AXEnhancedUserInterface" as CFString,
+        true as CFTypeRef
+    )
     while Date() < deadline {
+        restore(previousApplication)
         let windows = (copyAttribute(appElement, kAXWindowsAttribute as CFString) as? [AXUIElement]) ?? []
         let matches = windows.flatMap { matchingComposers(in: $0, expectedTitle: expectedTitle) }
         if matches.count == 1 {
@@ -187,12 +216,41 @@ private func performSend(_ composer: AXUIElement, application: AXUIElement) -> B
 }
 
 private func composerValue(_ element: AXUIElement) -> String {
-    stringAttribute(element, kAXValueAttribute as CFString) ?? ""
+    (stringAttribute(element, kAXValueAttribute as CFString) ?? "")
+        .replacingOccurrences(of: "\u{FEFF}", with: "")
+        .replacingOccurrences(of: "\u{200B}", with: "")
 }
 
 private func restore(_ application: NSRunningApplication?) {
     guard let application, !application.isTerminated else { return }
+    if NSWorkspace.shared.frontmostApplication?.processIdentifier == application.processIdentifier {
+        return
+    }
     application.activate(options: [.activateIgnoringOtherApps])
+}
+
+private func openInBackground(_ url: URL) -> Bool {
+    guard let applicationURL = NSWorkspace.shared.urlForApplication(toOpen: url) else {
+        return false
+    }
+    let configuration = NSWorkspace.OpenConfiguration()
+    configuration.activates = false
+    configuration.addsToRecentItems = false
+    var completed = false
+    var succeeded = false
+    NSWorkspace.shared.open(
+        [url],
+        withApplicationAt: applicationURL,
+        configuration: configuration
+    ) { _, error in
+        succeeded = error == nil
+        completed = true
+    }
+    let deadline = Date().addingTimeInterval(2)
+    while !completed && Date() < deadline {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+    }
+    return completed && succeeded
 }
 
 private func execute(_ command: HelperCommand) -> ReplyResponse {
@@ -262,29 +320,41 @@ private func execute(_ command: HelperCommand) -> ReplyResponse {
 
     let previousApplication = NSWorkspace.shared.frontmostApplication
     defer { restore(previousApplication) }
-    guard NSWorkspace.shared.open(url) else {
+    guard openInBackground(url) else {
         return result("discord_unavailable", "Discord could not open the requested conversation.")
     }
+    restore(previousApplication)
     let timeout = min(max(command.timeoutMs ?? 10_000, 1_000), 15_000)
     let deadline = Date().addingTimeInterval(Double(timeout) / 1_000)
-    guard let discord = discordApplication(deadline: deadline) else {
+    guard let discord = discordApplication(
+        deadline: deadline,
+        restoringFocusTo: previousApplication
+    ) else {
         return result("discord_unavailable", "Discord did not become available before the action timed out.")
     }
-    guard let match = verifiedComposer(app: discord, expectedTitle: expectedTitle, deadline: deadline) else {
+    guard let match = verifiedComposer(
+        app: discord,
+        expectedTitle: expectedTitle,
+        deadline: deadline,
+        restoringFocusTo: previousApplication
+    ) else {
         return result(
             "target_not_verified",
-            "Discord opened, but Ditto could not verify the exact conversation composer. Nothing was typed."
+            "Ditto could not verify the exact Discord conversation composer. Nothing was typed."
         )
     }
     let discordElement = AXUIElementCreateApplication(discord.processIdentifier)
 
-    guard AXUIElementSetAttributeValue(
+    _ = AXUIElementSetAttributeValue(
         match.element,
         kAXValueAttribute as CFString,
         text as CFTypeRef
-    ) == .success,
-          composerValue(match.element) == text
-    else {
+    )
+    let writeDeadline = min(deadline, Date().addingTimeInterval(1))
+    while composerValue(match.element) != text && Date() < writeDeadline {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+    }
+    guard composerValue(match.element) == text else {
         return result("composer_not_found", "The verified Discord composer did not accept the draft.")
     }
 
