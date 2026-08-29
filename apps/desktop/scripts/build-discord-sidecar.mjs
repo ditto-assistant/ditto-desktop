@@ -19,7 +19,8 @@ const output =
     ? NodePath.resolve(process.argv[outputArgumentIndex + 1])
     : NodePath.join(desktopRoot, ".native", "ditto-discord-sidecar");
 
-if (process.platform !== "darwin") process.exit(0);
+// oxlint-disable-next-line t3code/no-global-process-runtime -- Standalone native build script.
+if (NodeOS.platform() !== "darwin") process.exit(0);
 if (arch !== "arm64" && arch !== "x64" && arch !== "universal") {
   throw new Error(`Unsupported Discord sidecar architecture: ${String(arch)}`);
 }
