@@ -67,9 +67,11 @@ type sidecar struct {
 	ctx            context.Context
 	out            *output
 	mu             sync.RWMutex
+	connectMu      sync.Mutex
 	session        *discordgo.Session
 	self           *discordgo.User
 	loginStop      context.CancelFunc
+	connectionErr  string
 	authGeneration uint64
 	sendMu         sync.Mutex
 	receipts       map[string]sendReceipt
@@ -179,6 +181,8 @@ func (s *sidecar) dispatch(method string, params json.RawMessage) (any, error) {
 	switch method {
 	case "status":
 		return s.status(), nil
+	case "connection.restore":
+		return s.restore(), nil
 	case "login.start":
 		return s.startLogin()
 	case "login.cancel":
@@ -241,26 +245,34 @@ func (s *sidecar) status() statusResult {
 		result.Detail = "Connected directly to Discord on this device."
 	} else if result.LoginPending {
 		result.Detail = "Waiting for Discord login approval."
+	} else if s.connectionErr != "" {
+		result.Detail = s.connectionErr
 	} else {
 		result.Detail = "Connect Discord to enable live messages and replies."
 	}
 	return result
 }
 
-func (s *sidecar) restore() {
+func (s *sidecar) restore() statusResult {
+	if s.status().Connected {
+		return s.status()
+	}
 	s.mu.RLock()
 	generation := s.authGeneration
 	s.mu.RUnlock()
 	token, err := keyring.Get(keyringService, keyringAccount)
 	if err != nil {
 		if !errors.Is(err, keyring.ErrNotFound) {
-			s.out.write(event{Event: "connection.error", Data: map[string]string{"message": "Could not read the saved Discord credential."}})
+			s.setConnectionError("Could not read the saved Discord credential.")
+			s.out.write(event{Event: "connection.error", Data: map[string]string{"message": s.status().Detail}})
 		}
-		return
+		return s.status()
 	}
 	if err := s.connect(token, generation); err != nil && !errors.Is(err, context.Canceled) {
+		s.setConnectionError(err.Error())
 		s.out.write(event{Event: "connection.error", Data: map[string]string{"message": err.Error()}})
 	}
+	return s.status()
 }
 
 func (s *sidecar) startLogin() (any, error) {
@@ -273,6 +285,7 @@ func (s *sidecar) startLogin() (any, error) {
 	s.authGeneration++
 	generation := s.authGeneration
 	s.loginStop = cancel
+	s.connectionErr = ""
 	s.mu.Unlock()
 
 	client, err := newRemoteAuthClient()
@@ -317,6 +330,7 @@ func (s *sidecar) finishLogin(generation uint64, cancel context.CancelFunc, resu
 		if result.err != nil && !errors.Is(result.err, context.Canceled) {
 			message = result.err.Error()
 		}
+		s.setConnectionError(message)
 		s.out.write(event{Event: "login.failed", Data: map[string]string{"message": message}})
 		return
 	}
@@ -327,14 +341,23 @@ func (s *sidecar) finishLogin(generation uint64, cancel context.CancelFunc, resu
 		return
 	}
 	if err := keyring.Set(keyringService, keyringAccount, result.user.Token); err != nil {
-		s.out.write(event{Event: "login.failed", Data: map[string]string{"message": "Could not save the Discord credential in the system credential store."}})
+		message := "Could not save the Discord credential in the system credential store."
+		s.setConnectionError(message)
+		s.out.write(event{Event: "login.failed", Data: map[string]string{"message": message}})
 		return
 	}
 	if err := s.connect(result.user.Token, generation); err != nil {
+		s.setConnectionError(err.Error())
 		s.out.write(event{Event: "login.failed", Data: map[string]string{"message": err.Error()}})
 		return
 	}
 	s.out.write(event{Event: "login.completed", Data: s.status()})
+}
+
+func (s *sidecar) setConnectionError(message string) {
+	s.mu.Lock()
+	s.connectionErr = message
+	s.mu.Unlock()
 }
 
 func (s *sidecar) clearPendingLogin(generation uint64) {
@@ -346,6 +369,11 @@ func (s *sidecar) clearPendingLogin(generation uint64) {
 }
 
 func (s *sidecar) connect(token string, generation uint64) error {
+	s.connectMu.Lock()
+	defer s.connectMu.Unlock()
+	if s.status().Connected {
+		return nil
+	}
 	session, err := discordgo.New(token)
 	if err != nil {
 		return fmt.Errorf("create Discord session: %w", err)
@@ -380,6 +408,7 @@ func (s *sidecar) connect(token string, generation uint64) error {
 	previous := s.session
 	s.session = session
 	s.self = self
+	s.connectionErr = ""
 	s.mu.Unlock()
 	if previous != nil {
 		_ = previous.Close()

@@ -2,12 +2,24 @@
 package main
 
 import (
+	"context"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
+
+func TestStatusReportsRecoverableConnectionError(t *testing.T) {
+	app := &sidecar{ctx: context.Background(), connectionErr: "Gateway connection was interrupted."}
+	status := app.status()
+	if status.Connected || status.LoginPending {
+		t.Fatalf("unexpected connection state: %#v", status)
+	}
+	if status.Detail != "Gateway connection was interrupted." {
+		t.Fatalf("unexpected status detail: %q", status.Detail)
+	}
+}
 
 func TestConversationFromDirectMessage(t *testing.T) {
 	channel := &discordgo.Channel{

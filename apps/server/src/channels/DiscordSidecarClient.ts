@@ -73,6 +73,7 @@ export class DiscordSidecarClient {
   readonly #pending = new Map<string, PendingRequest>();
   readonly #listeners = new Set<(event: string, data: unknown) => void>();
   #child: NodeChildProcess.ChildProcessWithoutNullStreams | undefined;
+  #restore: Promise<void> | undefined;
   #sequence = 0;
 
   constructor(path: string | undefined, stateDir?: string) {
@@ -86,7 +87,21 @@ export class DiscordSidecarClient {
   }
 
   async status(): Promise<DiscordSidecarStatus> {
-    return (await this.#request("status")) as DiscordSidecarStatus;
+    const status = (await this.#request("status")) as DiscordSidecarStatus;
+    if (status.connected || status.loginPending) return status;
+
+    // A QR approval stores the credential before opening the Gateway. If that
+    // first connection is interrupted (or the child restarts), account polling
+    // must be able to resume from Keychain instead of leaving a spent QR open.
+    if (this.#restore === undefined) {
+      this.#restore = this.#request("connection.restore", undefined, 30_000)
+        .then(() => undefined)
+        .finally(() => {
+          this.#restore = undefined;
+        });
+      void this.#restore.catch(() => undefined);
+    }
+    return status;
   }
 
   async startLogin(): Promise<{ readonly qrUrl: string; readonly expiresInSeconds: number }> {
@@ -135,6 +150,7 @@ export class DiscordSidecarClient {
     const child = this.#child;
     this.#child = undefined;
     child?.kill("SIGTERM");
+    this.#restore = undefined;
     this.#failPending(new Error("Discord sidecar stopped."));
   }
 
