@@ -12,7 +12,8 @@ import type {
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { ArrowUpIcon, InboxIcon, RefreshCwIcon, ExternalLinkIcon } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { ArrowUpIcon, BotIcon, InboxIcon, RefreshCwIcon, ExternalLinkIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAssetUrl } from "../../assets/assetUrls";
@@ -20,6 +21,7 @@ import { isElectron } from "../../env";
 import { readLocalApi } from "../../localApi";
 import { cn, randomUUID } from "../../lib/utils";
 import { useVisiblePolling } from "../../hooks/useVisiblePolling";
+import { pendingKnowledgePacket, useKnowledgePacketStore } from "../../knowledgePacketStore";
 import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -240,6 +242,8 @@ function MessagePanel({
   readonly conversation: ChannelConversation;
   readonly environmentId: EnvironmentId;
 }) {
+  const navigate = useNavigate();
+  const attachKnowledgePacket = useKnowledgePacketStore((state) => state.attach);
   const [messageLimit, setMessageLimit] = useState(150);
   const messagesAtom = serverEnvironment.channelMessages({
     environmentId,
@@ -332,6 +336,25 @@ function MessagePanel({
           </p>
         </div>
         <div className="flex items-center gap-1">
+          <Button
+            onClick={() => {
+              attachKnowledgePacket(
+                pendingKnowledgePacket({
+                  accountId: account.accountId,
+                  conversationId: conversation.conversationId,
+                  label: conversation.title,
+                  source: account.service,
+                  messageLimit: 50,
+                }),
+              );
+              void navigate({ to: "/" });
+            }}
+            size="sm"
+            variant="outline"
+          >
+            <BotIcon className="size-3.5" />
+            Use in coding task
+          </Button>
           {account.service === "discord" ? (
             <Button
               onClick={() => {

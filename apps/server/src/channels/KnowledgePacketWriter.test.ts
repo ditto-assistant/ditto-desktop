@@ -1,0 +1,196 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Tests exercise the Node filesystem boundary.
+import * as NodeCrypto from "node:crypto";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
+import { ChannelAccountId, ChannelConversationId, ChannelMessageId } from "@t3tools/contracts";
+import { afterEach, describe, expect, it } from "@effect/vitest";
+
+import { materializeKnowledgePacket } from "./KnowledgePacketWriter.ts";
+
+const roots: string[] = [];
+afterEach(async () => {
+  await Promise.all(
+    roots.splice(0).map((root) => NodeFSP.rm(root, { recursive: true, force: true })),
+  );
+});
+
+describe("materializeKnowledgePacket", () => {
+  it("writes a bounded, git-ignored packet with transcript provenance and localized attachments", async () => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-packet-"));
+    roots.push(root);
+    await NodeFSP.mkdir(NodePath.join(root, ".git", "info"), {
+      recursive: true,
+    });
+    await NodeFSP.writeFile(NodePath.join(root, ".git", "info", "exclude"), "# local excludes\n");
+    const cache = NodePath.join(root, "cache");
+    await NodeFSP.mkdir(cache);
+    const bytes = Buffer.from("actual private attachment bytes");
+    await NodeFSP.writeFile(NodePath.join(cache, "discord-cached.png"), bytes);
+
+    const result = await materializeKnowledgePacket({
+      worktreePath: root,
+      attachmentsDir: cache,
+      source: {
+        requestedMessageLimit: 2,
+        conversation: {
+          accountId: ChannelAccountId.make("discord:local"),
+          conversationId: ChannelConversationId.make("liam-dm"),
+          service: "discord",
+          title: "@Liam",
+          kind: "direct",
+          participants: [
+            { id: "self", displayName: "Peyton", isSelf: true },
+            { id: "liam", displayName: "Liam", handle: "@Liam" },
+          ],
+          completeness: "device_cache_partial",
+        },
+        messages: [
+          {
+            accountId: ChannelAccountId.make("discord:local"),
+            conversationId: ChannelConversationId.make("liam-dm"),
+            messageId: ChannelMessageId.make("old-omitted"),
+            service: "discord",
+            sender: { id: "self", displayName: "Peyton", isSelf: true },
+            text: "omit me",
+            sentAt: "2026-08-29T10:00:00.000Z",
+            attachments: [],
+          },
+          {
+            accountId: ChannelAccountId.make("discord:local"),
+            conversationId: ChannelConversationId.make("liam-dm"),
+            messageId: ChannelMessageId.make("one"),
+            service: "discord",
+            sender: { id: "liam", displayName: "Liam" },
+            text: "Please inspect the worker.",
+            sentAt: "2026-08-29T11:00:00.000Z",
+            attachments: [
+              {
+                id: "cached",
+                filename: "trace image.png",
+                mediaType: "image/png",
+                cachedAttachmentId: "discord-cached",
+                remoteUrl: "https://cdn.discordapp.com/attachments/channel/cached/trace.png",
+              },
+              {
+                id: "unavailable",
+                filename: "gone.txt",
+                mediaType: "text/plain",
+              },
+            ],
+            rawPermalink: "https://discord.com/channels/@me/liam-dm/one",
+          },
+          {
+            accountId: ChannelAccountId.make("discord:local"),
+            conversationId: ChannelConversationId.make("liam-dm"),
+            messageId: ChannelMessageId.make("two"),
+            service: "discord",
+            sender: { id: "self", displayName: "Peyton", isSelf: true },
+            text: "I will send a coding agent.",
+            sentAt: "2026-08-29T12:00:00.000Z",
+            attachments: [],
+          },
+        ],
+      },
+    });
+
+    expect(result.messageCount).toBe(2);
+    expect(result.attachmentCount).toBe(1);
+    const transcript = await NodeFSP.readFile(
+      NodePath.join(result.absolutePath, "transcript.md"),
+      "utf8",
+    );
+    expect(transcript).toContain("Please inspect the worker.");
+    expect(transcript).toContain("I will send a coding agent.");
+    expect(transcript).not.toContain("omit me");
+    expect(transcript).toContain("[source](https://discord.com/channels/@me/liam-dm/one)");
+    expect(transcript).toContain(NodeCrypto.createHash("sha256").update(bytes).digest("hex"));
+    const manifest = JSON.parse(
+      await NodeFSP.readFile(NodePath.join(result.absolutePath, "manifest.json"), "utf8"),
+    );
+    expect(manifest.scope).toMatchObject({
+      messageCount: 2,
+      requestedMessageLimit: 2,
+      truncated: true,
+    });
+    expect(manifest.attachments[0]).toMatchObject({
+      status: "localized",
+      sizeBytes: bytes.length,
+      sourceMessageAt: "2026-08-29T11:00:00.000Z",
+      originalUrl: "https://cdn.discordapp.com/attachments/channel/cached/trace.png",
+    });
+    expect(manifest.source.participants).toEqual([
+      { id: "self", displayName: "Peyton", isSelf: true },
+      { id: "liam", displayName: "Liam", handle: "@Liam" },
+    ]);
+    expect(manifest.errors).toEqual([
+      {
+        messageId: "one",
+        attachmentId: "unavailable",
+        detail: "No accessible local file or supported Discord media URL.",
+      },
+    ]);
+    expect(
+      await NodeFSP.readFile(NodePath.join(root, ".git", "info", "exclude"), "utf8"),
+    ).toContain("/.t3/knowledge-packets/");
+  });
+
+  it("fails closed outside a Git worktree so private packets cannot become visible files", async () => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-packet-no-git-"));
+    roots.push(root);
+    await expect(
+      materializeKnowledgePacket({
+        worktreePath: root,
+        attachmentsDir: NodePath.join(root, "cache"),
+        source: {
+          requestedMessageLimit: 10,
+          conversation: {
+            accountId: ChannelAccountId.make("discord:local"),
+            conversationId: ChannelConversationId.make("liam-dm"),
+            service: "discord",
+            title: "Liam",
+            kind: "direct",
+            participants: [],
+            completeness: "device_cache_partial",
+          },
+          messages: [],
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("writes the exclude rule to the common Git directory for linked worktrees", async () => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-packet-linked-"));
+    roots.push(root);
+    const common = NodePath.join(root, "common.git");
+    const worktreeGit = NodePath.join(common, "worktrees", "task");
+    const worktree = NodePath.join(root, "task");
+    await NodeFSP.mkdir(worktreeGit, { recursive: true });
+    await NodeFSP.mkdir(worktree, { recursive: true });
+    await NodeFSP.writeFile(NodePath.join(worktree, ".git"), `gitdir: ${worktreeGit}\n`);
+    await NodeFSP.writeFile(NodePath.join(worktreeGit, "commondir"), "../..\n");
+
+    await materializeKnowledgePacket({
+      worktreePath: worktree,
+      attachmentsDir: NodePath.join(root, "cache"),
+      source: {
+        requestedMessageLimit: 10,
+        conversation: {
+          accountId: ChannelAccountId.make("discord:local"),
+          conversationId: ChannelConversationId.make("liam-dm"),
+          service: "discord",
+          title: "Liam",
+          kind: "direct",
+          participants: [],
+          completeness: "device_cache_partial",
+        },
+        messages: [],
+      },
+    });
+
+    expect(await NodeFSP.readFile(NodePath.join(common, "info", "exclude"), "utf8")).toContain(
+      "/.t3/knowledge-packets/",
+    );
+  });
+});

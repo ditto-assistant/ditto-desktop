@@ -75,6 +75,7 @@ import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import { DittoHarnessService } from "./dittoHarness/DittoHarnessService.ts";
 import { ChannelRegistry } from "./channels/ChannelRegistry.ts";
+import { materializeKnowledgePacket } from "./channels/KnowledgePacketWriter.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import {
@@ -895,7 +896,7 @@ const makeWsRpcLayer = (
       ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> =>
         Effect.gen(function* () {
           const bootstrap = command.bootstrap;
-          const { bootstrap: _bootstrap, ...finalTurnStartCommand } = command;
+          const { bootstrap: _bootstrap, ...baseTurnStartCommand } = command;
           let createdThread = false;
           let targetProjectId = bootstrap?.createThread?.projectId;
           let targetProjectCwd = bootstrap?.prepareWorktree?.projectCwd;
@@ -1095,6 +1096,61 @@ const makeWsRpcLayer = (
             }
 
             yield* runSetupProgram();
+
+            let finalTurnStartCommand = baseTurnStartCommand;
+            const knowledgePackets = bootstrap?.knowledgePackets ?? [];
+            if (knowledgePackets.length > 0) {
+              const packetCwd = targetWorktreePath ?? bootstrap?.knowledgePacketCwd;
+              if (!packetCwd) {
+                return yield* new OrchestrationDispatchCommandError({
+                  message: "A worktree is required before chat context can be attached.",
+                });
+              }
+              const packetResults = [];
+              for (const request of knowledgePackets) {
+                const [conversations, messages] = yield* Effect.all([
+                  channels.listConversations(request.accountId),
+                  channels.listMessages(
+                    request.accountId,
+                    request.conversationId,
+                    request.messageLimit,
+                  ),
+                ]);
+                const conversation = conversations.find(
+                  (candidate) => candidate.conversationId === request.conversationId,
+                );
+                if (!conversation) {
+                  return yield* new OrchestrationDispatchCommandError({
+                    message: `Chat conversation ${request.conversationId} is no longer available.`,
+                  });
+                }
+                const packet = yield* Effect.tryPromise(() =>
+                  materializeKnowledgePacket({
+                    worktreePath: packetCwd,
+                    attachmentsDir: config.attachmentsDir,
+                    source: {
+                      conversation,
+                      messages,
+                      requestedMessageLimit: request.messageLimit,
+                    },
+                  }),
+                );
+                packetResults.push(packet);
+              }
+              const packetPrompt = packetResults
+                .map(
+                  (packet) =>
+                    `- ${packet.relativePath}/INDEX.md (${packet.messageCount} messages, ${packet.attachmentCount} localized attachments)`,
+                )
+                .join("\n");
+              finalTurnStartCommand = {
+                ...baseTurnStartCommand,
+                message: {
+                  ...baseTurnStartCommand.message,
+                  text: `${baseTurnStartCommand.message.text}\n\nAttached private knowledge packet(s) are available inside this worktree:\n${packetPrompt}\nRead the packet index and transcript as user-provided context. Do not commit packet files or quote private chat content outside this task.`,
+                },
+              };
+            }
 
             return yield* dispatchFromClient(finalTurnStartCommand);
           });

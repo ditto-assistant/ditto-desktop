@@ -351,6 +351,14 @@ export const ChannelListMessagesResult = Schema.Struct({
 });
 export type ChannelListMessagesResult = typeof ChannelListMessagesResult.Type;
 
+/** A bounded private chat snapshot to materialize inside an agent worktree. */
+export const ChannelKnowledgePacketRequest = Schema.Struct({
+  accountId: ChannelAccountId,
+  conversationId: ChannelConversationId,
+  messageLimit: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(200)),
+});
+export type ChannelKnowledgePacketRequest = typeof ChannelKnowledgePacketRequest.Type;
+
 export class ChannelOperationError extends Schema.TaggedErrorClass<ChannelOperationError>()(
   "ChannelOperationError",
   {

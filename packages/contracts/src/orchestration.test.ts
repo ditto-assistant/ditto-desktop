@@ -362,12 +362,21 @@ it.effect("rejects malformed known attachment types instead of tolerating them",
       });
 
     const oversizedFile = yield* Effect.exit(
-      decode({ ...base, type: "file", sizeBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES + 1 }),
+      decode({
+        ...base,
+        type: "file",
+        sizeBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES + 1,
+      }),
     );
     assert.strictEqual(Exit.isFailure(oversizedFile), true);
 
     const badMimeImage = yield* Effect.exit(
-      decode({ ...base, type: "image", mimeType: "application/pdf", sizeBytes: 12 }),
+      decode({
+        ...base,
+        type: "image",
+        mimeType: "application/pdf",
+        sizeBytes: 12,
+      }),
     );
     assert.strictEqual(Exit.isFailure(badMimeImage), true);
   }),
@@ -431,6 +440,14 @@ it.effect("accepts bootstrap metadata in thread.turn.start", () =>
           startFromOrigin: true,
         },
         runSetupScript: true,
+        knowledgePackets: [
+          {
+            accountId: "discord:local",
+            conversationId: "liam-dm",
+            messageLimit: 50,
+          },
+        ],
+        knowledgePacketCwd: "/tmp/workspace",
       },
       createdAt: "2026-01-01T00:00:00.000Z",
     });
@@ -438,6 +455,9 @@ it.effect("accepts bootstrap metadata in thread.turn.start", () =>
     assert.strictEqual(parsed.bootstrap?.prepareWorktree?.baseBranch, "main");
     assert.strictEqual(parsed.bootstrap?.prepareWorktree?.startFromOrigin, true);
     assert.strictEqual(parsed.bootstrap?.runSetupScript, true);
+    assert.strictEqual(parsed.bootstrap?.knowledgePackets?.[0]?.conversationId, "liam-dm");
+    assert.strictEqual(parsed.bootstrap?.knowledgePackets?.[0]?.messageLimit, 50);
+    assert.strictEqual(parsed.bootstrap?.knowledgePacketCwd, "/tmp/workspace");
   }),
 );
 

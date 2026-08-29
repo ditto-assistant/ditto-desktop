@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import { ChannelKnowledgePacketRequest } from "./channels.ts";
 import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as Struct from "effect/Struct";
@@ -887,6 +888,10 @@ const ThreadTurnStartBootstrap = Schema.Struct({
   createThread: Schema.optional(ThreadTurnStartBootstrapCreateThread),
   prepareWorktree: Schema.optional(ThreadTurnStartBootstrapPrepareWorktree),
   runSetupScript: Schema.optional(Schema.Boolean),
+  /** Private chat snapshots are consumed by the server and never enter the event log. */
+  knowledgePackets: Schema.optional(Schema.Array(ChannelKnowledgePacketRequest)),
+  /** Existing threads already have a trusted local workspace selected by the client. */
+  knowledgePacketCwd: Schema.optional(TrimmedNonEmptyString),
 });
 
 export type ThreadTurnStartBootstrap = typeof ThreadTurnStartBootstrap.Type;
