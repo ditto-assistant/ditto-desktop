@@ -30,6 +30,7 @@ import { Textarea } from "../ui/textarea";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { resolveDiscordMessageText } from "./discordMessageText";
 import { mergeDiscordLiveSnapshot } from "./discordLiveMessages";
+import { useChannelAccountConnectionStore } from "./channelAccountConnectionStore";
 
 function formatTime(value?: string) {
   if (!value) return "";
@@ -125,18 +126,36 @@ function ConnectedInbox({
   const refreshAccounts = useAtomRefresh(accountsAtom);
   const loadedAccounts = Option.getOrNull(AsyncResult.value(accountsResult))?.accounts;
   const [stableAccounts, setStableAccounts] = useState<ReadonlyArray<ConnectedChannelAccount>>([]);
+  const configuredAccount = useChannelAccountConnectionStore(
+    (state) => state.configuredByEnvironment[environmentId] ?? null,
+  );
+  const clearConfiguredAccount = useChannelAccountConnectionStore((state) => state.clearConfigured);
   useEffect(() => {
     if (loadedAccounts !== undefined && loadedAccounts.length > 0) {
       setStableAccounts(loadedAccounts);
+      if (
+        configuredAccount !== null &&
+        loadedAccounts.some(
+          (account) =>
+            account.accountId === configuredAccount.accountId && account.state === "ready",
+        )
+      ) {
+        clearConfiguredAccount(environmentId);
+      }
     }
-  }, [loadedAccounts]);
-  const accounts = loadedAccounts?.length ? loadedAccounts : stableAccounts;
+  }, [clearConfiguredAccount, configuredAccount, environmentId, loadedAccounts]);
+  const accounts = loadedAccounts?.length
+    ? loadedAccounts
+    : stableAccounts.length > 0
+      ? stableAccounts
+      : configuredAccount === null
+        ? []
+        : [configuredAccount];
   const syncing = accounts.some((account) => account.state === "syncing");
-  useEffect(() => {
-    if (!syncing) return;
-    const interval = window.setInterval(refreshAccounts, 1_500);
-    return () => window.clearInterval(interval);
-  }, [refreshAccounts, syncing]);
+  useVisiblePolling(refreshAccounts, {
+    enabled: syncing || configuredAccount !== null || accounts.length === 0,
+    intervalMs: 1_500,
+  });
   const selectedAccount =
     accounts.find((account) => account.accountId === accountId) ?? accounts[0] ?? null;
 

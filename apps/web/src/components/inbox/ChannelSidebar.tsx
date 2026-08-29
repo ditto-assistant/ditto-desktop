@@ -24,6 +24,7 @@ import { useVisiblePolling } from "../../hooks/useVisiblePolling";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
+import { useChannelAccountConnectionStore } from "./channelAccountConnectionStore";
 import {
   Dialog,
   DialogDescription,
@@ -148,6 +149,9 @@ function ChannelAccountGroup({
   const [expanded, setExpanded] = useState(true);
   const [configuring, setConfiguring] = useState(false);
   const [configuredAccount, setConfiguredAccount] = useState<ConnectedChannelAccount | null>(null);
+  const setSharedConfiguredAccount = useChannelAccountConnectionStore(
+    (state) => state.setConfigured,
+  );
   const [setupUrl, setSetupUrl] = useState<string | null>(null);
   const configure = useAtomCommand(serverEnvironment.configureChannel, {
     reportFailure: false,
@@ -189,6 +193,7 @@ function ChannelAccountGroup({
     setConfiguring(false);
     if (result._tag === "Success") {
       setConfiguredAccount(result.value.account);
+      setSharedConfiguredAccount(environmentId, result.value.account);
       setSetupUrl(result.value.account.setupUrl ?? null);
       onConfigured();
     }
