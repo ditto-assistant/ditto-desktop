@@ -5,6 +5,7 @@ import type {
   ChannelMessage,
   ConnectedChannelAccount,
   DiscordAccessibilityReplyResult,
+  DiscordAccessibilitySnapshotResult,
   DiscordAccessibilityStatus,
   EnvironmentId,
 } from "@t3tools/contracts";
@@ -12,7 +13,7 @@ import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { ArrowUpIcon, InboxIcon, RefreshCwIcon, ExternalLinkIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAssetUrl } from "../../assets/assetUrls";
 import { isElectron } from "../../env";
@@ -28,6 +29,7 @@ import { SidebarInset } from "../ui/sidebar";
 import { Textarea } from "../ui/textarea";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { resolveDiscordMessageText } from "./discordMessageText";
+import { mergeDiscordLiveSnapshot } from "./discordLiveMessages";
 
 function formatTime(value?: string) {
   if (!value) return "";
@@ -253,19 +255,50 @@ function MessagePanel({
   );
   const [stableMessages, setStableMessages] = useState<ReadonlyArray<ChannelMessage>>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const [liveSnapshot, setLiveSnapshot] = useState<DiscordAccessibilitySnapshotResult | null>(null);
+  const snapshotInFlight = useRef(false);
   useEffect(() => {
     if (loadedMessages !== undefined) {
       setStableMessages(sortedLoadedMessages);
       setLoadingOlder(false);
     }
   }, [loadedMessages, sortedLoadedMessages]);
-  const messages = loadedMessages === undefined ? stableMessages : sortedLoadedMessages;
+  const archivedMessages = loadedMessages === undefined ? stableMessages : sortedLoadedMessages;
+  const discordAccessibility =
+    account.service === "discord" ? readLocalApi()?.discordAccessibility : undefined;
+  const refreshLiveMessages = useCallback(() => {
+    if (!discordAccessibility || snapshotInFlight.current) return;
+    snapshotInFlight.current = true;
+    void discordAccessibility
+      .snapshot({
+        accountId: account.accountId,
+        conversationId: conversation.conversationId,
+        conversationTitle: conversation.title,
+        maxMessages: 150,
+      })
+      .then((snapshot) => {
+        if (snapshot.targetVerified) setLiveSnapshot(snapshot);
+      })
+      .finally(() => {
+        snapshotInFlight.current = false;
+      });
+  }, [account.accountId, conversation.conversationId, conversation.title, discordAccessibility]);
+  useEffect(() => {
+    refreshLiveMessages();
+  }, [refreshLiveMessages]);
+  useVisiblePolling(refreshLiveMessages, {
+    enabled: discordAccessibility !== undefined,
+    intervalMs: 3_000,
+  });
+  const messages = useMemo(
+    () => mergeDiscordLiveSnapshot(archivedMessages, account, conversation, liveSnapshot),
+    [account, archivedMessages, conversation, liveSnapshot],
+  );
   const canSend = account.capabilities.some(
     (capability) =>
       capability.operation === "message.send" && capability.availability === "available",
   );
-  const canReplyThroughDiscord =
-    account.service === "discord" && readLocalApi()?.discordAccessibility !== undefined;
+  const canReplyThroughDiscord = discordAccessibility !== undefined;
   const canLoadOlder = messages.length >= messageLimit && messageLimit < 5_000;
   const loadOlder = useCallback(() => {
     if (!canLoadOlder || loadingOlder) return;
@@ -300,7 +333,15 @@ function MessagePanel({
               Open in Discord
             </Button>
           ) : null}
-          <Button aria-label="Refresh messages" onClick={refresh} size="icon-sm" variant="ghost">
+          <Button
+            aria-label="Refresh messages"
+            onClick={() => {
+              refresh();
+              refreshLiveMessages();
+            }}
+            size="icon-sm"
+            variant="ghost"
+          >
             <RefreshCwIcon className="size-3.5" />
           </Button>
         </div>
@@ -357,7 +398,10 @@ function MessagePanel({
         canSend={canSend}
         conversation={conversation}
         environmentId={environmentId}
-        onSent={refresh}
+        onSent={() => {
+          refresh();
+          refreshLiveMessages();
+        }}
       />
     </section>
   );

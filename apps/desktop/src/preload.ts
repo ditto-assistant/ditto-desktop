@@ -118,6 +118,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   discordAccessibility: {
     status: (prompt = false) =>
       ipcRenderer.invoke(IpcChannels.DISCORD_ACCESSIBILITY_STATUS_CHANNEL, prompt),
+    snapshot: (input) =>
+      ipcRenderer.invoke(IpcChannels.DISCORD_ACCESSIBILITY_SNAPSHOT_CHANNEL, input),
     execute: (input) =>
       ipcRenderer.invoke(IpcChannels.DISCORD_ACCESSIBILITY_EXECUTE_CHANNEL, input),
     cancel: (actionId) =>

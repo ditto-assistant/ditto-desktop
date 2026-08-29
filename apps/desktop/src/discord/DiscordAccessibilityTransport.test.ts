@@ -1,4 +1,7 @@
-import type { DiscordAccessibilityReplyInput } from "@t3tools/contracts";
+import type {
+  DiscordAccessibilityReplyInput,
+  DiscordAccessibilitySnapshotInput,
+} from "@t3tools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 
 import {
@@ -19,6 +22,13 @@ const input = {
 } as DiscordAccessibilityReplyInput;
 
 describe("DiscordAccessibilityTransport", () => {
+  const snapshotInput = {
+    accountId: input.accountId,
+    conversationId: input.conversationId,
+    conversationTitle: "Trupan",
+    maxMessages: 50,
+  } as DiscordAccessibilitySnapshotInput;
+
   it("validates a Discord target before invoking the native helper", async () => {
     let calls = 0;
     const runner: DiscordAccessibilityHelperRunner = {
@@ -90,5 +100,61 @@ describe("DiscordAccessibilityTransport", () => {
     const runner: DiscordAccessibilityHelperRunner = { run: async () => ({}) };
     const result = await new DiscordAccessibilityTransport("linux", runner).execute(input);
     assert.equal(result.outcome, "unsupported");
+  });
+
+  it("reads a bounded snapshot without a deep link or reply text", async () => {
+    let received: unknown;
+    const runner: DiscordAccessibilityHelperRunner = {
+      run: async (command) => {
+        received = command;
+        return {
+          accountId: snapshotInput.accountId,
+          conversationId: snapshotInput.conversationId,
+          permission: "granted",
+          observedAt: "2026-08-29T06:09:00.000Z",
+          targetVerified: true,
+          truncated: false,
+          detail: "Read one message.",
+          messages: [
+            {
+              id: "1534850000000000000",
+              author: "Trupan",
+              timestamp: "Today at 2:08 AM",
+              sentAt: "2026-08-29T06:08:00.000Z",
+              content: "fresh",
+              attachments: [],
+              provenance: "discord_accessibility_live",
+            },
+          ],
+        };
+      },
+    };
+    const result = await new DiscordAccessibilityTransport("darwin", runner).snapshot(
+      snapshotInput,
+    );
+    assert.deepEqual(received, {
+      command: "snapshot",
+      accountId: snapshotInput.accountId,
+      conversationId: snapshotInput.conversationId,
+      expectedTitle: "Trupan",
+      maxMessages: 50,
+    });
+    assert.equal(result.messages[0]?.content, "fresh");
+  });
+
+  it("rejects an invalid snapshot target before invoking the helper", async () => {
+    let calls = 0;
+    const runner: DiscordAccessibilityHelperRunner = {
+      run: async () => {
+        calls += 1;
+        return {};
+      },
+    };
+    const result = await new DiscordAccessibilityTransport("darwin", runner).snapshot({
+      ...snapshotInput,
+      conversationId: "../../settings",
+    } as never);
+    assert.isFalse(result.targetVerified);
+    assert.equal(calls, 0);
   });
 });

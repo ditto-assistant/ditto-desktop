@@ -3,6 +3,8 @@ import type {
   DiscordAccessibilityReplyInput,
   DiscordAccessibilityReplyOutcome,
   DiscordAccessibilityReplyResult,
+  DiscordAccessibilitySnapshotInput,
+  DiscordAccessibilitySnapshotResult,
   DiscordAccessibilityStatus,
 } from "@t3tools/contracts";
 import * as NodeChildProcess from "node:child_process";
@@ -11,10 +13,18 @@ import * as NodeFS from "node:fs";
 const DISCORD_SNOWFLAKE = /^\d{15,24}$/;
 const ACTION_TIMEOUT_MS = 10_000;
 const STATUS_TIMEOUT_MS = 3_000;
+const SNAPSHOT_TIMEOUT_MS = 3_000;
 const MAX_RECEIPTS = 256;
 
 type HelperCommand =
   | { readonly command: "status"; readonly prompt: boolean }
+  | {
+      readonly command: "snapshot";
+      readonly accountId: string;
+      readonly conversationId: string;
+      readonly expectedTitle: string;
+      readonly maxMessages: number;
+    }
   | {
       readonly command: "execute";
       readonly actionId: string;
@@ -93,6 +103,66 @@ function isStatus(value: unknown): value is DiscordAccessibilityStatus {
       row.permission === "unavailable") &&
     typeof row.detail === "string"
   );
+}
+
+function snapshotFailure(
+  input: DiscordAccessibilitySnapshotInput,
+  detail: string,
+  permission: DiscordAccessibilitySnapshotResult["permission"] = "unavailable",
+): DiscordAccessibilitySnapshotResult {
+  return {
+    accountId: input.accountId,
+    conversationId: input.conversationId,
+    permission,
+    observedAt: new Date().toISOString(),
+    targetVerified: false,
+    truncated: false,
+    detail,
+    messages: [],
+  };
+}
+
+function isSnapshotResult(
+  value: unknown,
+  input: DiscordAccessibilitySnapshotInput,
+): value is DiscordAccessibilitySnapshotResult {
+  if (typeof value !== "object" || value === null) return false;
+  const row = value as Record<string, unknown>;
+  if (
+    row.accountId !== input.accountId ||
+    row.conversationId !== input.conversationId ||
+    (row.permission !== "granted" &&
+      row.permission !== "not_granted" &&
+      row.permission !== "unavailable") ||
+    typeof row.observedAt !== "string" ||
+    typeof row.targetVerified !== "boolean" ||
+    typeof row.truncated !== "boolean" ||
+    typeof row.detail !== "string" ||
+    !Array.isArray(row.messages)
+  ) {
+    return false;
+  }
+  return row.messages.every((message) => {
+    if (typeof message !== "object" || message === null) return false;
+    const item = message as Record<string, unknown>;
+    return (
+      typeof item.id === "string" &&
+      typeof item.author === "string" &&
+      (item.timestamp === undefined || typeof item.timestamp === "string") &&
+      (item.sentAt === undefined || typeof item.sentAt === "string") &&
+      typeof item.content === "string" &&
+      item.provenance === "discord_accessibility_live" &&
+      Array.isArray(item.attachments) &&
+      item.attachments.every((attachment) => {
+        if (typeof attachment !== "object" || attachment === null) return false;
+        const candidate = attachment as Record<string, unknown>;
+        return (
+          typeof candidate.indicator === "string" &&
+          (candidate.url === undefined || typeof candidate.url === "string")
+        );
+      })
+    );
+  });
 }
 
 export class NativeDiscordAccessibilityHelper implements DiscordAccessibilityHelperRunner {
@@ -202,6 +272,39 @@ export class DiscordAccessibilityTransport {
         permission: "unavailable",
         detail: cause instanceof Error ? cause.message : String(cause),
       };
+    }
+  }
+
+  async snapshot(
+    input: DiscordAccessibilitySnapshotInput,
+  ): Promise<DiscordAccessibilitySnapshotResult> {
+    if (this.platform !== "darwin") {
+      return snapshotFailure(input, "Discord live snapshots require macOS.");
+    }
+    const maxMessages = Math.min(Math.max(input.maxMessages ?? 100, 1), 200);
+    if (
+      !DISCORD_SNOWFLAKE.test(input.conversationId) ||
+      input.conversationTitle.trim().length === 0 ||
+      input.conversationTitle.length > 200
+    ) {
+      return snapshotFailure(input, "The Discord snapshot target is invalid.");
+    }
+    try {
+      const value = await this.runner.run(
+        {
+          command: "snapshot",
+          accountId: input.accountId,
+          conversationId: input.conversationId,
+          expectedTitle: input.conversationTitle,
+          maxMessages,
+        },
+        SNAPSHOT_TIMEOUT_MS,
+      );
+      return isSnapshotResult(value, input)
+        ? value
+        : snapshotFailure(input, "Discord Accessibility helper returned an invalid snapshot.");
+    } catch (cause) {
+      return snapshotFailure(input, cause instanceof Error ? cause.message : String(cause));
     }
   }
 

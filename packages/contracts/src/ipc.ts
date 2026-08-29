@@ -91,6 +91,8 @@ import { EnvironmentId } from "./baseSchemas.ts";
 import type {
   DiscordAccessibilityReplyInput,
   DiscordAccessibilityReplyResult,
+  DiscordAccessibilitySnapshotInput,
+  DiscordAccessibilitySnapshotResult,
   DiscordAccessibilityStatus,
 } from "./channels.ts";
 import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } from "./auth.ts";
@@ -1140,6 +1142,9 @@ export interface DesktopBridge {
   /** Optional while older or non-macOS desktop shells host the web client. */
   discordAccessibility?: {
     status: (prompt?: boolean) => Promise<DiscordAccessibilityStatus>;
+    snapshot: (
+      input: DiscordAccessibilitySnapshotInput,
+    ) => Promise<DiscordAccessibilitySnapshotResult>;
     execute: (input: DiscordAccessibilityReplyInput) => Promise<DiscordAccessibilityReplyResult>;
     cancel: (actionId: string) => Promise<boolean>;
   };
@@ -1275,6 +1280,9 @@ export interface LocalApi {
   };
   discordAccessibility?: {
     status: (prompt?: boolean) => Promise<DiscordAccessibilityStatus>;
+    snapshot: (
+      input: DiscordAccessibilitySnapshotInput,
+    ) => Promise<DiscordAccessibilitySnapshotResult>;
     execute: (input: DiscordAccessibilityReplyInput) => Promise<DiscordAccessibilityReplyResult>;
     cancel: (actionId: string) => Promise<boolean>;
   };

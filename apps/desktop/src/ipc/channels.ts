@@ -5,6 +5,7 @@ export const SET_THEME_CHANNEL = "desktop:set-theme";
 export const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 export const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 export const DISCORD_ACCESSIBILITY_STATUS_CHANNEL = "desktop:discord-accessibility-status";
+export const DISCORD_ACCESSIBILITY_SNAPSHOT_CHANNEL = "desktop:discord-accessibility-snapshot";
 export const DISCORD_ACCESSIBILITY_EXECUTE_CHANNEL = "desktop:discord-accessibility-execute";
 export const DISCORD_ACCESSIBILITY_CANCEL_CHANNEL = "desktop:discord-accessibility-cancel";
 export const PROBE_REMOTE_EDITORS_CHANNEL = "desktop:probe-remote-editors";

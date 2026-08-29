@@ -19,6 +19,9 @@ private struct HelperCommand: Decodable {
     let expectedTitle: String?
     let text: String?
     let timeoutMs: Int?
+    let accountId: String?
+    let conversationId: String?
+    let maxMessages: Int?
 }
 
 private struct StatusResponse: Encodable {
@@ -39,6 +42,32 @@ private struct ReplyResponse: Encodable {
     let sent: Bool
     let draftPrepared: Bool
     let duplicate: Bool
+}
+
+private struct SnapshotAttachment: Encodable {
+    let indicator: String
+    let url: String?
+}
+
+private struct SnapshotMessage: Encodable {
+    let id: String
+    let author: String
+    let timestamp: String?
+    let sentAt: String?
+    let content: String
+    let attachments: [SnapshotAttachment]
+    let provenance: String
+}
+
+private struct SnapshotResponse: Encodable {
+    let accountId: String
+    let conversationId: String
+    let permission: String
+    let observedAt: String
+    let targetVerified: Bool
+    let truncated: Bool
+    let detail: String
+    let messages: [SnapshotMessage]
 }
 
 private let isoFormatter = ISO8601DateFormatter()
@@ -78,6 +107,102 @@ private func boolAttribute(_ element: AXUIElement, _ attribute: CFString) -> Boo
 
 private func childElements(_ element: AXUIElement) -> [AXUIElement] {
     (copyAttribute(element, kAXChildrenAttribute as CFString) as? [AXUIElement]) ?? []
+}
+
+private func domIdentifier(_ element: AXUIElement) -> String? {
+    stringAttribute(element, "AXDOMIdentifier" as CFString)
+}
+
+private func urlAttribute(_ element: AXUIElement) -> String? {
+    if let value = copyAttribute(element, "AXURL" as CFString) as? URL {
+        return value.absoluteString
+    }
+    return copyAttribute(element, "AXURL" as CFString) as? String
+}
+
+private func nonemptyText(_ element: AXUIElement) -> String? {
+    for attribute in [
+        kAXValueAttribute as CFString,
+        kAXDescriptionAttribute as CFString,
+        kAXTitleAttribute as CFString,
+        kAXHelpAttribute as CFString,
+    ] {
+        if let value = stringAttribute(element, attribute)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+            return value
+        }
+    }
+    return nil
+}
+
+private func boundedDescendants(
+    of root: AXUIElement,
+    maximum: Int,
+    maximumDepth: Int
+) -> ([AXUIElement], Bool) {
+    var queue: [(AXUIElement, Int)] = [(root, 0)]
+    var index = 0
+    var result: [AXUIElement] = []
+    while index < queue.count && result.count < maximum {
+        let (element, depth) = queue[index]
+        index += 1
+        result.append(element)
+        if depth < maximumDepth {
+            queue.append(contentsOf: childElements(element).map { ($0, depth + 1) })
+        }
+    }
+    return (result, index < queue.count)
+}
+
+private func firstCapture(_ pattern: String, in value: String) -> String? {
+    guard let expression = try? NSRegularExpression(pattern: pattern),
+          let match = expression.firstMatch(
+            in: value,
+            range: NSRange(value.startIndex..., in: value)
+          ),
+          match.numberOfRanges > 1,
+          let range = Range(match.range(at: 1), in: value)
+    else { return nil }
+    return String(value[range])
+}
+
+private func parsedTimestamp(_ value: String) -> Date? {
+    if let date = isoFormatter.date(from: value) { return date }
+    let trimmed = value
+        .replacingOccurrences(of: "Sent ", with: "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let locale = Locale(identifier: "en_US_POSIX")
+    let calendar = Calendar.current
+    if let relative = firstCapture("^(Today|Yesterday) at (.+)$", in: trimmed),
+       let time = firstCapture("^(?:Today|Yesterday) at (.+)$", in: trimmed) {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateFormat = "h:mm a"
+        if let parsedTime = formatter.date(from: time) {
+            let components = calendar.dateComponents([.hour, .minute], from: parsedTime)
+            var day = calendar.startOfDay(for: Date())
+            if relative == "Yesterday" {
+                day = calendar.date(byAdding: .day, value: -1, to: day) ?? day
+            }
+            return calendar.date(bySettingHour: components.hour ?? 0, minute: components.minute ?? 0, second: 0, of: day)
+        }
+    }
+    for format in [
+        "EEEE, MMMM d, yyyy 'at' h:mm a",
+        "MMMM d, yyyy 'at' h:mm a",
+        "M/d/yyyy h:mm a",
+    ] {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateFormat = format
+        if let date = formatter.date(from: trimmed) { return date }
+    }
+    return nil
+}
+
+private func looksLikeTimestamp(_ value: String) -> Bool {
+    parsedTimestamp(value) != nil ||
+        value.range(of: "\\b(?:Today|Yesterday) at \\d", options: .regularExpression) != nil
 }
 
 private func normalizeTitle(_ value: String) -> String {
@@ -253,6 +378,196 @@ private func openInBackground(_ url: URL) -> Bool {
     return completed && succeeded
 }
 
+private func currentConversation(
+    app: NSRunningApplication,
+    expectedTitle: String
+) -> (window: AXUIElement, composer: ComposerMatch)? {
+    let appElement = AXUIElementCreateApplication(app.processIdentifier)
+    let windows = (copyAttribute(appElement, kAXWindowsAttribute as CFString) as? [AXUIElement]) ?? []
+    let matches = windows.flatMap { window in
+        matchingComposers(in: window, expectedTitle: expectedTitle).map { (window, $0) }
+    }
+    guard matches.count == 1 else { return nil }
+    return matches[0]
+}
+
+private func attachment(from element: AXUIElement) -> SnapshotAttachment? {
+    let identifier = domIdentifier(element)?.lowercased() ?? ""
+    let url = urlAttribute(element)
+    let isAttachmentIdentifier = identifier.contains("attachment")
+    let isAttachmentURL = url?.range(
+        of: #"^https?://(?:cdn|media)\.discordapp\.(?:com|net)/attachments/"#,
+        options: .regularExpression
+    ) != nil
+    guard isAttachmentIdentifier || isAttachmentURL else { return nil }
+    let label = nonemptyText(element) ?? "Attachment"
+    return SnapshotAttachment(indicator: label, url: url)
+}
+
+private func snapshotMessage(
+    from row: AXUIElement,
+    id: String,
+    fallbackAuthor: String?
+) -> SnapshotMessage? {
+    let (elements, _) = boundedDescendants(of: row, maximum: 1_000, maximumDepth: 14)
+    var author: String?
+    var timestamp: String?
+    var sentAt: String?
+    var contentParts: [String] = []
+    var seenContent: Set<String> = []
+    var attachments: [SnapshotAttachment] = []
+    var seenAttachments: Set<String> = []
+
+    for element in elements {
+        let identifier = domIdentifier(element)?.lowercased() ?? ""
+        if author == nil,
+           identifier.contains("message-username-"),
+           let value = nonemptyText(element) {
+            author = value
+        }
+        if identifier.contains("message-content-"),
+           let value = nonemptyText(element),
+           seenContent.insert(value).inserted {
+            contentParts.append(value)
+        }
+        if timestamp == nil,
+           (identifier.contains("message-timestamp-") || identifier.contains("timestamp")),
+           let value = nonemptyText(element) {
+            timestamp = value
+            if let parsed = parsedTimestamp(value) {
+                sentAt = isoFormatter.string(from: parsed)
+            }
+        }
+        if let candidate = attachment(from: element) {
+            let key = "\(candidate.indicator)|\(candidate.url ?? "")"
+            if seenAttachments.insert(key).inserted {
+                attachments.append(candidate)
+            }
+        }
+    }
+
+    if author == nil {
+        author = elements.first(where: {
+            stringAttribute($0, kAXRoleAttribute as CFString) == (kAXHeadingRole as String)
+        }).flatMap(nonemptyText)
+    }
+    if timestamp == nil {
+        for element in elements {
+            for attribute in [
+                kAXDescriptionAttribute as CFString,
+                kAXHelpAttribute as CFString,
+                kAXTitleAttribute as CFString,
+            ] {
+                if let value = stringAttribute(element, attribute), looksLikeTimestamp(value) {
+                    timestamp = value
+                    if let parsed = parsedTimestamp(value) {
+                        sentAt = isoFormatter.string(from: parsed)
+                    }
+                    break
+                }
+            }
+            if timestamp != nil { break }
+        }
+    }
+
+    let content = contentParts.joined(separator: "\n")
+    guard !content.isEmpty || !attachments.isEmpty else { return nil }
+    return SnapshotMessage(
+        id: id,
+        author: author ?? fallbackAuthor ?? "Discord user",
+        timestamp: timestamp,
+        sentAt: sentAt,
+        content: content,
+        attachments: attachments,
+        provenance: "discord_accessibility_live"
+    )
+}
+
+private func snapshot(_ command: HelperCommand) -> SnapshotResponse {
+    let observedAt = isoFormatter.string(from: Date())
+    let accountId = command.accountId ?? "invalid"
+    let conversationId = command.conversationId ?? "invalid"
+    func result(
+        permission: String = "granted",
+        verified: Bool = false,
+        truncated: Bool = false,
+        detail: String,
+        messages: [SnapshotMessage] = []
+    ) -> SnapshotResponse {
+        SnapshotResponse(
+            accountId: accountId,
+            conversationId: conversationId,
+            permission: permission,
+            observedAt: observedAt,
+            targetVerified: verified,
+            truncated: truncated,
+            detail: detail,
+            messages: messages
+        )
+    }
+
+    guard trusted(prompt: false) else {
+        return result(
+            permission: "not_granted",
+            detail: "Allow Ditto's Discord helper in System Settings > Privacy & Security > Accessibility."
+        )
+    }
+    guard let expectedTitle = command.expectedTitle,
+          !normalizeTitle(expectedTitle).isEmpty,
+          firstCapture("^([0-9]{15,24})$", in: conversationId) != nil
+    else {
+        return result(detail: "The Discord snapshot target did not pass validation.")
+    }
+    guard let discord = NSWorkspace.shared.runningApplications.first(where: {
+        guard let bundleIdentifier = $0.bundleIdentifier else { return false }
+        return discordBundleIDs.contains(bundleIdentifier)
+    }) else {
+        return result(permission: "unavailable", detail: "Discord is not running on this Mac.")
+    }
+    guard let selected = currentConversation(app: discord, expectedTitle: expectedTitle) else {
+        return result(
+            detail: "The currently displayed Discord conversation did not match the selected Ditto thread."
+        )
+    }
+
+    let requestedMaximum = min(max(command.maxMessages ?? 100, 1), 200)
+    let (elements, traversalTruncated) = boundedDescendants(
+        of: selected.window,
+        maximum: 30_000,
+        maximumDepth: 30
+    )
+    var rows: [(id: String, element: AXUIElement)] = []
+    var seenIds: Set<String> = []
+    for element in elements {
+        guard let identifier = domIdentifier(element),
+              let id = firstCapture("^chat-messages-([0-9]{15,24})$", in: identifier),
+              seenIds.insert(id).inserted
+        else { continue }
+        rows.append((id, element))
+    }
+    let wasMessageLimited = rows.count > requestedMaximum
+    let selectedRows = rows.suffix(requestedMaximum)
+    var messages: [SnapshotMessage] = []
+    var previousAuthor: String?
+    for row in selectedRows {
+        guard let message = snapshotMessage(
+            from: row.element,
+            id: row.id,
+            fallbackAuthor: previousAuthor
+        ) else { continue }
+        messages.append(message)
+        if message.author != "Discord user" {
+            previousAuthor = message.author
+        }
+    }
+    return result(
+        verified: true,
+        truncated: traversalTruncated || wasMessageLimited,
+        detail: "Read \(messages.count) currently loaded messages from the verified Discord conversation.",
+        messages: messages
+    )
+}
+
 private func execute(_ command: HelperCommand) -> ReplyResponse {
     let startedAt = isoFormatter.string(from: Date())
     let actionId = command.actionId ?? "invalid"
@@ -413,6 +728,8 @@ case "status":
             ? "Ditto can prepare and send explicit Discord replies."
             : "Allow Ditto's Discord helper in System Settings > Privacy & Security > Accessibility."
     ))
+case "snapshot":
+    emit(snapshot(command))
 case "execute":
     emit(execute(command))
 default:

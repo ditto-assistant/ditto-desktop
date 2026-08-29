@@ -284,6 +284,46 @@ export const DiscordAccessibilityStatus = Schema.Struct({
 });
 export type DiscordAccessibilityStatus = typeof DiscordAccessibilityStatus.Type;
 
+export const DiscordAccessibilitySnapshotInput = Schema.Struct({
+  accountId: ChannelAccountId,
+  conversationId: ChannelConversationId,
+  conversationTitle: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+  maxMessages: Schema.optionalKey(
+    Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 200 })),
+  ),
+});
+export type DiscordAccessibilitySnapshotInput = typeof DiscordAccessibilitySnapshotInput.Type;
+
+export const DiscordAccessibilitySnapshotAttachment = Schema.Struct({
+  indicator: Schema.String,
+  url: Schema.optionalKey(Schema.String),
+});
+export type DiscordAccessibilitySnapshotAttachment =
+  typeof DiscordAccessibilitySnapshotAttachment.Type;
+
+export const DiscordAccessibilitySnapshotMessage = Schema.Struct({
+  id: Schema.String,
+  author: Schema.String,
+  timestamp: Schema.optionalKey(Schema.String),
+  sentAt: Schema.optionalKey(Schema.String),
+  content: Schema.String,
+  attachments: Schema.Array(DiscordAccessibilitySnapshotAttachment),
+  provenance: Schema.Literal("discord_accessibility_live"),
+});
+export type DiscordAccessibilitySnapshotMessage = typeof DiscordAccessibilitySnapshotMessage.Type;
+
+export const DiscordAccessibilitySnapshotResult = Schema.Struct({
+  accountId: ChannelAccountId,
+  conversationId: ChannelConversationId,
+  permission: DiscordAccessibilityPermissionState,
+  observedAt: Schema.String,
+  targetVerified: Schema.Boolean,
+  truncated: Schema.Boolean,
+  detail: Schema.String,
+  messages: Schema.Array(DiscordAccessibilitySnapshotMessage),
+});
+export type DiscordAccessibilitySnapshotResult = typeof DiscordAccessibilitySnapshotResult.Type;
+
 export const ChannelListAccountsResult = Schema.Struct({
   accounts: Schema.Array(ConnectedChannelAccount),
 });

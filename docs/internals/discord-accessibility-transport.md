@@ -21,6 +21,20 @@ The helper uses Accessibility only to:
    composer when that semantic action is absent, then verify that Discord
    cleared the composer afterward.
 
+The separate `snapshot` command is read-only. It never opens a deep link,
+activates Discord, changes focus, types, or invokes an action. It first verifies
+one composer whose descriptor matches the already-selected Ditto conversation,
+then reads at most 200 currently loaded message rows from that same window.
+Rows require Discord's `chat-messages-<snowflake>` accessibility DOM identifier;
+the snowflake is the deterministic message ID and the result is marked with
+`discord_accessibility_live` provenance. Traversal, row depth, and result size
+are bounded. Author, timestamp, content, and attachment indicators or URLs are
+returned only when Discord exposes them in the row's accessibility subtree.
+
+The inbox overlays this verified tail on Discrawl history and deduplicates by
+Discord message ID, with a content/time signature fallback. An unverified,
+unavailable, or malformed snapshot never replaces archive history.
+
 It does not traverse or return message contents. A deep link plus one uniquely
 matching composer is the minimum target proof. Ambiguous or missing matches
 fail closed before text insertion. When `AXConfirm` is absent or cannot be
