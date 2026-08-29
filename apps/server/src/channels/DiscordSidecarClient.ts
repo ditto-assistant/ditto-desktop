@@ -172,6 +172,10 @@ export class DiscordSidecarClient {
   close(): void {
     const child = this.#child;
     this.#child = undefined;
+    // The sidecar reads requests until stdin reaches EOF. Closing only with a
+    // signal leaves its scanner blocked on the pipe, so close the protocol
+    // stream first and let the process unwind cleanly.
+    if (child !== undefined && !child.stdin.destroyed) child.stdin.end();
     child?.kill("SIGTERM");
     this.#restore = undefined;
     this.#failPending(new Error("Discord sidecar stopped."));
