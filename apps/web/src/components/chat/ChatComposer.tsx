@@ -100,7 +100,11 @@ import {
   removeInlineTerminalContextPlaceholder,
 } from "../../lib/terminalContext";
 import { useComposerPathSearch } from "../../lib/composerPathSearchState";
-import { pendingKnowledgePacket, useKnowledgePacketStore } from "../../knowledgePacketStore";
+import {
+  knowledgePacketTargetKey,
+  pendingKnowledgePacket,
+  useKnowledgePacketStore,
+} from "../../knowledgePacketStore";
 import { serverEnvironment } from "../../state/server";
 import { useEnvironmentQuery } from "../../state/query";
 import { type ElementContextDraft } from "../../lib/elementContext";
@@ -149,6 +153,8 @@ type ComposerCommandMenuPosition = {
   maxHeight: number;
   width: number;
 };
+
+const EMPTY_KNOWLEDGE_PACKETS = [] as const;
 
 function composerCommandMenuPositionsEqual(
   a: ComposerCommandMenuPosition,
@@ -758,6 +764,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerReviewComments = composerDraft.reviewComments;
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const uploadsByImageId = useAttachmentUploadStore((state) => state.uploadsByImageId);
+  const knowledgePacketTarget = useMemo(
+    () => knowledgePacketTargetKey(environmentId, composerDraftTarget),
+    [composerDraftTarget, environmentId],
+  );
+  const pendingKnowledgePackets = useKnowledgePacketStore(
+    (state) => state.pendingByTarget[knowledgePacketTarget] ?? EMPTY_KNOWLEDGE_PACKETS,
+  );
   const attachKnowledgePacket = useKnowledgePacketStore((state) => state.attach);
   const attachmentBlockReason = supportsAttachmentUploads
     ? attachmentUploadBlockReason({
@@ -1106,6 +1119,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           composerElementContexts.length +
           composerPreviewAnnotations.length +
           composerReviewComments.length,
+        knowledgePacketCount: pendingKnowledgePackets.length,
       }),
     [
       composerElementContexts.length,
@@ -1113,6 +1127,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerPreviewAnnotations.length,
       composerReviewComments.length,
       composerTerminalContexts,
+      pendingKnowledgePackets.length,
       prompt,
     ],
   );
@@ -1871,6 +1886,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         });
         if (applied) {
           attachKnowledgePacket(
+            knowledgePacketTarget,
             pendingKnowledgePacket({
               accountId: item.conversation.accountId,
               conversationId: item.conversation.conversationId,

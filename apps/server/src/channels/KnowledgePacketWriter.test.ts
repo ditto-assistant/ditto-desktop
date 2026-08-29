@@ -8,6 +8,7 @@ import { ChannelAccountId, ChannelConversationId, ChannelMessageId } from "@t3to
 import { afterEach, describe, expect, it } from "@effect/vitest";
 
 import {
+  type KnowledgePacketSource,
   materializeKnowledgePacket,
   resolveKnowledgePacketWorktreePath,
 } from "./KnowledgePacketWriter.ts";
@@ -18,6 +19,33 @@ afterEach(async () => {
     roots.splice(0).map((root) => NodeFSP.rm(root, { recursive: true, force: true })),
   );
 });
+
+function minimalSource(text: string): KnowledgePacketSource {
+  return {
+    requestedMessageLimit: 10,
+    conversation: {
+      accountId: ChannelAccountId.make("discord:local"),
+      conversationId: ChannelConversationId.make("liam-dm"),
+      service: "discord",
+      title: "Liam",
+      kind: "direct",
+      participants: [],
+      completeness: "provider_scoped",
+    },
+    messages: [
+      {
+        accountId: ChannelAccountId.make("discord:local"),
+        conversationId: ChannelConversationId.make("liam-dm"),
+        messageId: ChannelMessageId.make("message-1"),
+        service: "discord",
+        sender: { id: "liam", displayName: "Liam" },
+        text,
+        sentAt: "2026-08-29T12:00:00.000Z",
+        attachments: [],
+      },
+    ],
+  };
+}
 
 describe("materializeKnowledgePacket", () => {
   it("uses a new worktree when prepared and otherwise writes into the current checkout", () => {
@@ -50,6 +78,7 @@ describe("materializeKnowledgePacket", () => {
     const result = await materializeKnowledgePacket({
       worktreePath: root,
       attachmentsDir: cache,
+      taskId: "thread-1-turn-1",
       source: {
         requestedMessageLimit: 2,
         conversation: {
@@ -164,6 +193,7 @@ describe("materializeKnowledgePacket", () => {
       materializeKnowledgePacket({
         worktreePath: root,
         attachmentsDir: NodePath.join(root, "cache"),
+        taskId: "thread-1-turn-1",
         source: {
           requestedMessageLimit: 10,
           conversation: {
@@ -181,6 +211,40 @@ describe("materializeKnowledgePacket", () => {
     ).rejects.toThrow();
   });
 
+  it("isolates concurrent task packets and changes identity when message content changes", async () => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-packet-isolation-"));
+    roots.push(root);
+    await NodeFSP.mkdir(NodePath.join(root, ".git", "info"), { recursive: true });
+
+    const first = await materializeKnowledgePacket({
+      worktreePath: root,
+      attachmentsDir: NodePath.join(root, "cache"),
+      taskId: "thread-a-turn-a",
+      source: minimalSource("First version"),
+    });
+    const otherTask = await materializeKnowledgePacket({
+      worktreePath: root,
+      attachmentsDir: NodePath.join(root, "cache"),
+      taskId: "thread-b-turn-a",
+      source: minimalSource("First version"),
+    });
+    const edited = await materializeKnowledgePacket({
+      worktreePath: root,
+      attachmentsDir: NodePath.join(root, "cache"),
+      taskId: "thread-a-turn-a",
+      source: minimalSource("Edited version"),
+    });
+
+    expect(first.relativePath).not.toBe(otherTask.relativePath);
+    expect(first.packetId).not.toBe(edited.packetId);
+    expect(
+      await NodeFSP.readFile(NodePath.join(first.absolutePath, "transcript.md"), "utf8"),
+    ).toContain("First version");
+    expect(
+      await NodeFSP.readFile(NodePath.join(edited.absolutePath, "transcript.md"), "utf8"),
+    ).toContain("Edited version");
+  });
+
   it("refuses a repository-controlled symlink for the private packet directory", async () => {
     const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-packet-symlink-"));
     roots.push(root);
@@ -193,6 +257,7 @@ describe("materializeKnowledgePacket", () => {
       materializeKnowledgePacket({
         worktreePath: root,
         attachmentsDir: NodePath.join(root, "cache"),
+        taskId: "thread-1-turn-1",
         source: {
           requestedMessageLimit: 10,
           conversation: {
@@ -225,6 +290,7 @@ describe("materializeKnowledgePacket", () => {
     await materializeKnowledgePacket({
       worktreePath: worktree,
       attachmentsDir: NodePath.join(root, "cache"),
+      taskId: "thread-1-turn-1",
       source: {
         requestedMessageLimit: 10,
         conversation: {

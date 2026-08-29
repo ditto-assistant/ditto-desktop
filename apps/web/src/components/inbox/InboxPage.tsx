@@ -244,6 +244,9 @@ function MessagePanel({
 }) {
   const navigate = useNavigate();
   const attachKnowledgePacket = useKnowledgePacketStore((state) => state.attach);
+  const knowledgePacketTarget = useKnowledgePacketStore(
+    (state) => state.activeTargetByEnvironment[environmentId],
+  );
   const [messageLimit, setMessageLimit] = useState(150);
   const messagesAtom = serverEnvironment.channelMessages({
     environmentId,
@@ -338,7 +341,9 @@ function MessagePanel({
         <div className="flex items-center gap-1">
           <Button
             onClick={() => {
+              if (!knowledgePacketTarget) return;
               attachKnowledgePacket(
+                knowledgePacketTarget,
                 pendingKnowledgePacket({
                   accountId: account.accountId,
                   conversationId: conversation.conversationId,
@@ -349,7 +354,13 @@ function MessagePanel({
               );
               void navigate({ to: "/" });
             }}
+            disabled={!knowledgePacketTarget}
             size="sm"
+            title={
+              knowledgePacketTarget
+                ? "Attach this chat to the most recently active coding task"
+                : "Open a coding task before attaching chat context"
+            }
             variant="outline"
           >
             <BotIcon className="size-3.5" />

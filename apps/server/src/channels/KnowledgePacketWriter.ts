@@ -18,6 +18,8 @@ export interface KnowledgePacketSource {
 export interface KnowledgePacketWriterOptions {
   readonly worktreePath: string;
   readonly attachmentsDir: string;
+  /** Unique task/turn identity used to keep concurrent current-checkout packets isolated. */
+  readonly taskId: string;
   readonly source: KnowledgePacketSource;
   readonly fetch?: (input: string | URL, init?: RequestInit) => Promise<Response>;
 }
@@ -66,7 +68,21 @@ function packetDigest(source: KnowledgePacketSource): string {
     accountId: source.conversation.accountId,
     conversationId: source.conversation.conversationId,
     requestedMessageLimit: source.requestedMessageLimit,
-    messageIds: source.messages.map((message) => message.messageId),
+    messages: source.messages.map((message) => ({
+      messageId: message.messageId,
+      sentAt: message.sentAt,
+      editedAt: message.editedAt,
+      sender: message.sender,
+      text: message.text,
+      attachments: message.attachments.map((attachment) => ({
+        id: attachment.id,
+        filename: attachment.filename,
+        mediaType: attachment.mediaType,
+        byteSize: attachment.byteSize,
+        cachedAttachmentId: attachment.cachedAttachmentId,
+        remoteUrl: attachment.remoteUrl,
+      })),
+    })),
   });
   return NodeCrypto.createHash("sha256").update(canonical).digest("hex").slice(0, 12);
 }
@@ -292,12 +308,19 @@ export async function materializeKnowledgePacket(
     .slice(-Math.max(1, Math.min(options.source.requestedMessageLimit, 200)));
   const source = { ...options.source, messages };
   const packetId = `${safeSegment(source.conversation.title.toLowerCase(), "chat")}-${packetDigest(source)}`;
-  const relativePath = `${PACKET_DIRECTORY}/${packetId}`;
+  const taskDigest = NodeCrypto.createHash("sha256")
+    .update(options.taskId)
+    .digest("hex")
+    .slice(0, 8);
+  const taskSegment = `${safeSegment(options.taskId, "task")}-${taskDigest}`;
+  const relativePath = `${PACKET_DIRECTORY}/${taskSegment}/${packetId}`;
   const absolutePath = NodePath.join(options.worktreePath, relativePath);
+  const taskRoot = NodePath.dirname(absolutePath);
+  const temporaryPath = NodePath.join(taskRoot, `.${packetId}.tmp-${NodeCrypto.randomUUID()}`);
 
   await ensurePacketsAreGitIgnored(options.worktreePath);
-  await NodeFSP.rm(absolutePath, { recursive: true, force: true });
-  await NodeFSP.mkdir(NodePath.join(absolutePath, "attachments"), {
+  await ensurePrivateDirectory(taskRoot);
+  await NodeFSP.mkdir(NodePath.join(temporaryPath, "attachments"), {
     recursive: true,
     mode: 0o700,
   });
@@ -337,7 +360,7 @@ export async function materializeKnowledgePacket(
       totalAttachmentBytes += bytes.byteLength;
       const filename = `${String(messageIndex + 1).padStart(3, "0")}-${String(attachmentIndex + 1).padStart(2, "0")}-${safeSegment(message.messageId, "message")}-${safeSegment(attachment.id, "attachment")}-${safeSegment(attachment.filename ?? "file", "file")}`;
       const relativeAttachmentPath = `attachments/${filename}`;
-      const destination = NodePath.join(absolutePath, relativeAttachmentPath);
+      const destination = NodePath.join(temporaryPath, relativeAttachmentPath);
       await NodeFSP.writeFile(destination, bytes, { mode: 0o600 });
       localized.push({
         ...base,
@@ -421,25 +444,27 @@ export async function materializeKnowledgePacket(
   ].join("\n");
 
   await Promise.all([
-    NodeFSP.writeFile(NodePath.join(absolutePath, "INDEX.md"), index, {
+    NodeFSP.writeFile(NodePath.join(temporaryPath, "INDEX.md"), index, {
       mode: 0o600,
     }),
     NodeFSP.writeFile(
-      NodePath.join(absolutePath, "transcript.md"),
+      NodePath.join(temporaryPath, "transcript.md"),
       renderTranscript(source, localized),
       {
         mode: 0o600,
       },
     ),
     NodeFSP.writeFile(
-      NodePath.join(absolutePath, "manifest.json"),
+      NodePath.join(temporaryPath, "manifest.json"),
       `${JSON.stringify(manifest, null, 2)}\n`,
       {
         mode: 0o600,
       },
     ),
   ]);
-  await NodeFSP.chmod(absolutePath, 0o700);
+  await NodeFSP.chmod(temporaryPath, 0o700);
+  await NodeFSP.rm(absolutePath, { recursive: true, force: true });
+  await NodeFSP.rename(temporaryPath, absolutePath);
 
   return {
     packetId,

@@ -400,10 +400,17 @@ import {
   serverUpdateGuidance,
 } from "../versionSkew";
 import { useAssetUrls } from "../assets/assetUrls";
-import { knowledgePacketBootstrap, useKnowledgePacketStore } from "../knowledgePacketStore";
+import {
+  knowledgePacketBootstrap,
+  knowledgePacketTargetKey,
+  useKnowledgePacketStore,
+} from "../knowledgePacketStore";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
+const KNOWLEDGE_PACKET_ONLY_BOOTSTRAP_PROMPT =
+  "Review the attached private chat knowledge packet and use it as context for this task.";
+const EMPTY_KNOWLEDGE_PACKETS = [] as const;
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
@@ -1275,9 +1282,6 @@ function ChatViewContent(props: ChatViewProps) {
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
   const threadDetailLoading = threadSyncPhase === "loading";
   const handleNewThread = useNewThreadHandler();
-  const pendingKnowledgePackets = useKnowledgePacketStore((state) => state.pending);
-  const detachKnowledgePacket = useKnowledgePacketStore((state) => state.detach);
-  const clearPendingKnowledgePackets = useKnowledgePacketStore((state) => state.clear);
   const { settleThread, pinThread, unpinThread } = useThreadActions();
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
@@ -1330,6 +1334,19 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const composerDraftTarget: ScopedThreadRef | DraftId =
     routeKind === "server" ? routeThreadRef : props.draftId;
+  const knowledgePacketTarget = useMemo(
+    () => knowledgePacketTargetKey(environmentId, composerDraftTarget),
+    [composerDraftTarget, environmentId],
+  );
+  const pendingKnowledgePackets = useKnowledgePacketStore(
+    (state) => state.pendingByTarget[knowledgePacketTarget] ?? EMPTY_KNOWLEDGE_PACKETS,
+  );
+  const detachKnowledgePacket = useKnowledgePacketStore((state) => state.detach);
+  const clearPendingKnowledgePackets = useKnowledgePacketStore((state) => state.clear);
+  const setActiveKnowledgePacketTarget = useKnowledgePacketStore((state) => state.setActiveTarget);
+  useEffect(() => {
+    setActiveKnowledgePacketTarget(environmentId, knowledgePacketTarget);
+  }, [environmentId, knowledgePacketTarget, setActiveKnowledgePacketTarget]);
   const draftThread = useComposerDraftStore((store) =>
     routeKind === "server"
       ? store.getDraftSessionByRef(routeThreadRef)
@@ -4933,9 +4950,10 @@ function ChatViewContent(props: ChatViewProps) {
         title: `Chat attached: ${packet.label}`,
         description: `The latest ${packet.messageLimit} messages and available attachments will be copied into a private, Git-ignored knowledge packet when you send.`,
         dismissLabel: `Remove ${packet.label}`,
-        onDismiss: () => detachKnowledgePacket(packet.accountId, packet.conversationId),
+        onDismiss: () =>
+          detachKnowledgePacket(knowledgePacketTarget, packet.accountId, packet.conversationId),
       })),
-    [detachKnowledgePacket, pendingKnowledgePackets],
+    [detachKnowledgePacket, knowledgePacketTarget, pendingKnowledgePackets],
   );
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const isUrgentSystemItem = (item: ComposerBannerStackItem) =>
@@ -5473,6 +5491,7 @@ function ChatViewContent(props: ChatViewProps) {
         composerElementContexts.length +
         composerPreviewAnnotations.length +
         composerReviewComments.length,
+      knowledgePacketCount: pendingKnowledgePackets.length,
     });
     const feedbackCommand =
       ctxSelectedProvider === "codex" &&
@@ -5676,7 +5695,11 @@ function ChatViewContent(props: ChatViewProps) {
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
+      text:
+        messageTextForSend ||
+        (knowledgePacketSnapshot.length > 0
+          ? KNOWLEDGE_PACKET_ONLY_BOOTSTRAP_PROMPT
+          : IMAGE_ONLY_BOOTSTRAP_PROMPT),
     });
     if (composerRef.current?.validateProviderInput(outgoingMessageText) === false) {
       return;
@@ -5817,6 +5840,8 @@ function ChatViewContent(props: ChatViewProps) {
         titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
       } else if (composerElementContextsSnapshot.length > 0) {
         titleSeed = formatElementContextLabel(composerElementContextsSnapshot[0]!);
+      } else if (knowledgePacketSnapshot.length > 0) {
+        titleSeed = `Chat: ${knowledgePacketSnapshot[0]!.label}`;
       } else {
         titleSeed = "New thread";
       }
@@ -5935,7 +5960,7 @@ function ChatViewContent(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
-        if (knowledgePacketSnapshot.length > 0) clearPendingKnowledgePackets();
+        if (knowledgePacketSnapshot.length > 0) clearPendingKnowledgePackets(knowledgePacketTarget);
         if (supportsAttachmentUploads) {
           releaseAttachmentUploads(composerImagesSnapshot);
         }

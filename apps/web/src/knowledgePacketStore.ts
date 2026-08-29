@@ -3,7 +3,10 @@ import type {
   ChannelConversationId,
   ChannelKnowledgePacketRequest,
   ChatService,
+  EnvironmentId,
+  ScopedThreadRef,
 } from "@t3tools/contracts";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { create } from "zustand";
 
 export interface PendingKnowledgePacket extends ChannelKnowledgePacketRequest {
@@ -12,34 +15,67 @@ export interface PendingKnowledgePacket extends ChannelKnowledgePacketRequest {
 }
 
 interface KnowledgePacketState {
-  readonly pending: ReadonlyArray<PendingKnowledgePacket>;
-  readonly attach: (packet: PendingKnowledgePacket) => void;
-  readonly detach: (accountId: ChannelAccountId, conversationId: ChannelConversationId) => void;
-  readonly clear: () => void;
+  readonly pendingByTarget: Readonly<Record<string, ReadonlyArray<PendingKnowledgePacket>>>;
+  readonly activeTargetByEnvironment: Readonly<Record<string, string>>;
+  readonly attach: (targetKey: string, packet: PendingKnowledgePacket) => void;
+  readonly detach: (
+    targetKey: string,
+    accountId: ChannelAccountId,
+    conversationId: ChannelConversationId,
+  ) => void;
+  readonly clear: (targetKey: string) => void;
+  readonly setActiveTarget: (environmentId: EnvironmentId, targetKey: string) => void;
 }
 
 export const useKnowledgePacketStore = create<KnowledgePacketState>((set) => ({
-  pending: [],
-  attach: (packet) =>
+  pendingByTarget: {},
+  activeTargetByEnvironment: {},
+  attach: (targetKey, packet) =>
     set((state) => ({
-      pending: [
-        ...state.pending.filter(
+      pendingByTarget: {
+        ...state.pendingByTarget,
+        [targetKey]: [
+          ...(state.pendingByTarget[targetKey] ?? []).filter(
+            (candidate) =>
+              candidate.accountId !== packet.accountId ||
+              candidate.conversationId !== packet.conversationId,
+          ),
+          packet,
+        ].slice(-8),
+      },
+    })),
+  detach: (targetKey, accountId, conversationId) =>
+    set((state) => ({
+      pendingByTarget: {
+        ...state.pendingByTarget,
+        [targetKey]: (state.pendingByTarget[targetKey] ?? []).filter(
           (candidate) =>
-            candidate.accountId !== packet.accountId ||
-            candidate.conversationId !== packet.conversationId,
+            candidate.accountId !== accountId || candidate.conversationId !== conversationId,
         ),
-        packet,
-      ].slice(-8),
+      },
     })),
-  detach: (accountId, conversationId) =>
+  clear: (targetKey) =>
+    set((state) => {
+      const { [targetKey]: _, ...remaining } = state.pendingByTarget;
+      return { pendingByTarget: remaining };
+    }),
+  setActiveTarget: (environmentId, targetKey) =>
     set((state) => ({
-      pending: state.pending.filter(
-        (candidate) =>
-          candidate.accountId !== accountId || candidate.conversationId !== conversationId,
-      ),
+      activeTargetByEnvironment: {
+        ...state.activeTargetByEnvironment,
+        [environmentId]: targetKey,
+      },
     })),
-  clear: () => set({ pending: [] }),
 }));
+
+export function knowledgePacketTargetKey(
+  environmentId: EnvironmentId,
+  target: ScopedThreadRef | string,
+): string {
+  return typeof target === "string"
+    ? `draft:${environmentId}:${target.trim()}`
+    : `thread:${scopedThreadKey(target)}`;
+}
 
 export function pendingKnowledgePacket(input: {
   readonly accountId: ChannelAccountId;

@@ -1134,6 +1134,7 @@ const makeWsRpcLayer = (
                   materializeKnowledgePacket({
                     worktreePath: packetCwd,
                     attachmentsDir: config.attachmentsDir,
+                    taskId: `${command.threadId}-${command.message.messageId}`,
                     source: {
                       conversation,
                       messages,
