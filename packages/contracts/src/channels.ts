@@ -211,6 +211,77 @@ export const ChannelSendMessageResult = Schema.Struct({
 });
 export type ChannelSendMessageResult = typeof ChannelSendMessageResult.Type;
 
+/**
+ * A concrete user command routed to the companion Mac. `remote_user_action`
+ * is reserved for a signed-in phone/web action and never means autonomous
+ * delivery; every action still carries its own stable id and requested time.
+ */
+export const DiscordAccessibilityActionOrigin = Schema.Literals([
+  "local_desktop",
+  "remote_user_action",
+]);
+export type DiscordAccessibilityActionOrigin = typeof DiscordAccessibilityActionOrigin.Type;
+
+export const DiscordAccessibilityReplyMode = Schema.Literals(["prepare", "send"]);
+export type DiscordAccessibilityReplyMode = typeof DiscordAccessibilityReplyMode.Type;
+
+export const DiscordAccessibilityReplyInput = Schema.Struct({
+  actionId: Schema.String.check(Schema.isMinLength(8), Schema.isMaxLength(128)),
+  origin: DiscordAccessibilityActionOrigin,
+  requestedAt: Schema.String,
+  accountId: ChannelAccountId,
+  conversationId: ChannelConversationId,
+  containerId: Schema.optionalKey(Schema.String),
+  conversationTitle: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+  text: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4_000)),
+  mode: DiscordAccessibilityReplyMode,
+});
+export type DiscordAccessibilityReplyInput = typeof DiscordAccessibilityReplyInput.Type;
+
+export const DiscordAccessibilityPermissionState = Schema.Literals([
+  "granted",
+  "not_granted",
+  "unavailable",
+]);
+export type DiscordAccessibilityPermissionState = typeof DiscordAccessibilityPermissionState.Type;
+
+export const DiscordAccessibilityReplyOutcome = Schema.Literals([
+  "sent",
+  "draft_prepared",
+  "permission_required",
+  "discord_unavailable",
+  "target_not_verified",
+  "composer_not_found",
+  "send_not_confirmed",
+  "cancelled",
+  "timed_out",
+  "unsupported",
+  "failed",
+]);
+export type DiscordAccessibilityReplyOutcome = typeof DiscordAccessibilityReplyOutcome.Type;
+
+export const DiscordAccessibilityReplyResult = Schema.Struct({
+  actionId: Schema.String,
+  origin: DiscordAccessibilityActionOrigin,
+  mode: DiscordAccessibilityReplyMode,
+  outcome: DiscordAccessibilityReplyOutcome,
+  permission: DiscordAccessibilityPermissionState,
+  startedAt: Schema.String,
+  completedAt: Schema.String,
+  detail: Schema.String,
+  sent: Schema.Boolean,
+  draftPrepared: Schema.Boolean,
+  duplicate: Schema.Boolean,
+});
+export type DiscordAccessibilityReplyResult = typeof DiscordAccessibilityReplyResult.Type;
+
+export const DiscordAccessibilityStatus = Schema.Struct({
+  available: Schema.Boolean,
+  permission: DiscordAccessibilityPermissionState,
+  detail: Schema.String,
+});
+export type DiscordAccessibilityStatus = typeof DiscordAccessibilityStatus.Type;
+
 export const ChannelListAccountsResult = Schema.Struct({
   accounts: Schema.Array(ConnectedChannelAccount),
 });

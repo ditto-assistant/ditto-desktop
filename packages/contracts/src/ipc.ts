@@ -88,6 +88,11 @@ import type {
   OrchestrationThreadStreamItem,
 } from "./orchestration.ts";
 import { EnvironmentId } from "./baseSchemas.ts";
+import type {
+  DiscordAccessibilityReplyInput,
+  DiscordAccessibilityReplyResult,
+  DiscordAccessibilityStatus,
+} from "./channels.ts";
 import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } from "./auth.ts";
 import { AdvertisedEndpoint } from "./remoteAccess.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
@@ -1132,6 +1137,12 @@ export interface DesktopBridge {
     position?: { x: number; y: number },
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
+  /** Optional while older or non-macOS desktop shells host the web client. */
+  discordAccessibility?: {
+    status: (prompt?: boolean) => Promise<DiscordAccessibilityStatus>;
+    execute: (input: DiscordAccessibilityReplyInput) => Promise<DiscordAccessibilityReplyResult>;
+    cancel: (actionId: string) => Promise<boolean>;
+  };
   /**
    * Probe this desktop machine for installed remote-capable editor CLIs
    * (used for remote open-in-editor deep links). Optional: older desktop
@@ -1261,6 +1272,11 @@ export interface LocalApi {
   };
   shell: {
     openExternal: (url: string) => Promise<void>;
+  };
+  discordAccessibility?: {
+    status: (prompt?: boolean) => Promise<DiscordAccessibilityStatus>;
+    execute: (input: DiscordAccessibilityReplyInput) => Promise<DiscordAccessibilityReplyResult>;
+    cancel: (actionId: string) => Promise<boolean>;
   };
   contextMenu: {
     show: <T extends string>(

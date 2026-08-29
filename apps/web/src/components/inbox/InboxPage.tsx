@@ -4,6 +4,8 @@ import type {
   ChannelConversation,
   ChannelMessage,
   ConnectedChannelAccount,
+  DiscordAccessibilityReplyResult,
+  DiscordAccessibilityStatus,
   EnvironmentId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -254,6 +256,8 @@ function MessagePanel({
     (capability) =>
       capability.operation === "message.send" && capability.availability === "available",
   );
+  const canReplyThroughDiscord =
+    account.service === "discord" && readLocalApi()?.discordAccessibility !== undefined;
   const canLoadOlder = messages.length >= messageLimit && messageLimit < 5_000;
   const loadOlder = useCallback(() => {
     if (!canLoadOlder || loadingOlder) return;
@@ -267,7 +271,11 @@ function MessagePanel({
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{conversation.title}</p>
           <p className="text-[10px] text-muted-foreground">
-            {account.service === "discord" ? "Device cache · read only" : "Messages on this Mac"}
+            {account.service === "discord"
+              ? canReplyThroughDiscord
+                ? "Device cache · replies through Discord"
+                : "Device cache · read only"
+              : "Messages on this Mac"}
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -544,12 +552,68 @@ function Composer({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessibilityStatus, setAccessibilityStatus] = useState<DiscordAccessibilityStatus | null>(
+    null,
+  );
+  const [accessibilityResult, setAccessibilityResult] =
+    useState<DiscordAccessibilityReplyResult | null>(null);
+  const [activeActionId, setActiveActionId] = useState<string | null>(null);
+  const accessibility =
+    account.service === "discord" ? readLocalApi()?.discordAccessibility : undefined;
+  const canReply = canSend || accessibility !== undefined;
+
+  useEffect(() => {
+    if (!accessibility) return;
+    let active = true;
+    void accessibility.status(false).then((status) => {
+      if (active) setAccessibilityStatus(status);
+    });
+    return () => {
+      active = false;
+    };
+  }, [accessibility]);
 
   const submit = async () => {
     const content = text.trim();
-    if (!content || !canSend) return;
+    if (!content || !canReply) return;
     setSending(true);
     setError(null);
+    setAccessibilityResult(null);
+    if (!canSend && accessibility) {
+      let permission = accessibilityStatus;
+      if (permission?.permission !== "granted") {
+        permission = await accessibility.status(true);
+        setAccessibilityStatus(permission);
+      }
+      if (permission.permission !== "granted") {
+        setError(permission.detail);
+        setSending(false);
+        return;
+      }
+      const actionId = randomUUID();
+      setActiveActionId(actionId);
+      const replyResult = await accessibility.execute({
+        actionId,
+        origin: "local_desktop",
+        requestedAt: new Date().toISOString(),
+        accountId: account.accountId,
+        conversationId: conversation.conversationId,
+        ...(conversation.containerId ? { containerId: conversation.containerId } : {}),
+        conversationTitle: conversation.title,
+        text: content,
+        mode: "send",
+      });
+      setActiveActionId(null);
+      setAccessibilityResult(replyResult);
+      if (replyResult.sent) {
+        setText("");
+        onSent();
+      } else if (!replyResult.draftPrepared) {
+        setError(replyResult.detail);
+      }
+      setSending(false);
+      return;
+    }
     const result = await send({
       environmentId,
       input: {
@@ -570,7 +634,7 @@ function Composer({
 
   return (
     <div className="border-t border-border bg-background p-3">
-      {canSend ? (
+      {canReply ? (
         <div className="mx-auto max-w-3xl">
           <div className="flex items-end gap-2 rounded-lg border border-border bg-muted/20 p-2 focus-within:border-ring">
             <Textarea
@@ -587,14 +651,64 @@ function Composer({
               value={text}
             />
             <Button
-              aria-label="Send message"
+              aria-label={canSend ? "Send message" : "Send through Discord"}
               disabled={sending || text.trim().length === 0}
               onClick={() => void submit()}
-              size="icon-sm"
+              size={canSend ? "icon-sm" : "sm"}
             >
               <ArrowUpIcon className="size-3.5" />
+              {!canSend ? "Send via Discord" : null}
             </Button>
           </div>
+          {!canSend && accessibilityStatus?.permission !== "granted" ? (
+            <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
+              <p className="text-[11px] text-muted-foreground">
+                Allow Accessibility so Ditto can verify this Discord composer and send only when you
+                click.
+              </p>
+              <Button
+                onClick={() => {
+                  void accessibility?.status(true).then(setAccessibilityStatus);
+                }}
+                size="sm"
+                variant="outline"
+              >
+                Enable Accessibility
+              </Button>
+            </div>
+          ) : null}
+          {sending && activeActionId && accessibility ? (
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <span>Verifying the exact Discord conversation…</span>
+              <Button
+                onClick={() => void accessibility.cancel(activeActionId)}
+                size="sm"
+                variant="ghost"
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : null}
+          {accessibilityResult?.draftPrepared ? (
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <span>{accessibilityResult.detail}</span>
+              <Button
+                onClick={() => {
+                  const scope = conversation.containerId ?? "@me";
+                  openExternal(`discord://-/channels/${scope}/${conversation.conversationId}`);
+                }}
+                size="sm"
+                variant="ghost"
+              >
+                Open Discord
+              </Button>
+            </div>
+          ) : null}
+          {accessibilityResult?.sent ? (
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              Sent through the verified Discord composer.
+            </p>
+          ) : null}
           {error ? <p className="mt-1.5 text-xs text-destructive">{error}</p> : null}
         </div>
       ) : (

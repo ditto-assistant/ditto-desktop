@@ -916,6 +916,12 @@ export const DESKTOP_EXTRA_RESOURCES = [
     to: "resource-monitor",
   },
 ] as const;
+export const MAC_DISCORD_ACCESSIBILITY_EXTRA_RESOURCES = [
+  {
+    from: "apps/desktop/prod-resources/discord-accessibility",
+    to: "discord-accessibility",
+  },
+] as const;
 
 export interface MacPasskeySigningConfiguration {
   readonly appId: string;
@@ -2155,6 +2161,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     // hand-packed server.asar sidecar (see WINDOWS_SERVER_ASAR_RESOURCE).
     extraResources: [
       ...DESKTOP_EXTRA_RESOURCES,
+      ...(platform === "mac" ? MAC_DISCORD_ACCESSIBILITY_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
       ...(platform === "win" && wslRuntimeBundled ? WSL_RUNTIME_EXTRA_RESOURCES : []),
     ],
@@ -3098,6 +3105,24 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     arch: options.arch,
     verbose: options.verbose,
   });
+  if (options.platform === "mac") {
+    const helperOutput = path.join(stageResourcesDir, "discord-accessibility", "ditto-discord-ax");
+    yield* fs.makeDirectory(path.dirname(helperOutput), { recursive: true });
+    yield* runCommand(
+      ChildProcess.make(
+        "node",
+        [
+          "apps/desktop/scripts/build-discord-accessibility-helper.mjs",
+          "--arch",
+          options.arch,
+          "--output",
+          helperOutput,
+        ],
+        { cwd: repoRoot },
+      ),
+      { label: "build Discord Accessibility helper", verbose: options.verbose },
+    );
+  }
 
   yield* assertPlatformBuildResources(
     options.platform,
