@@ -539,6 +539,23 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       env: {
         ...backendChildEnvPatch(),
         ELECTRON_RUN_AS_NODE: "1",
+        ...(environment.platform === "darwin"
+          ? {
+              DITTO_TELEGRAM_HELPER_PATH: environment.isPackaged
+                ? environment.path.join(
+                    environment.resourcesPath,
+                    "telegram-accessibility",
+                    "ditto-telegram-ax",
+                  )
+                : environment.path.join(
+                    environment.rootDir,
+                    "apps",
+                    "desktop",
+                    ".native",
+                    "ditto-telegram-ax",
+                  ),
+            }
+          : {}),
       },
       // Primary wants process.env (PATH, dev-runner's T3CODE_HOME, etc.).
       extendEnv: true,

@@ -27,6 +27,7 @@ import {
   DESKTOP_EXTRA_RESOURCES,
   MAC_DISCORD_ACCESSIBILITY_EXTRA_RESOURCES,
   MAC_DISCORD_SIDECAR_EXTRA_RESOURCES,
+  MAC_TELEGRAM_ACCESSIBILITY_EXTRA_RESOURCES,
   MAC_FILE_EXCLUSIONS,
   InvalidMacPasskeyRpDomainError,
   InvalidMacPasskeyPublishableKeyError,
@@ -610,6 +611,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         ...DESKTOP_EXTRA_RESOURCES,
         ...MAC_DISCORD_ACCESSIBILITY_EXTRA_RESOURCES,
         ...MAC_DISCORD_SIDECAR_EXTRA_RESOURCES,
+        ...MAC_TELEGRAM_ACCESSIBILITY_EXTRA_RESOURCES,
       ]);
       assert.deepStrictEqual(win.extraResources, [
         {

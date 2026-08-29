@@ -155,7 +155,7 @@ function ConnectedInbox({
       {selectedAccount === null ? (
         <EmptyPanel
           title="Looking for local chats"
-          detail="Discord and Messages accounts will appear here when this device reports them."
+          detail="Local chat accounts will appear here when this device reports them."
         />
       ) : (
         <ConversationWorkspace
@@ -335,7 +335,9 @@ function MessagePanel({
                 : canReplyThroughDiscord
                   ? "Device cache · Accessibility reply fallback"
                   : "Device cache · read only"
-              : "Messages on this Mac"}
+              : account.service === "telegram"
+                ? "Telegram on this Mac · switches to Ditto Cloud after sign in"
+                : "Messages on this Mac"}
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -377,6 +379,20 @@ function MessagePanel({
             >
               <ExternalLinkIcon className="size-3.5" />
               Open in Discord
+            </Button>
+          ) : null}
+          {account.service === "telegram" && conversation.conversationId.startsWith("username:") ? (
+            <Button
+              onClick={() =>
+                openExternal(
+                  `tg://resolve?domain=${encodeURIComponent(conversation.conversationId.slice("username:".length))}`,
+                )
+              }
+              size="sm"
+              variant="ghost"
+            >
+              <ExternalLinkIcon className="size-3.5" />
+              Open in Telegram
             </Button>
           ) : null}
           <Button

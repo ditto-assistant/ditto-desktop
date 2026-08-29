@@ -70,6 +70,32 @@ describe("ElectronShell", () => {
     }).pipe(Effect.provide(ElectronShell.layer)),
   );
 
+  it.effect("opens exact Telegram username links in the native app", () =>
+    Effect.gen(function* () {
+      openExternalMock.mockResolvedValue(undefined);
+
+      const electronShell = yield* ElectronShell.ElectronShell;
+      const result = yield* electronShell.openExternal("tg://resolve?domain=telegram");
+
+      assert.equal(result, true);
+      assert.deepEqual(openExternalMock.mock.calls, [["tg://resolve?domain=telegram"]]);
+    }).pipe(Effect.provide(ElectronShell.layer)),
+  );
+
+  it.effect("rejects Telegram links with drafts or unsupported actions", () =>
+    Effect.gen(function* () {
+      const electronShell = yield* ElectronShell.ElectronShell;
+      const results = yield* Effect.all([
+        electronShell.openExternal("tg://resolve?domain=x"),
+        electronShell.openExternal("tg://resolve?domain=telegram&text=hidden"),
+        electronShell.openExternal("tg://msg_url?url=https%3A%2F%2Fexample.com"),
+      ]);
+
+      assert.deepEqual(results, [false, false, false]);
+      assert.equal(openExternalMock.mock.calls.length, 0);
+    }).pipe(Effect.provide(ElectronShell.layer)),
+  );
+
   it.effect("rejects Discord URLs that are not exact conversations", () =>
     Effect.gen(function* () {
       const electronShell = yield* ElectronShell.ElectronShell;

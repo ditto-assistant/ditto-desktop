@@ -15,6 +15,7 @@ export const ChannelTransportKind = Schema.Literals([
   "discord-local-user",
   "discord-bot",
   "imessage-macos",
+  "telegram-desktop-local",
   "telegram-bot",
   "telegram-user",
   "slack-app",

@@ -928,6 +928,12 @@ export const MAC_DISCORD_SIDECAR_EXTRA_RESOURCES = [
     to: "discord-sidecar",
   },
 ] as const;
+export const MAC_TELEGRAM_ACCESSIBILITY_EXTRA_RESOURCES = [
+  {
+    from: "apps/desktop/prod-resources/telegram-accessibility",
+    to: "telegram-accessibility",
+  },
+] as const;
 
 export interface MacPasskeySigningConfiguration {
   readonly appId: string;
@@ -2169,6 +2175,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ...DESKTOP_EXTRA_RESOURCES,
       ...(platform === "mac" ? MAC_DISCORD_ACCESSIBILITY_EXTRA_RESOURCES : []),
       ...(platform === "mac" ? MAC_DISCORD_SIDECAR_EXTRA_RESOURCES : []),
+      ...(platform === "mac" ? MAC_TELEGRAM_ACCESSIBILITY_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
       ...(platform === "win" && wslRuntimeBundled ? WSL_RUNTIME_EXTRA_RESOURCES : []),
     ],
@@ -3162,6 +3169,26 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         { cwd: repoRoot },
       ),
       { label: "build Discord Accessibility helper", verbose: options.verbose },
+    );
+    const telegramHelperOutput = path.join(
+      stageResourcesDir,
+      "telegram-accessibility",
+      "ditto-telegram-ax",
+    );
+    yield* fs.makeDirectory(path.dirname(telegramHelperOutput), { recursive: true });
+    yield* runCommand(
+      ChildProcess.make(
+        "node",
+        [
+          "apps/desktop/scripts/build-telegram-accessibility-helper.mjs",
+          "--arch",
+          options.arch,
+          "--output",
+          telegramHelperOutput,
+        ],
+        { cwd: repoRoot },
+      ),
+      { label: "build Telegram Accessibility helper", verbose: options.verbose },
     );
   }
 

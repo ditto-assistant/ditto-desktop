@@ -47,6 +47,18 @@ const isDiscordConversationUrl = (url: URL) => {
   );
 };
 
+const TELEGRAM_USERNAME = /^[A-Za-z0-9_]{5,32}$/;
+
+const isTelegramConversationUrl = (url: URL) =>
+  url.protocol === "tg:" &&
+  url.username.length === 0 &&
+  url.password.length === 0 &&
+  url.host === "resolve" &&
+  (url.pathname === "" || url.pathname === "/") &&
+  url.hash.length === 0 &&
+  [...url.searchParams.keys()].every((key) => key === "domain") &&
+  TELEGRAM_USERNAME.test(url.searchParams.get("domain") ?? "");
+
 export function parseSafeExternalUrl(rawUrl: unknown): Option.Option<string> {
   if (typeof rawUrl !== "string") {
     return Option.none();
@@ -56,7 +68,8 @@ export function parseSafeExternalUrl(rawUrl: unknown): Option.Option<string> {
     const url = new URL(rawUrl);
     return SAFE_WEB_PROTOCOLS.has(url.protocol) ||
       isRemoteEditorUrl(url) ||
-      isDiscordConversationUrl(url)
+      isDiscordConversationUrl(url) ||
+      isTelegramConversationUrl(url)
       ? Option.some(url.href)
       : Option.none();
   } catch {

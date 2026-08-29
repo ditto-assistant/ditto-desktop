@@ -26,6 +26,8 @@ import { makeDiscrawlAdapter } from "./DiscrawlAdapter.ts";
 import { DiscrawlManager } from "./DiscrawlManager.ts";
 import { DiscordMediaCache } from "./DiscordMediaCache.ts";
 import { IMESSAGE_ACCOUNT_ID, makeIMessageAdapter } from "./IMessageAdapter.ts";
+import { makeTelegramAdapter, TELEGRAM_LOCAL_ACCOUNT_ID } from "./TelegramAdapter.ts";
+import { makeTelegramLocalSource } from "./TelegramLocalSource.ts";
 
 export interface ChannelRegistryShape {
   readonly listAccounts: Effect.Effect<
@@ -155,6 +157,11 @@ export const layer = Layer.effect(
       protocol: makeDiscordLocalAdapter(sidecar),
       archive,
     });
+    const telegramLocal = makeTelegramLocalSource({
+      platform,
+      helperPath: environment.DITTO_TELEGRAM_HELPER_PATH,
+      run,
+    });
     return makeChannelRegistry(
       new Map([
         [DISCORD_ACCOUNT_ID, discord],
@@ -164,6 +171,10 @@ export const layer = Layer.effect(
             platform,
             homeDirectory: environment.HOME ?? "",
           }),
+        ],
+        [
+          TELEGRAM_LOCAL_ACCOUNT_ID,
+          makeTelegramAdapter(() => ({ mode: "local", source: telegramLocal })),
         ],
       ]),
     );

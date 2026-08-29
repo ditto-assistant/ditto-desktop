@@ -15,6 +15,7 @@ import {
   SearchIcon,
   ServerIcon,
   SmartphoneIcon,
+  SendIcon,
 } from "lucide-react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
@@ -55,6 +56,7 @@ function accountIcon(account: ConnectedChannelAccount) {
 function accountLabel(account: ConnectedChannelAccount): string {
   if (account.service === "discord") return "Discord";
   if (account.service === "imessage") return "iMessage";
+  if (account.service === "telegram") return "Telegram";
   return account.label;
 }
 
@@ -69,6 +71,7 @@ function accountStatus(account: ConnectedChannelAccount): string {
   if (account.service === "imessage" && account.state === "permission_required") {
     return "Allow Full Disk Access to Ditto in System Settings.";
   }
+  if (account.service === "telegram") return account.statusDetail ?? "Telegram needs attention.";
   if (account.state === "error") return "Couldn’t load chats. Try again.";
   return account.statusDetail ?? "Setup required";
 }
@@ -112,7 +115,7 @@ export function ChannelSidebar({ environmentId }: { readonly environmentId: Envi
           aria-label="Search chats"
           className="h-7 border-sidebar-border/70 bg-sidebar-accent/30 pr-2 pl-7 text-xs shadow-none"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search Discord and Messages"
+          placeholder="Search all chats"
           value={query}
         />
       </div>
@@ -167,7 +170,8 @@ function ChannelAccountGroup({
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const displayedAccount = configuredAccount ?? account;
-  const ServiceIcon = accountIcon(displayedAccount);
+  const ServiceIcon =
+    displayedAccount.service === "telegram" ? SendIcon : accountIcon(displayedAccount);
   const selectedAccount = route.pathname === "/inbox" && route.search.account === account.accountId;
   const selectedConversation =
     route.pathname === "/inbox" && typeof route.search.conversation === "string"
@@ -205,7 +209,9 @@ function ChannelAccountGroup({
     (capability) =>
       capability.operation === "message.send" && capability.availability === "available",
   );
-  const canConnectDiscord = displayedAccount.service === "discord" && !liveSendAvailable;
+  const canConfigure =
+    (displayedAccount.service === "discord" && !liveSendAvailable) ||
+    (displayedAccount.service === "telegram" && displayedAccount.state === "permission_required");
 
   const openAccount = () => {
     setExpanded((value) => !value);
@@ -240,7 +246,9 @@ function ChannelAccountGroup({
             "flex size-4 shrink-0 items-center justify-center rounded-[4px]",
             displayedAccount.service === "discord"
               ? "bg-[#5865f2]/15 text-[#7c87ff]"
-              : "bg-emerald-500/15 text-emerald-500",
+              : displayedAccount.service === "telegram"
+                ? "bg-[#229ed9]/15 text-[#42b9ed]"
+                : "bg-emerald-500/15 text-emerald-500",
           )}
         >
           <ServiceIcon className="size-3" />
@@ -262,7 +270,7 @@ function ChannelAccountGroup({
 
       {expanded ? (
         <ul className="ml-5.5 flex flex-col gap-px border-l border-sidebar-border/60 pl-1.5">
-          {canConnectDiscord ? (
+          {canConfigure ? (
             <li className="list-none py-1 pr-1">
               <Button
                 type="button"
@@ -273,7 +281,11 @@ function ChannelAccountGroup({
                 className="h-7 w-full justify-start gap-1.5 px-2 text-xs text-sidebar-muted-foreground"
               >
                 <PlusIcon className="size-3" />
-                {configuring ? "Connecting…" : "Connect live Discord"}
+                {configuring
+                  ? "Connecting…"
+                  : displayedAccount.service === "telegram"
+                    ? "Enable Telegram access"
+                    : "Connect live Discord"}
               </Button>
             </li>
           ) : null}
@@ -346,7 +358,7 @@ function ReadyChannelConversations({
   const conversationsResult = useAtomValue(conversationsAtom);
   const refreshConversations = useAtomRefresh(conversationsAtom);
   useVisiblePolling(refreshConversations, {
-    enabled: account.service === "discord",
+    enabled: account.service === "discord" || account.service === "telegram",
     intervalMs: 10_000,
   });
   const loadedConversations = Option.getOrNull(
