@@ -18,6 +18,7 @@ function makeSource(overrides: Partial<DiscordLocalSource> = {}): DiscordLocalSo
       user: { id: "self", displayName: "Peyton", isSelf: true },
     }),
     startLogin: async () => ({
+      connected: false,
       qrUrl: "https://discordapp.com/ra/fingerprint",
       expiresInSeconds: 180,
     }),
@@ -59,6 +60,32 @@ it.effect("does not start the Discord sidecar until an adapter operation runs", 
     expect(calls).toBe(1);
     yield* adapter.discover;
     expect(calls).toBe(2);
+  }),
+);
+
+it.effect("treats Connect as successful when the saved Discord session is already ready", () =>
+  Effect.gen(function* () {
+    const adapter = makeDiscordLocalAdapter(
+      makeSource({
+        startLogin: async () => ({
+          connected: true,
+          status: {
+            protocolVersion: 1,
+            connected: true,
+            loginPending: false,
+            detail: "Connected directly to Discord on this device.",
+            user: { id: "self", displayName: "Peyton", isSelf: true },
+          },
+        }),
+      }),
+    );
+    const configure = adapter.configure;
+    expect(configure).toBeDefined();
+    if (configure === undefined) return;
+
+    const account = yield* configure(true);
+    expect(account.state).toBe("ready");
+    expect(account.setupUrl).toBeUndefined();
   }),
 );
 

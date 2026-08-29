@@ -12,6 +12,7 @@ import type { ChannelAdapter } from "./ChannelAdapter.ts";
 import type {
   DiscordSidecarClient,
   DiscordSidecarConversation,
+  DiscordSidecarLoginResult,
   DiscordSidecarMessage,
   DiscordSidecarStatus,
 } from "./DiscordSidecarClient.ts";
@@ -61,7 +62,7 @@ function operation<A>(run: () => Promise<A>): Effect.Effect<A, ChannelOperationE
 
 export interface DiscordLocalSource {
   status(): Promise<DiscordSidecarStatus>;
-  startLogin(): Promise<{ readonly qrUrl: string; readonly expiresInSeconds: number }>;
+  startLogin(): Promise<DiscordSidecarLoginResult>;
   logout(): Promise<void>;
   listConversations(): Promise<ReadonlyArray<DiscordSidecarConversation>>;
   listMessages(
@@ -149,15 +150,20 @@ export function makeDiscordLocalAdapter(client: DiscordLocalSource): ChannelAdap
     configure: (enabled) =>
       enabled
         ? operation(() => client.startLogin()).pipe(
-            Effect.map((login) => ({
-              ...accountFromStatus({
-                protocolVersion: 1,
-                connected: false,
-                loginPending: true,
-                detail: "Approve this one-time Discord sign-in from a device already signed in.",
-              }),
-              setupUrl: login.qrUrl,
-            })),
+            Effect.map((login) =>
+              login.connected
+                ? accountFromStatus(login.status)
+                : {
+                    ...accountFromStatus({
+                      protocolVersion: 1,
+                      connected: false,
+                      loginPending: true,
+                      detail:
+                        "Approve this one-time Discord sign-in from a device already signed in.",
+                    }),
+                    setupUrl: login.qrUrl,
+                  },
+            ),
           )
         : operation(() => client.logout()).pipe(Effect.andThen(discover())),
     listConversations: operation(() => client.listConversations()).pipe(

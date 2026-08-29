@@ -10,6 +10,17 @@ export interface DiscordSidecarStatus {
   readonly user?: DiscordSidecarParticipant;
 }
 
+export type DiscordSidecarLoginResult =
+  | {
+      readonly connected: true;
+      readonly status: DiscordSidecarStatus;
+    }
+  | {
+      readonly connected: false;
+      readonly qrUrl: string;
+      readonly expiresInSeconds: number;
+    };
+
 export interface DiscordSidecarParticipant {
   readonly id: string;
   readonly displayName: string;
@@ -104,11 +115,23 @@ export class DiscordSidecarClient {
     return status;
   }
 
-  async startLogin(): Promise<{ readonly qrUrl: string; readonly expiresInSeconds: number }> {
-    return (await this.#request("login.start", undefined, 20_000)) as {
-      readonly qrUrl: string;
-      readonly expiresInSeconds: number;
-    };
+  async startLogin(): Promise<DiscordSidecarLoginResult> {
+    // Startup restores a Keychain credential in the background. A user can
+    // click Connect before that attempt completes; wait for the same restore
+    // path so login.start cannot invalidate a valid in-flight connection.
+    const restored = (await this.#request(
+      "connection.restore",
+      undefined,
+      30_000,
+    )) as DiscordSidecarStatus;
+    if (restored.connected) {
+      return { connected: true, status: restored };
+    }
+    return (await this.#request("login.start", undefined, 20_000)) as DiscordSidecarLoginResult;
+  }
+
+  async cancelLogin(): Promise<void> {
+    await this.#request("login.cancel");
   }
 
   async logout(): Promise<void> {

@@ -236,6 +236,13 @@ func (s *sidecar) dispatch(method string, params json.RawMessage) (any, error) {
 func (s *sidecar) status() statusResult {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.statusLocked()
+}
+
+// statusLocked returns a snapshot while the caller holds s.mu for reading or
+// writing. Keeping this separate lets login.start answer idempotently without
+// dropping the lock between checking the session and returning its identity.
+func (s *sidecar) statusLocked() statusResult {
 	result := statusResult{ProtocolVersion: protocolVersion, Connected: s.session != nil, LoginPending: s.loginStop != nil}
 	if s.self != nil {
 		participant := participantFromUser(s.self, true)
@@ -277,6 +284,11 @@ func (s *sidecar) restore() statusResult {
 
 func (s *sidecar) startLogin() (any, error) {
 	s.mu.Lock()
+	if s.session != nil {
+		status := s.statusLocked()
+		s.mu.Unlock()
+		return map[string]any{"connected": true, "status": status}, nil
+	}
 	if s.loginStop != nil {
 		s.mu.Unlock()
 		return nil, errors.New("a Discord login is already pending")
@@ -309,7 +321,7 @@ func (s *sidecar) startLogin() (any, error) {
 			return nil, errors.New("Discord did not return a login QR code")
 		}
 		go s.finishLogin(generation, cancel, result)
-		return map[string]any{"qrUrl": qrURL, "expiresInSeconds": 180}, nil
+		return map[string]any{"connected": false, "qrUrl": qrURL, "expiresInSeconds": 180}, nil
 	case <-time.After(15 * time.Second):
 		cancel()
 		s.clearPendingLogin(generation)
