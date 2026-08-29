@@ -52,7 +52,7 @@ export const discordAccessibilityExecute = DesktopIpc.makeIpcMethod({
   result: DiscordAccessibilityReplyResult,
   handler: Effect.fn("desktop.ipc.discordAccessibility.execute")(function* (input) {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
-    return yield* Effect.promise(() => resolveTransport(environment).execute(input));
+    return yield* Effect.promise(() => resolveTransport(environment).perform(input));
   }),
 });
 

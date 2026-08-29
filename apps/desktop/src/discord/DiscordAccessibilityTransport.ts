@@ -10,6 +10,12 @@ import type {
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 
+import type {
+  AppAutomationDescriptor,
+  AppAutomationTarget,
+  AppScopedAutomationAdapter,
+} from "../appAutomation/AppScopedAutomationAdapter.ts";
+
 const DISCORD_SNOWFLAKE = /^\d{15,24}$/;
 const ACTION_TIMEOUT_MS = 10_000;
 const STATUS_TIMEOUT_MS = 3_000;
@@ -44,11 +50,41 @@ export interface DiscordAccessibilityHelperRunner {
   ): Promise<unknown>;
 }
 
-function discordDeepLink(input: DiscordAccessibilityReplyInput): string | null {
+export const DISCORD_ACCESSIBILITY_DESCRIPTOR = {
+  adapterId: "discord-accessibility",
+  service: "discord",
+  bundleId: "com.hnc.Discord",
+  capabilities: {
+    semanticObservation: "supported",
+    semanticDraft: "supported",
+    semanticCommit: "best_effort",
+    cursorless: "supported",
+    background: "best_effort",
+    lockedSession: "unsupported",
+    interventionDetection: "best_effort",
+  },
+} as const satisfies AppAutomationDescriptor;
+
+function discordTarget(
+  input: DiscordAccessibilityReplyInput | DiscordAccessibilitySnapshotInput,
+): AppAutomationTarget | null {
   if (!DISCORD_SNOWFLAKE.test(input.conversationId)) return null;
-  const scope = input.containerId ?? "@me";
+  const scope = "containerId" in input ? (input.containerId ?? "@me") : "@me";
   if (scope !== "@me" && !DISCORD_SNOWFLAKE.test(scope)) return null;
-  return `discord://-/channels/${scope}/${input.conversationId}`;
+  if (input.conversationTitle.trim().length === 0 || input.conversationTitle.length > 200)
+    return null;
+  return {
+    adapterId: DISCORD_ACCESSIBILITY_DESCRIPTOR.adapterId,
+    bundleId: DISCORD_ACCESSIBILITY_DESCRIPTOR.bundleId,
+    accountId: input.accountId,
+    conversationId: input.conversationId,
+    ...(scope === "@me" ? {} : { containerId: scope }),
+    expectedTitle: input.conversationTitle,
+  };
+}
+
+function discordDeepLink(target: AppAutomationTarget): string {
+  return `discord://-/channels/${target.containerId ?? "@me"}/${target.conversationId}`;
 }
 
 function fallbackResult(
@@ -238,7 +274,14 @@ export class NativeDiscordAccessibilityHelper implements DiscordAccessibilityHel
   }
 }
 
-export class DiscordAccessibilityTransport {
+export class DiscordAccessibilityTransport implements AppScopedAutomationAdapter<
+  DiscordAccessibilityStatus,
+  DiscordAccessibilitySnapshotInput,
+  DiscordAccessibilitySnapshotResult,
+  DiscordAccessibilityReplyInput,
+  DiscordAccessibilityReplyResult
+> {
+  readonly descriptor = DISCORD_ACCESSIBILITY_DESCRIPTOR;
   readonly #inFlight = new Map<string, () => void>();
   readonly #receipts = new Map<string, DiscordAccessibilityReplyResult>();
   readonly platform: NodeJS.Platform;
@@ -247,6 +290,12 @@ export class DiscordAccessibilityTransport {
   constructor(platform: NodeJS.Platform, runner: DiscordAccessibilityHelperRunner) {
     this.platform = platform;
     this.runner = runner;
+  }
+
+  resolveTarget(
+    input: DiscordAccessibilityReplyInput | DiscordAccessibilitySnapshotInput,
+  ): AppAutomationTarget | null {
+    return discordTarget(input);
   }
 
   async status(prompt = false): Promise<DiscordAccessibilityStatus> {
@@ -282,11 +331,7 @@ export class DiscordAccessibilityTransport {
       return snapshotFailure(input, "Discord live snapshots require macOS.");
     }
     const maxMessages = Math.min(Math.max(input.maxMessages ?? 100, 1), 200);
-    if (
-      !DISCORD_SNOWFLAKE.test(input.conversationId) ||
-      input.conversationTitle.trim().length === 0 ||
-      input.conversationTitle.length > 200
-    ) {
+    if (this.resolveTarget(input) === null) {
       return snapshotFailure(input, "The Discord snapshot target is invalid.");
     }
     try {
@@ -322,8 +367,8 @@ export class DiscordAccessibilityTransport {
         ),
       );
     }
-    const deepLink = discordDeepLink(input);
-    if (deepLink === null || input.text.trim().length === 0) {
+    const target = this.resolveTarget(input);
+    if (target === null || input.text.trim().length === 0) {
       return this.#remember(
         fallbackResult(input, "failed", "The Discord target or message is invalid.", startedAt),
       );
@@ -339,7 +384,7 @@ export class DiscordAccessibilityTransport {
           actionId: input.actionId,
           origin: input.origin,
           mode: input.mode,
-          deepLink,
+          deepLink: discordDeepLink(target),
           expectedTitle: input.conversationTitle,
           text: input.text,
           timeoutMs: ACTION_TIMEOUT_MS,
@@ -369,6 +414,10 @@ export class DiscordAccessibilityTransport {
     } finally {
       this.#inFlight.delete(input.actionId);
     }
+  }
+
+  perform(input: DiscordAccessibilityReplyInput): Promise<DiscordAccessibilityReplyResult> {
+    return this.execute(input);
   }
 
   cancel(actionId: string): boolean {

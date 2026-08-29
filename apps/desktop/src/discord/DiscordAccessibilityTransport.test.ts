@@ -5,6 +5,7 @@ import type {
 import { assert, describe, it } from "@effect/vitest";
 
 import {
+  DISCORD_ACCESSIBILITY_DESCRIPTOR,
   DiscordAccessibilityTransport,
   type DiscordAccessibilityHelperRunner,
 } from "./DiscordAccessibilityTransport.ts";
@@ -28,6 +29,22 @@ describe("DiscordAccessibilityTransport", () => {
     conversationTitle: "Trupan",
     maxMessages: 50,
   } as DiscordAccessibilitySnapshotInput;
+
+  it("publishes explicit capabilities and canonical target identity", () => {
+    const transport = new DiscordAccessibilityTransport("darwin", {
+      run: async () => ({}),
+    });
+    assert.deepEqual(transport.descriptor, DISCORD_ACCESSIBILITY_DESCRIPTOR);
+    assert.deepEqual(transport.resolveTarget(input), {
+      adapterId: "discord-accessibility",
+      bundleId: "com.hnc.Discord",
+      accountId: "discord-local",
+      conversationId: "1531175553309343915",
+      containerId: "1073292100218654821",
+      expectedTitle: "general",
+    });
+    assert.equal(transport.descriptor.capabilities.lockedSession, "unsupported");
+  });
 
   it("validates a Discord target before invoking the native helper", async () => {
     let calls = 0;

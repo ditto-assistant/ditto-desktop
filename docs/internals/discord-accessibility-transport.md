@@ -1,5 +1,8 @@
 # Discord Accessibility reply transport
 
+This is the first concrete implementation of the shared
+[native app automation adapter](native-app-automation.md) boundary.
+
 The macOS Discord reply transport is an explicit-user-action companion to the
 read-only Discrawl cache adapter. It deliberately has no Discord credential,
 token, cookie, DOM injection, or private API access.
@@ -35,10 +38,10 @@ The inbox overlays this verified tail on Discrawl history and deduplicates by
 Discord message ID, with a content/time signature fallback. An unverified,
 unavailable, or malformed snapshot never replaces archive history.
 
-It does not traverse or return message contents. A deep link plus one uniquely
-matching composer is the minimum target proof. Ambiguous or missing matches
-fail closed before text insertion. When `AXConfirm` is absent or cannot be
-verified, the result is `draft_prepared`, never an assumed send.
+The mutation path does not traverse or return message contents. A deep link plus
+one uniquely matching composer is the minimum target proof. Ambiguous or missing
+matches fail closed before text insertion. When `AXConfirm` is absent or cannot
+be verified, the result is `draft_prepared`, never an assumed send.
 
 ### Why names are not resolved through Accessibility
 
