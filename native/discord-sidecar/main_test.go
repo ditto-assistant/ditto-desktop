@@ -85,3 +85,28 @@ func TestSnowflakeTimestamp(t *testing.T) {
 		t.Fatalf("snowflakeTimestamp() = %q, want %q", got, want.Format(time.RFC3339Nano))
 	}
 }
+
+func TestDiscordTransportNoncePreservesShortValues(t *testing.T) {
+	const actionID = "action-123"
+	if got := discordTransportNonce(actionID); got != actionID {
+		t.Fatalf("discordTransportNonce() = %q, want %q", got, actionID)
+	}
+}
+
+func TestDiscordTransportNonceCompactsLongActionIDsDeterministically(t *testing.T) {
+	const actionID = "616c3753-5711-423d-bfc2-3a9a211b6bf6"
+	first := discordTransportNonce(actionID)
+	second := discordTransportNonce(actionID)
+	if first != second {
+		t.Fatalf("discordTransportNonce() was not deterministic: %q != %q", first, second)
+	}
+	if len(first) > 25 {
+		t.Fatalf("discordTransportNonce() length = %d, want <= 25", len(first))
+	}
+	if first == actionID {
+		t.Fatal("discordTransportNonce() did not compact the long action ID")
+	}
+	if first == discordTransportNonce("716c3753-5711-423d-bfc2-3a9a211b6bf6") {
+		t.Fatal("discordTransportNonce() collided for different action IDs")
+	}
+}

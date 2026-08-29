@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -542,7 +543,11 @@ func (s *sidecar) sendMessage(channelID, guildID, content, replyToID, nonce stri
 	if attachmentErr != nil {
 		return wireMessage{}, attachmentErr
 	}
-	payload := &discordgo.MessageSend{Content: content, Nonce: nonce, Attachments: attachments}
+	payload := &discordgo.MessageSend{
+		Content:     content,
+		Nonce:       discordTransportNonce(nonce),
+		Attachments: attachments,
+	}
 	if replyToID != "" {
 		failIfMissing := false
 		payload.Reference = &discordgo.MessageReference{MessageID: replyToID, ChannelID: channelID, GuildID: guildID, FailIfNotExists: &failIfMissing}
@@ -562,6 +567,18 @@ func (s *sidecar) sendMessage(channelID, guildID, content, replyToID, nonce stri
 		s.out.write(event{Event: "receipt.persistence_failed", Data: map[string]string{"message": "The delivery receipt could not be saved across restarts."}})
 	}
 	return s.message(message), nil
+}
+
+// Discord limits a message nonce to 25 characters, while Ditto action IDs are
+// UUIDs (and may be up to 128 characters). Keep the original action ID as the
+// durable local receipt key, but use a deterministic compact value on the wire
+// so retrying the same action produces the same Discord nonce.
+func discordTransportNonce(actionID string) string {
+	if len(actionID) <= 25 {
+		return actionID
+	}
+	digest := sha256.Sum256([]byte(actionID))
+	return fmt.Sprintf("%x", digest[:12])
 }
 
 func prepareAttachments(session *discordgo.Session, channelID string, paths []string, options []discordgo.RequestOption) ([]*discordgo.MessageAttachment, error) {
