@@ -82,6 +82,11 @@ export function ChannelSidebar({ environmentId }: { readonly environmentId: Envi
   const loadedAccounts = Option.getOrNull(AsyncResult.value(accountsResult))?.accounts;
   const [stableAccounts, setStableAccounts] = useState<ReadonlyArray<ConnectedChannelAccount>>([]);
 
+  // Connection state can change outside the renderer (QR approval, Gateway
+  // reconnect, credential restore), so keep the sidebar converged even when a
+  // one-shot setup event is missed.
+  useVisiblePolling(refreshAccounts, { enabled: true, intervalMs: 10_000 });
+
   useEffect(() => {
     if (loadedAccounts !== undefined && loadedAccounts.length > 0) {
       setStableAccounts(loadedAccounts);
@@ -161,11 +166,10 @@ function ChannelAccountGroup({
       ? route.search.conversation
       : null;
 
-  useEffect(() => {
-    if (account.state !== "syncing" && setupUrl === null) return;
-    const interval = window.setInterval(onConfigured, 1_500);
-    return () => window.clearInterval(interval);
-  }, [account.state, onConfigured, setupUrl]);
+  useVisiblePolling(onConfigured, {
+    enabled: account.state === "syncing" || setupUrl !== null,
+    intervalMs: 1_500,
+  });
 
   useEffect(() => {
     if (account.state === "ready" && account.transport === "discord-local-user") {

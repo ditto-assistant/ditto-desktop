@@ -17,7 +17,7 @@ import { DISCORD_LOCAL_ACCOUNT_ID } from "./DiscordLocalAdapter.ts";
 function account(
   id: string,
   transport: "discord-discrawl" | "discord-local-user",
-  state: "ready" | "setup_required",
+  state: "ready" | "syncing" | "setup_required",
 ): ConnectedChannelAccount {
   return {
     accountId: ChannelAccountId.make(id),
@@ -146,5 +146,24 @@ it.effect("falls back to Discrawl without exposing a second Discord account", ()
     expect(discovered.transport).toBe("discord-discrawl");
     expect(conversations).toHaveLength(1);
     expect(conversations[0]?.accountId).toBe(DISCORD_ACCOUNT_ID);
+  }),
+);
+
+it.effect("keeps the protocol login state visible while a QR approval is pending", () =>
+  Effect.gen(function* () {
+    const composite = makeDiscordCompositeAdapter({
+      protocol: adapter({
+        discovered: account(DISCORD_LOCAL_ACCOUNT_ID, "discord-local-user", "syncing"),
+        failRead: true,
+      }),
+      archive: adapter({
+        discovered: account(DISCORD_ACCOUNT_ID, "discord-discrawl", "ready"),
+      }),
+    });
+
+    const discovered = yield* composite.discover;
+    expect(discovered.accountId).toBe(DISCORD_ACCOUNT_ID);
+    expect(discovered.transport).toBe("discord-local-user");
+    expect(discovered.state).toBe("syncing");
   }),
 );

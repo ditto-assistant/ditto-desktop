@@ -120,7 +120,7 @@ export function makeDiscordCompositeAdapter(input: {
     { concurrency: "unbounded" },
   ).pipe(
     Effect.flatMap(([protocol, archive]) => {
-      if (protocol.ok && protocol.value.state === "ready") {
+      if (protocol.ok && (protocol.value.state === "ready" || protocol.value.state === "syncing")) {
         return Effect.succeed(logicalAccount(protocol.value));
       }
       if (archive.ok) {
