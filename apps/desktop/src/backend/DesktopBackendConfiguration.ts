@@ -146,6 +146,33 @@ function resourceMonitorBinaryName(platform: NodeJS.Platform): string {
   return platform === "win32" ? "t3-resource-monitor.exe" : "t3-resource-monitor";
 }
 
+const resolveDiscordSidecarPath = Effect.fn(
+  "desktop.backendConfiguration.resolveDiscordSidecarPath",
+)(function* () {
+  const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  const fileSystem = yield* FileSystem.FileSystem;
+  if (environment.platform !== "darwin") return Option.none<string>();
+  const candidates = environment.isDevelopment
+    ? [environment.path.join(environment.rootDir, "apps/desktop/.native/ditto-discord-sidecar")]
+    : environment.isPackaged
+      ? [
+          environment.path.join(
+            environment.resourcesPath,
+            "discord-sidecar",
+            "ditto-discord-sidecar",
+          ),
+        ]
+      : environment.resolveResourcePathCandidates(
+          environment.path.join("discord-sidecar", "ditto-discord-sidecar"),
+        );
+  for (const candidate of candidates) {
+    if (yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false))) {
+      return Option.some(candidate);
+    }
+  }
+  return Option.none<string>();
+});
+
 const resolveResourceMonitorPath = Effect.fn(
   "desktop.backendConfiguration.resolveResourceMonitorPath",
 )(function* () {
@@ -471,6 +498,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
   function* (
     input: SharedBootstrapInput & {
       readonly resourceMonitorPath: Option.Option<string>;
+      readonly discordSidecarPath: Option.Option<string>;
     },
   ): Effect.fn.Return<
     DesktopBackendManager.DesktopBackendStartConfig,
@@ -495,6 +523,10 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       ...Option.match(input.resourceMonitorPath, {
         onNone: () => ({}),
         onSome: (resourceMonitorPath) => ({ resourceMonitorPath }),
+      }),
+      ...Option.match(input.discordSidecarPath, {
+        onNone: () => ({}),
+        onSome: (discordSidecarPath) => ({ discordSidecarPath }),
       }),
       ...buildObservabilityFragment(input.observabilitySettings),
     };
@@ -809,7 +841,15 @@ export const make = Effect.gen(function* () {
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
     );
-    return yield* resolvePrimaryStartConfig({ ...shared, resourceMonitorPath }).pipe(
+    const discordSidecarPath = yield* resolveDiscordSidecarPath().pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
+    );
+    return yield* resolvePrimaryStartConfig({
+      ...shared,
+      resourceMonitorPath,
+      discordSidecarPath,
+    }).pipe(
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
       Effect.provideService(DesktopServerExposure.DesktopServerExposure, serverExposure),
     );

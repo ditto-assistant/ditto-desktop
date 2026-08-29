@@ -12,6 +12,7 @@ export type ChatService = typeof ChatService.Type;
 
 export const ChannelTransportKind = Schema.Literals([
   "discord-discrawl",
+  "discord-local-user",
   "discord-bot",
   "imessage-macos",
   "telegram-bot",
@@ -109,6 +110,7 @@ export const ConnectedChannelAccount = Schema.Struct({
   completeness: ChannelDataCompleteness,
   lastObservedAt: Schema.optionalKey(Schema.String),
   statusDetail: Schema.optionalKey(Schema.String),
+  setupUrl: Schema.optionalKey(Schema.String),
 });
 export type ConnectedChannelAccount = typeof ConnectedChannelAccount.Type;
 

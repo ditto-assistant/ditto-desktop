@@ -922,6 +922,12 @@ export const MAC_DISCORD_ACCESSIBILITY_EXTRA_RESOURCES = [
     to: "discord-accessibility",
   },
 ] as const;
+export const MAC_DISCORD_SIDECAR_EXTRA_RESOURCES = [
+  {
+    from: "apps/desktop/prod-resources/discord-sidecar",
+    to: "discord-sidecar",
+  },
+] as const;
 
 export interface MacPasskeySigningConfiguration {
   readonly appId: string;
@@ -2162,6 +2168,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     extraResources: [
       ...DESKTOP_EXTRA_RESOURCES,
       ...(platform === "mac" ? MAC_DISCORD_ACCESSIBILITY_EXTRA_RESOURCES : []),
+      ...(platform === "mac" ? MAC_DISCORD_SIDECAR_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
       ...(platform === "win" && wslRuntimeBundled ? WSL_RUNTIME_EXTRA_RESOURCES : []),
     ],
@@ -3106,6 +3113,40 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     verbose: options.verbose,
   });
   if (options.platform === "mac") {
+    const discordSidecarOutput = path.join(
+      stageResourcesDir,
+      "discord-sidecar",
+      "ditto-discord-sidecar",
+    );
+    yield* fs.makeDirectory(path.dirname(discordSidecarOutput), { recursive: true });
+    yield* runCommand(
+      ChildProcess.make(
+        "node",
+        [
+          "apps/desktop/scripts/build-discord-sidecar.mjs",
+          "--arch",
+          options.arch,
+          "--output",
+          discordSidecarOutput,
+        ],
+        { cwd: repoRoot },
+      ),
+      { label: "build Discord protocol sidecar", verbose: options.verbose },
+    );
+    const discordSidecarSource = path.join(repoRoot, "native", "discord-sidecar");
+    const discordSidecarResources = path.dirname(discordSidecarOutput);
+    yield* fs.copy(
+      path.join(discordSidecarSource, "LICENSE"),
+      path.join(discordSidecarResources, "LICENSE"),
+    );
+    yield* fs.copy(
+      path.join(discordSidecarSource, "NOTICE.md"),
+      path.join(discordSidecarResources, "NOTICE.md"),
+    );
+    yield* fs.copy(
+      path.join(discordSidecarSource, "THIRD_PARTY_LICENSES"),
+      path.join(discordSidecarResources, "THIRD_PARTY_LICENSES"),
+    );
     const helperOutput = path.join(stageResourcesDir, "discord-accessibility", "ditto-discord-ax");
     yield* fs.makeDirectory(path.dirname(helperOutput), { recursive: true });
     yield* runCommand(

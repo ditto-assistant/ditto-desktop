@@ -306,6 +306,7 @@ export const resolveServerConfig = (
     const desktopTelemetryFd = bootstrap?.desktopTelemetryFd;
     const desktopTelemetryControlFd = bootstrap?.desktopTelemetryControlFd;
     const resourceMonitorPath = bootstrap?.resourceMonitorPath;
+    const discordSidecarPath = bootstrap?.discordSidecarPath;
     const autoBootstrapProjectFromCwd = Option.getOrElse(
       resolveOptionPrecedence(
         Option.fromUndefinedOr(options?.forceAutoBootstrapProjectFromCwd),
@@ -382,6 +383,7 @@ export const resolveServerConfig = (
       desktopTelemetryFd,
       desktopTelemetryControlFd,
       resourceMonitorPath,
+      discordSidecarPath,
       autoBootstrapProjectFromCwd,
       logWebSocketEvents,
       tailscaleServeEnabled,
