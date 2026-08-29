@@ -28,8 +28,11 @@ Primary references:
 
 ## Current compatibility
 
-- Telegram Desktop 6.9+ (`org.telegram.desktop`): local screen-reader snapshot and verified public
-  username sends are enabled after Accessibility permission.
+- Telegram Desktop 6.9+ (`com.tdesktop.Telegram` from desktop.telegram.org or
+  `org.telegram.desktop` from the Mac App Store): local screen-reader snapshot and verified public
+  username sends are enabled after Accessibility permission. It may coexist with the native client;
+  Ditto prefers Telegram Desktop and explicitly routes verified send deep links to that app instead
+  of relying on the system's default `tg:` handler.
 - Native Telegram for macOS (`ru.keepcoder.Telegram`): detected, but currently reports setup required.
   Its window does not expose chat/message controls in the macOS Accessibility tree, so Ditto refuses
   to scrape pixels or send to an unverifiable destination.

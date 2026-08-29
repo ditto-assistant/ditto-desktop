@@ -3,11 +3,17 @@ import ApplicationServices
 import Darwin
 import Foundation
 
-private let telegramDesktopBundleIDs: Set<String> = [
+// Keep these ordered. Telegram Desktop is the supported semantic Accessibility
+// source and must win when it coexists with the native macOS client.
+private let telegramDesktopBundleIDs = [
+    // Direct build from desktop.telegram.org.
+    "com.tdesktop.Telegram",
+    "com.tdesktop.Telegram.beta",
+    // Mac App Store / legacy Telegram Desktop builds.
     "org.telegram.desktop",
     "org.telegram.desktop.beta",
 ]
-private let telegramMacBundleIDs: Set<String> = [
+private let telegramMacBundleIDs = [
     "ru.keepcoder.Telegram",
     "ru.keepcoder.Telegram.beta",
 ]
@@ -116,31 +122,34 @@ private struct AppTarget {
     let client: String
 }
 
+private func runningTelegram(
+    bundleIDs: [String],
+    client: String
+) -> AppTarget? {
+    NSWorkspace.shared.runningApplications
+        .first(where: { $0.bundleIdentifier.map(bundleIDs.contains) ?? false })
+        .map { AppTarget(app: $0, client: client) }
+}
+
 private func runningTelegram() -> AppTarget? {
-    for app in NSWorkspace.shared.runningApplications {
-        guard let id = app.bundleIdentifier else { continue }
-        if telegramDesktopBundleIDs.contains(id) {
-            return AppTarget(app: app, client: "telegram-desktop")
-        }
-        if telegramMacBundleIDs.contains(id) {
-            return AppTarget(app: app, client: "telegram-macos")
-        }
-    }
-    return nil
+    runningTelegram(bundleIDs: telegramDesktopBundleIDs, client: "telegram-desktop")
+        ?? runningTelegram(bundleIDs: telegramMacBundleIDs, client: "telegram-macos")
 }
 
 private func installedTelegram() -> Bool {
     let workspace = NSWorkspace.shared
-    return (telegramDesktopBundleIDs.union(telegramMacBundleIDs)).contains {
+    return (telegramDesktopBundleIDs + telegramMacBundleIDs).contains {
         workspace.urlForApplication(withBundleIdentifier: $0) != nil
     }
 }
 
-private func launchTelegramInBackground() -> AppTarget? {
-    if let running = runningTelegram() { return running }
+private func launchTelegramInBackground(
+    bundleIDs: [String],
+    client: String
+) -> AppTarget? {
+    if let running = runningTelegram(bundleIDs: bundleIDs, client: client) { return running }
     let workspace = NSWorkspace.shared
-    let identifiers = Array(telegramDesktopBundleIDs) + Array(telegramMacBundleIDs)
-    guard let appURL = identifiers.compactMap({ workspace.urlForApplication(withBundleIdentifier: $0) }).first
+    guard let appURL = bundleIDs.compactMap({ workspace.urlForApplication(withBundleIdentifier: $0) }).first
     else { return nil }
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.activates = false
@@ -149,11 +158,19 @@ private func launchTelegramInBackground() -> AppTarget? {
     workspace.openApplication(at: appURL, configuration: configuration) { _, _ in completed = true }
     let deadline = Date().addingTimeInterval(5)
     while Date() < deadline {
-        if let running = runningTelegram() { return running }
+        if let running = runningTelegram(bundleIDs: bundleIDs, client: client) { return running }
         if completed { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
     }
-    return runningTelegram()
+    return runningTelegram(bundleIDs: bundleIDs, client: client)
+}
+
+private func launchTelegramInBackground() -> AppTarget? {
+    // Prefer the supported client even when the native client is already
+    // running. This lets both apps coexist without requiring the user to
+    // manually foreground or launch Telegram Desktop first.
+    launchTelegramInBackground(bundleIDs: telegramDesktopBundleIDs, client: "telegram-desktop")
+        ?? launchTelegramInBackground(bundleIDs: telegramMacBundleIDs, client: "telegram-macos")
 }
 
 private func status(prompt: Bool) -> Status {
@@ -380,8 +397,11 @@ private func snapshot() -> Snapshot {
     )
 }
 
-private func openInBackground(_ url: URL) -> Bool {
-    guard let appURL = NSWorkspace.shared.urlForApplication(toOpen: url) else { return false }
+private func openInBackground(_ url: URL, with app: NSRunningApplication) -> Bool {
+    // Do not use the system's default tg: handler here. Users may keep the
+    // native Telegram for macOS client installed alongside Telegram Desktop,
+    // and the default handler can point at the unsupported native client.
+    guard let appURL = app.bundleURL else { return false }
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.activates = false
     configuration.addsToRecentItems = false
@@ -455,7 +475,7 @@ private func executeSend(_ command: HelperCommand) -> SendResult {
     let username = String(id.dropFirst("username:".count))
     guard username.range(of: #"^[A-Za-z0-9_]{5,32}$"#, options: .regularExpression) != nil,
           let deepLink = URL(string: "tg://resolve?domain=\(username)"),
-          openInBackground(deepLink),
+          openInBackground(deepLink, with: target.app),
           let composer = matchingComposer(app: target.app, expectedTitle: title)
     else {
         return SendResult(
