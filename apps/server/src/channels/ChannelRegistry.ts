@@ -19,7 +19,10 @@ import {
 import { ServerConfig } from "../config.ts";
 import { ProcessRunner, type ProcessRunInput } from "../processRunner.ts";
 import type { ChannelAdapter, ChannelCommandRun } from "./ChannelAdapter.ts";
-import { DISCRAWL_ACCOUNT_ID, makeDiscrawlAdapter } from "./DiscrawlAdapter.ts";
+import { DISCORD_ACCOUNT_ID, makeDiscordCompositeAdapter } from "./DiscordCompositeAdapter.ts";
+import { makeDiscordLocalAdapter } from "./DiscordLocalAdapter.ts";
+import { DiscordSidecarClient } from "./DiscordSidecarClient.ts";
+import { makeDiscrawlAdapter } from "./DiscrawlAdapter.ts";
 import { DiscrawlManager } from "./DiscrawlManager.ts";
 import { DiscordMediaCache } from "./DiscordMediaCache.ts";
 import { IMESSAGE_ACCOUNT_ID, makeIMessageAdapter } from "./IMessageAdapter.ts";
@@ -137,14 +140,20 @@ export const layer = Layer.effect(
       architecture,
       run,
     });
+    const archive = makeDiscrawlAdapter(discrawl, {
+      mediaCache: new DiscordMediaCache({ attachmentsDir: config.attachmentsDir }),
+    });
+    const sidecar = yield* Effect.acquireRelease(
+      Effect.sync(() => new DiscordSidecarClient(config.discordSidecarPath, config.stateDir)),
+      (client) => Effect.sync(() => client.close()),
+    );
+    const discord = makeDiscordCompositeAdapter({
+      protocol: makeDiscordLocalAdapter(sidecar),
+      archive,
+    });
     return makeChannelRegistry(
       new Map([
-        [
-          DISCRAWL_ACCOUNT_ID,
-          makeDiscrawlAdapter(discrawl, {
-            mediaCache: new DiscordMediaCache({ attachmentsDir: config.attachmentsDir }),
-          }),
-        ],
+        [DISCORD_ACCOUNT_ID, discord],
         [
           IMESSAGE_ACCOUNT_ID,
           makeIMessageAdapter(run, {

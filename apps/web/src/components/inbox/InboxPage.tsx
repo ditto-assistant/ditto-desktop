@@ -265,7 +265,9 @@ function MessagePanel({
   }, [loadedMessages, sortedLoadedMessages]);
   const archivedMessages = loadedMessages === undefined ? stableMessages : sortedLoadedMessages;
   const discordAccessibility =
-    account.service === "discord" ? readLocalApi()?.discordAccessibility : undefined;
+    account.service === "discord" && account.transport !== "discord-local-user"
+      ? readLocalApi()?.discordAccessibility
+      : undefined;
   const refreshLiveMessages = useCallback(() => {
     if (!discordAccessibility || snapshotInFlight.current) return;
     snapshotInFlight.current = true;
@@ -313,9 +315,11 @@ function MessagePanel({
           <p className="truncate text-sm font-medium">{conversation.title}</p>
           <p className="text-[10px] text-muted-foreground">
             {account.service === "discord"
-              ? canReplyThroughDiscord
-                ? "Device cache · replies through Discord"
-                : "Device cache · read only"
+              ? account.transport === "discord-local-user"
+                ? "Live on this device · Discrawl archive fallback"
+                : canReplyThroughDiscord
+                  ? "Device cache · Accessibility reply fallback"
+                  : "Device cache · read only"
               : "Messages on this Mac"}
           </p>
         </div>
@@ -609,6 +613,7 @@ function Composer({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [useAccessibilityFallback, setUseAccessibilityFallback] = useState(false);
   const [accessibilityStatus, setAccessibilityStatus] = useState<DiscordAccessibilityStatus | null>(
     null,
   );
@@ -636,7 +641,7 @@ function Composer({
     setSending(true);
     setError(null);
     setAccessibilityResult(null);
-    if (!canSend && accessibility) {
+    if ((!canSend || useAccessibilityFallback) && accessibility) {
       let permission = accessibilityStatus;
       if (permission?.permission !== "granted") {
         permission = await accessibility.status(true);
@@ -664,6 +669,7 @@ function Composer({
       setAccessibilityResult(replyResult);
       if (replyResult.sent) {
         setText("");
+        setUseAccessibilityFallback(false);
         onSent();
       } else if (!replyResult.draftPrepared) {
         setError(replyResult.detail);
@@ -714,10 +720,11 @@ function Composer({
               size={canSend ? "icon-sm" : "sm"}
             >
               <ArrowUpIcon className="size-3.5" />
-              {!canSend ? "Send via Discord" : null}
+              {!canSend || useAccessibilityFallback ? "Send locally" : null}
             </Button>
           </div>
-          {!canSend && accessibilityStatus?.permission !== "granted" ? (
+          {(!canSend || useAccessibilityFallback) &&
+          accessibilityStatus?.permission !== "granted" ? (
             <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
               <p className="text-[11px] text-muted-foreground">
                 Allow Accessibility so Ditto can verify this Discord composer and send only when you
@@ -731,6 +738,17 @@ function Composer({
                 variant="outline"
               >
                 Enable Accessibility
+              </Button>
+            </div>
+          ) : null}
+          {canSend && error && accessibility && !useAccessibilityFallback ? (
+            <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
+              <p className="text-[11px] text-muted-foreground">
+                The live send did not return a receipt. Check Discord before using the local UI
+                fallback so you don’t send twice.
+              </p>
+              <Button onClick={() => setUseAccessibilityFallback(true)} size="sm" variant="outline">
+                Use local fallback
               </Button>
             </div>
           ) : null}

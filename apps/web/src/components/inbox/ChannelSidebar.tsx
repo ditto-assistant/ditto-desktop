@@ -24,7 +24,16 @@ import { useVisiblePolling } from "../../hooks/useVisiblePolling";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../ui/dialog";
 import { Input } from "../ui/input";
+import { QRCodeSvg } from "../ui/qr-code";
 import { useSidebar } from "../ui/sidebar";
 
 function compactTime(value?: string): string {
@@ -133,6 +142,7 @@ function ChannelAccountGroup({
 }) {
   const [expanded, setExpanded] = useState(true);
   const [configuring, setConfiguring] = useState(false);
+  const [setupUrl, setSetupUrl] = useState<string | null>(null);
   const configure = useAtomCommand(serverEnvironment.configureChannel, {
     reportFailure: false,
   });
@@ -152,10 +162,16 @@ function ChannelAccountGroup({
       : null;
 
   useEffect(() => {
-    if (account.state !== "syncing") return;
+    if (account.state !== "syncing" && setupUrl === null) return;
     const interval = window.setInterval(onConfigured, 1_500);
     return () => window.clearInterval(interval);
-  }, [account.state, onConfigured]);
+  }, [account.state, onConfigured, setupUrl]);
+
+  useEffect(() => {
+    if (account.state === "ready" && account.transport === "discord-local-user") {
+      setSetupUrl(null);
+    }
+  }, [account.state, account.transport]);
 
   const enable = async () => {
     setConfiguring(true);
@@ -164,12 +180,17 @@ function ChannelAccountGroup({
       input: { accountId: account.accountId, enabled: true },
     });
     setConfiguring(false);
-    if (result._tag === "Success") onConfigured();
+    if (result._tag === "Success") {
+      setSetupUrl(result.value.account.setupUrl ?? null);
+      onConfigured();
+    }
   };
 
-  const canConnectDiscord =
-    account.service === "discord" &&
-    (!account.enabled || account.state === "error" || account.state === "setup_required");
+  const liveSendAvailable = account.capabilities.some(
+    (capability) =>
+      capability.operation === "message.send" && capability.availability === "available",
+  );
+  const canConnectDiscord = account.service === "discord" && !liveSendAvailable;
 
   const openAccount = () => {
     setExpanded((value) => !value);
@@ -235,23 +256,57 @@ function ChannelAccountGroup({
                 className="h-7 w-full justify-start gap-1.5 px-2 text-xs text-sidebar-muted-foreground"
               >
                 <PlusIcon className="size-3" />
-                {configuring ? "Connecting…" : account.enabled ? "Try again" : "Connect Discord"}
+                {configuring ? "Connecting…" : "Connect live Discord"}
               </Button>
             </li>
-          ) : account.state !== "ready" ? (
+          ) : null}
+          {account.state !== "ready" ? (
             <li className="list-none px-2 py-1.5 text-[11px] leading-4 text-sidebar-muted-foreground/70">
               {accountStatus(account)}
             </li>
-          ) : (
+          ) : null}
+          {account.state === "ready" ? (
             <ReadyChannelConversations
               account={account}
               environmentId={environmentId}
               query={query}
               selectedConversation={selectedConversation}
             />
-          )}
+          ) : null}
         </ul>
       ) : null}
+      <Dialog
+        open={setupUrl !== null}
+        onOpenChange={(open) => {
+          if (!open) setSetupUrl(null);
+        }}
+      >
+        <DialogPopup className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Connect Discord</DialogTitle>
+            <DialogDescription>
+              Scan this code in Discord on a device where you’re signed in, then approve the
+              connection.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            {setupUrl ? (
+              <div className="flex justify-center rounded-xl border border-border/60 bg-white p-4">
+                <QRCodeSvg
+                  level="M"
+                  marginSize={2}
+                  size={196}
+                  title="Discord connection code"
+                  value={setupUrl}
+                />
+              </div>
+            ) : null}
+            <p className="mt-3 text-center text-xs text-muted-foreground">
+              Your Discord credential stays in this Mac’s credential store.
+            </p>
+          </DialogPanel>
+        </DialogPopup>
+      </Dialog>
     </li>
   );
 }
