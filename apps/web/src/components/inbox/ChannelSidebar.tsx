@@ -147,6 +147,7 @@ function ChannelAccountGroup({
 }) {
   const [expanded, setExpanded] = useState(true);
   const [configuring, setConfiguring] = useState(false);
+  const [configuredAccount, setConfiguredAccount] = useState<ConnectedChannelAccount | null>(null);
   const [setupUrl, setSetupUrl] = useState<string | null>(null);
   const configure = useAtomCommand(serverEnvironment.configureChannel, {
     reportFailure: false,
@@ -159,7 +160,8 @@ function ChannelAccountGroup({
   });
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
-  const ServiceIcon = accountIcon(account);
+  const displayedAccount = configuredAccount ?? account;
+  const ServiceIcon = accountIcon(displayedAccount);
   const selectedAccount = route.pathname === "/inbox" && route.search.account === account.accountId;
   const selectedConversation =
     route.pathname === "/inbox" && typeof route.search.conversation === "string"
@@ -167,12 +169,13 @@ function ChannelAccountGroup({
       : null;
 
   useVisiblePolling(onConfigured, {
-    enabled: account.state === "syncing" || setupUrl !== null,
+    enabled: displayedAccount.state === "syncing" || setupUrl !== null,
     intervalMs: 1_500,
   });
 
   useEffect(() => {
     if (account.state === "ready" && account.transport === "discord-local-user") {
+      setConfiguredAccount(null);
       setSetupUrl(null);
     }
   }, [account.state, account.transport]);
@@ -185,16 +188,17 @@ function ChannelAccountGroup({
     });
     setConfiguring(false);
     if (result._tag === "Success") {
+      setConfiguredAccount(result.value.account);
       setSetupUrl(result.value.account.setupUrl ?? null);
       onConfigured();
     }
   };
 
-  const liveSendAvailable = account.capabilities.some(
+  const liveSendAvailable = displayedAccount.capabilities.some(
     (capability) =>
       capability.operation === "message.send" && capability.availability === "available",
   );
-  const canConnectDiscord = account.service === "discord" && !liveSendAvailable;
+  const canConnectDiscord = displayedAccount.service === "discord" && !liveSendAvailable;
 
   const openAccount = () => {
     setExpanded((value) => !value);
@@ -227,20 +231,22 @@ function ChannelAccountGroup({
         <span
           className={cn(
             "flex size-4 shrink-0 items-center justify-center rounded-[4px]",
-            account.service === "discord"
+            displayedAccount.service === "discord"
               ? "bg-[#5865f2]/15 text-[#7c87ff]"
               : "bg-emerald-500/15 text-emerald-500",
           )}
         >
           <ServiceIcon className="size-3" />
         </span>
-        <span className="min-w-0 flex-1 truncate font-medium">{accountLabel(account)}</span>
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {accountLabel(displayedAccount)}
+        </span>
         <span
           className={cn(
             "size-1.5 rounded-full",
-            account.state === "ready"
+            displayedAccount.state === "ready"
               ? "bg-emerald-500"
-              : account.state === "error" || account.state === "unavailable"
+              : displayedAccount.state === "error" || displayedAccount.state === "unavailable"
                 ? "bg-destructive"
                 : "bg-amber-500",
           )}
@@ -264,14 +270,14 @@ function ChannelAccountGroup({
               </Button>
             </li>
           ) : null}
-          {account.state !== "ready" ? (
+          {displayedAccount.state !== "ready" ? (
             <li className="list-none px-2 py-1.5 text-[11px] leading-4 text-sidebar-muted-foreground/70">
-              {accountStatus(account)}
+              {accountStatus(displayedAccount)}
             </li>
           ) : null}
-          {account.state === "ready" ? (
+          {displayedAccount.state === "ready" ? (
             <ReadyChannelConversations
-              account={account}
+              account={displayedAccount}
               environmentId={environmentId}
               query={query}
               selectedConversation={selectedConversation}
