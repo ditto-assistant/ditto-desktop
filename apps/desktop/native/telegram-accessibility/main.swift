@@ -303,6 +303,131 @@ private func timestampValue(_ value: String) -> Bool {
     value.range(of: #"\b\d{1,2}:\d{2}(?:\s?[AP]M)?\b"#, options: [.regularExpression, .caseInsensitive]) != nil
 }
 
+private let telegramMetadataCellTitles = Set([
+    "auto-delete", "delivery", "dimensions", "draft", "edited", "forward",
+    "link description", "link title", "media type", "mention", "message", "muted",
+    "name", "pinned", "premium", "reactions", "seen", "sender", "time", "type",
+    "unread", "verified", "warning", "website",
+])
+
+private func cleanTelegramText(_ value: String) -> String {
+    normalized(
+        value
+            .replacingOccurrences(of: "\u{2068}", with: "")
+            .replacingOccurrences(of: "\u{2069}", with: "")
+            .replacingOccurrences(of: "\u{200e}", with: "")
+            .replacingOccurrences(of: "\u{200f}", with: "")
+    )
+}
+
+private func activeConversationTitle(in windows: [AXUIElement]) -> String? {
+    for window in windows {
+        guard let rawTitle = stringAttribute(window, kAXTitleAttribute as CFString) else { continue }
+        let title = cleanTelegramText(rawTitle).replacingOccurrences(
+            of: #"\s+[–—-]\s+\(\d+\)$"#,
+            with: "",
+            options: .regularExpression
+        )
+        if !title.isEmpty, title.caseInsensitiveCompare("Telegram") != .orderedSame {
+            return title
+        }
+    }
+    return nil
+}
+
+private struct ParsedTelegramMessage {
+    let sender: String
+    let body: String
+    let isSelf: Bool?
+}
+
+private enum AccessibilityRegion {
+    case unknown
+    case chats
+    case messages
+}
+
+private struct ParsedTelegramConversation {
+    let title: String
+    let kind: String
+    let unreadCount: Int?
+}
+
+private func parsedTelegramConversation(_ values: [String]) -> ParsedTelegramConversation? {
+    guard let source = values.max(by: { $0.count < $1.count }) else { return nil }
+    let firstLine = source
+        .components(separatedBy: .newlines)
+        .map(cleanTelegramText)
+        .first(where: { !$0.isEmpty }) ?? ""
+    var components = firstLine.split(separator: ",", omittingEmptySubsequences: true)
+        .map { normalized(String($0)) }
+    guard !components.isEmpty else { return nil }
+    let kindLabels = Set(["bot", "channel", "group"])
+    let first = components.removeFirst()
+    let kind = first.caseInsensitiveCompare("group") == .orderedSame ? "group" : "direct"
+    let title = kindLabels.contains(first.lowercased()) ? (components.first ?? "") : first
+    guard !title.isEmpty,
+          title.count <= 200,
+          !telegramMetadataCellTitles.contains(title.lowercased())
+    else { return nil }
+
+    let unreadPattern = try? NSRegularExpression(
+        pattern: #"\b(\d{1,4})\s+new messages?\b"#,
+        options: [.caseInsensitive]
+    )
+    let range = NSRange(source.startIndex..<source.endIndex, in: source)
+    let unreadCount: Int?
+    if let match = unreadPattern?.firstMatch(in: source, range: range),
+       let capture = Range(match.range(at: 1), in: source)
+    {
+        unreadCount = Int(source[capture])
+    } else {
+        unreadCount = nil
+    }
+    return ParsedTelegramConversation(title: title, kind: kind, unreadCount: unreadCount)
+}
+
+private func parsedTelegramMessage(_ values: [String]) -> ParsedTelegramMessage? {
+    guard let source = values
+        .filter({ timestampValue($0) })
+        .max(by: { $0.count < $1.count })
+    else { return nil }
+
+    var lines = source
+        .components(separatedBy: .newlines)
+        .map(cleanTelegramText)
+        .filter { !$0.isEmpty }
+    guard let timestampIndex = lines.lastIndex(where: timestampValue), timestampIndex > 0 else {
+        return nil
+    }
+    lines = Array(lines[..<timestampIndex])
+    guard !lines.isEmpty else { return nil }
+
+    let accessibilityPrefix = "Secondary Actions: Raise, "
+    if lines[0].hasPrefix(accessibilityPrefix) {
+        lines[0].removeFirst(accessibilityPrefix.count)
+    }
+    let metadataPrefixes = ["Reactions:", "Pinned", "Received ", "Sent "]
+    lines.removeAll { line in
+        metadataPrefixes.contains(where: line.hasPrefix)
+    }
+    guard !lines.isEmpty else { return nil }
+
+    var isSelf: Bool?
+    var sender = lines.removeFirst()
+    if sender.caseInsensitiveCompare("Seen") == .orderedSame,
+       lines.first?.caseInsensitiveCompare("Me") == .orderedSame
+    {
+        sender = lines.removeFirst()
+        isSelf = true
+    } else if sender.caseInsensitiveCompare("Me") == .orderedSame {
+        isSelf = true
+    }
+    let body = lines.joined(separator: "\n")
+    guard !sender.isEmpty, !body.isEmpty else { return nil }
+    return ParsedTelegramMessage(sender: sender, body: body, isSelf: isSelf)
+}
+
 private func selectedConversation(
     conversations: [Conversation],
     composerStrings: [String]
@@ -329,82 +454,125 @@ private func snapshot() -> Snapshot {
 
     let appElement = AXUIElementCreateApplication(target.app.processIdentifier)
     let windows = (copyAttribute(appElement, kAXWindowsAttribute as CFString) as? [AXUIElement]) ?? []
-    var queue = windows.flatMap { children($0).map { ($0, 0) } }
+    var queue = windows.flatMap { children($0).map { ($0, 0, AccessibilityRegion.unknown) } }
     var index = 0
     var conversations: [Conversation] = []
     var messageCandidates: [[String]] = []
     var composerStrings: [String] = []
     var seenConversations = Set<String>()
+    var seenMessageCandidates = Set<String>()
+
+    if let title = activeConversationTitle(in: windows) {
+        let id = "title:\(fnv(title.lowercased()))"
+        seenConversations.insert(id)
+        conversations.append(
+            Conversation(
+                conversationId: id,
+                title: title,
+                kind: "group",
+                participants: [],
+                position: conversations.count,
+                latestMessageAt: nil,
+                unreadCount: nil
+            )
+        )
+    }
 
     while index < queue.count && index < 20_000 {
-        let (element, depth) = queue[index]
+        let (element, depth, inheritedRegion) = queue[index]
         index += 1
         let role = stringAttribute(element, kAXRoleAttribute as CFString) ?? ""
+        var region = inheritedRegion
+        if role == (kAXListRole as String) {
+            let listLabel = nodeStrings(element, maxDepth: 0).joined(separator: " ").lowercased()
+            if listLabel.contains("messages") {
+                region = .messages
+            } else if listLabel.contains("chats") {
+                region = .chats
+            }
+        }
         if role == (kAXTextAreaRole as String) || role == (kAXTextFieldRole as String) {
             let values = nodeStrings(element, maxDepth: 0)
             if values.contains(where: { $0.range(of: "message", options: .caseInsensitive) != nil }) {
                 composerStrings.append(contentsOf: values)
             }
         }
-        if role == (kAXRowRole as String) || role == (kAXCellRole as String) {
+        if region == .chats,
+           role == (kAXRowRole as String)
+            || role == (kAXCellRole as String)
+            || role == (kAXStaticTextRole as String)
+        {
             let values = nodeStrings(element)
-            let title = values.first(where: { !$0.contains("\n") && !timestampValue($0) })
-            if let title, title.count <= 200, values.count <= 12 {
+            if let parsed = parsedTelegramConversation(values)
+            {
                 let handle = firstHandle(in: values)
-                let id = handle.map { "username:\($0)" } ?? "title:\(fnv(title.lowercased()))"
+                let id = handle.map { "username:\($0)" } ?? "title:\(fnv(parsed.title.lowercased()))"
                 if seenConversations.insert(id).inserted {
-                    let unread = values.compactMap(Int.init).first(where: { $0 > 0 && $0 < 10_000 })
                     conversations.append(
                         Conversation(
                             conversationId: id,
-                            title: title,
-                            kind: "direct",
+                            title: parsed.title,
+                            kind: parsed.kind,
                             participants: [
-                                Participant(id: handle ?? id, displayName: title, handle: handle, isSelf: false),
+                                Participant(
+                                    id: handle ?? id,
+                                    displayName: parsed.title,
+                                    handle: handle,
+                                    isSelf: false
+                                ),
                             ],
                             position: conversations.count,
                             latestMessageAt: nil,
-                            unreadCount: unread
+                            unreadCount: parsed.unreadCount
                         )
                     )
                 }
             }
         }
-        if role == (kAXGroupRole as String) {
+        if region == .messages, role == (kAXGroupRole as String) {
             let values = nodeStrings(element, maxDepth: 3)
-            if values.count >= 3, values.contains(where: timestampValue) {
+            let candidateId = fnv(values.joined(separator: "|"))
+            if values.count >= 3,
+               values.contains(where: timestampValue),
+               seenMessageCandidates.insert(candidateId).inserted
+            {
+                messageCandidates.append(values)
+            }
+        }
+        if region == .messages, role == (kAXStaticTextRole as String) {
+            let values = nodeStrings(element, maxDepth: 0)
+            let candidateId = fnv(values.joined(separator: "|"))
+            if parsedTelegramMessage(values) != nil,
+               seenMessageCandidates.insert(candidateId).inserted
+            {
                 messageCandidates.append(values)
             }
         }
         if depth < 30 {
-            queue.append(contentsOf: children(element).map { ($0, depth + 1) })
+            queue.append(contentsOf: children(element).map { ($0, depth + 1, region) })
         }
     }
 
     var messagesByConversation: [String: [Message]] = [:]
-    if let active = selectedConversation(
-        conversations: conversations,
-        composerStrings: composerStrings
-    ) {
+    if let activeTitle = activeConversationTitle(in: windows),
+       let active = conversations.first(where: { $0.title == activeTitle })
+        ?? selectedConversation(conversations: conversations, composerStrings: composerStrings)
+    {
         let candidates = messageCandidates.suffix(500)
         let baseDate = Date().addingTimeInterval(-Double(candidates.count))
         for (candidateIndex, values) in candidates.enumerated() {
-            let senderName = values.first(where: { !timestampValue($0) }) ?? active.title
-            let body = values
-                .filter { !timestampValue($0) && $0 != senderName }
-                .max(by: { $0.count < $1.count }) ?? ""
-            guard !body.isEmpty else { continue }
+            guard let parsed = parsedTelegramMessage(values) else { continue }
             let sender = Participant(
-                id: fnv(senderName.lowercased()),
-                displayName: senderName,
+                id: fnv(parsed.sender.lowercased()),
+                displayName: parsed.sender,
                 handle: firstHandle(in: values),
-                isSelf: nil
+                isSelf: parsed.isSelf
             )
             let message = Message(
                 conversationId: active.conversationId,
                 messageId: "ax:\(fnv(values.joined(separator: "|")))",
                 sender: sender,
-                text: body,
+                text: parsed.body,
                 sentAt: isoFormatter.string(
                     from: baseDate.addingTimeInterval(Double(candidateIndex))
                 )
