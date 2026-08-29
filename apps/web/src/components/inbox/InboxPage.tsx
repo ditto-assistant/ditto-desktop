@@ -9,25 +9,17 @@ import type {
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/unstable/reactivity";
-import {
-  ArrowUpIcon,
-  HashIcon,
-  InboxIcon,
-  MessageCircleIcon,
-  RefreshCwIcon,
-  SmartphoneIcon,
-} from "lucide-react";
-import { useNavigate } from "@tanstack/react-router";
+import { ArrowUpIcon, InboxIcon, RefreshCwIcon, ExternalLinkIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { isElectron } from "../../env";
+import { readLocalApi } from "../../localApi";
 import { cn, randomUUID } from "../../lib/utils";
 import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { SidebarInset } from "../ui/sidebar";
-import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 
@@ -47,6 +39,11 @@ function failureMessage(result: AsyncResult.AsyncResult<unknown, unknown>): stri
 }
 
 const KEEP_VIRTUAL_LIST_POSITION = { data: true, size: true } as const;
+
+function openExternal(url: string) {
+  const request = readLocalApi()?.shell.openExternal(url);
+  if (request !== undefined) void request.catch(() => undefined);
+}
 
 function accountStatus(account: ConnectedChannelAccount): string {
   if (account.state === "ready") return "Synced locally";
@@ -129,157 +126,34 @@ function ConnectedInbox({
     const interval = window.setInterval(refreshAccounts, 1_500);
     return () => window.clearInterval(interval);
   }, [refreshAccounts, syncing]);
-  const navigate = useNavigate();
   const selectedAccount =
     accounts.find((account) => account.accountId === accountId) ?? accounts[0] ?? null;
 
   return (
     <InboxFrame>
-      <div className="flex min-h-0 flex-1 flex-col">
-        <AccountStrip
-          accounts={accounts}
-          environmentId={environmentId}
-          error={accountsResult._tag === "Failure" ? "Couldn’t load chat accounts." : null}
-          onRefresh={refreshAccounts}
-          onSelect={(nextAccountId) =>
-            void navigate({ to: "/inbox", search: { account: nextAccountId } })
-          }
-          selectedAccountId={selectedAccount?.accountId ?? null}
+      {selectedAccount === null ? (
+        <EmptyPanel
+          title="Looking for local chats"
+          detail="Discord and Messages accounts will appear here when this device reports them."
         />
-        {selectedAccount === null ? (
-          <EmptyPanel
-            title="Looking for local chats"
-            detail="Discord and Messages accounts will appear here when this device reports them."
-          />
-        ) : (
-          <ConversationWorkspace
-            account={selectedAccount}
-            environmentId={environmentId}
-            requestedConversationId={conversationId}
-            onSelect={(nextConversationId) =>
-              void navigate({
-                to: "/inbox",
-                search: {
-                  account: selectedAccount.accountId,
-                  conversation: nextConversationId,
-                },
-              })
-            }
-          />
-        )}
-      </div>
+      ) : (
+        <ConversationWorkspace
+          account={selectedAccount}
+          environmentId={environmentId}
+          requestedConversationId={conversationId}
+        />
+      )}
     </InboxFrame>
-  );
-}
-
-function AccountStrip({
-  accounts,
-  environmentId,
-  error,
-  onRefresh,
-  onSelect,
-  selectedAccountId,
-}: {
-  readonly accounts: ReadonlyArray<ConnectedChannelAccount>;
-  readonly environmentId: EnvironmentId;
-  readonly error: string | null;
-  readonly onRefresh: () => void;
-  readonly onSelect: (accountId: string) => void;
-  readonly selectedAccountId: string | null;
-}) {
-  const configure = useAtomCommand(serverEnvironment.configureChannel, { reportFailure: false });
-  const [busyAccountId, setBusyAccountId] = useState<string | null>(null);
-  const [localError, setLocalError] = useState<string | null>(null);
-
-  const toggle = async (account: ConnectedChannelAccount, enabled: boolean) => {
-    setBusyAccountId(account.accountId);
-    setLocalError(null);
-    const result = await configure({
-      environmentId,
-      input: { accountId: account.accountId, enabled },
-    });
-    if (result._tag === "Failure") setLocalError(String(Cause.squash(result.cause)));
-    setBusyAccountId(null);
-    onRefresh();
-  };
-
-  return (
-    <div className="border-b border-border bg-muted/20 px-3 py-2">
-      <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
-        {accounts.map((account) => {
-          const active = selectedAccountId === account.accountId;
-          const canToggle = account.service === "discord";
-          return (
-            <button
-              key={account.accountId}
-              className={cn(
-                "flex min-w-64 items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors",
-                active
-                  ? "border-foreground/20 bg-background shadow-xs"
-                  : "border-transparent hover:bg-background/60",
-              )}
-              onClick={() => onSelect(account.accountId)}
-              type="button"
-            >
-              <span
-                className={cn(
-                  "flex size-8 shrink-0 items-center justify-center rounded-md",
-                  account.service === "discord"
-                    ? "bg-[#5865f2]/15 text-[#7c87ff]"
-                    : "bg-emerald-500/15 text-emerald-500",
-                )}
-              >
-                {account.service === "discord" ? (
-                  <MessageCircleIcon className="size-4" />
-                ) : (
-                  <SmartphoneIcon className="size-4" />
-                )}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-medium">{account.label}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  {accountStatus(account)}
-                </span>
-              </span>
-              {canToggle ? (
-                <Switch
-                  aria-label="Discord sync"
-                  checked={account.enabled}
-                  disabled={busyAccountId === account.accountId}
-                  onCheckedChange={(checked) => void toggle(account, checked)}
-                  onClick={(event) => event.stopPropagation()}
-                />
-              ) : (
-                <span
-                  className={cn(
-                    "size-2 rounded-full",
-                    account.state === "ready" ? "bg-emerald-500" : "bg-amber-500",
-                  )}
-                />
-              )}
-            </button>
-          );
-        })}
-        <Button aria-label="Refresh accounts" onClick={onRefresh} size="icon-sm" variant="ghost">
-          <RefreshCwIcon className="size-3.5" />
-        </Button>
-      </div>
-      {(localError ?? error) ? (
-        <p className="mt-2 text-xs text-destructive">{localError ?? error}</p>
-      ) : null}
-    </div>
   );
 }
 
 function ConversationWorkspace({
   account,
   environmentId,
-  onSelect,
   requestedConversationId,
 }: {
   readonly account: ConnectedChannelAccount;
   readonly environmentId: EnvironmentId;
-  readonly onSelect: (conversationId: string) => void;
   readonly requestedConversationId: string | undefined;
 }) {
   if (!account.enabled || account.state !== "ready") {
@@ -290,7 +164,6 @@ function ConversationWorkspace({
     <ReadyConversationWorkspace
       account={account}
       environmentId={environmentId}
-      onSelect={onSelect}
       requestedConversationId={requestedConversationId}
     />
   );
@@ -299,12 +172,10 @@ function ConversationWorkspace({
 function ReadyConversationWorkspace({
   account,
   environmentId,
-  onSelect,
   requestedConversationId,
 }: {
   readonly account: ConnectedChannelAccount;
   readonly environmentId: EnvironmentId;
-  readonly onSelect: (conversationId: string) => void;
   readonly requestedConversationId: string | undefined;
 }) {
   const conversationsAtom = serverEnvironment.channelConversations({
@@ -312,107 +183,32 @@ function ReadyConversationWorkspace({
     input: { accountId: account.accountId },
   });
   const result = useAtomValue(conversationsAtom);
-  const refresh = useAtomRefresh(conversationsAtom);
-  const conversations = useMemo(
+  const loadedConversations = Option.getOrNull(AsyncResult.value(result))?.conversations;
+  const sortedLoadedConversations = useMemo(
     () =>
-      [...(Option.getOrNull(AsyncResult.value(result))?.conversations ?? [])].sort((left, right) =>
+      [...(loadedConversations ?? [])].sort((left, right) =>
         (right.latestMessageAt ?? "").localeCompare(left.latestMessageAt ?? ""),
       ),
-    [result],
+    [loadedConversations],
   );
-  const selected =
-    conversations.find((conversation) => conversation.conversationId === requestedConversationId) ??
-    conversations[0] ??
-    null;
-
-  return (
-    <div className="grid min-h-0 flex-1 grid-cols-[minmax(14rem,20rem)_minmax(0,1fr)]">
-      <aside className="flex min-h-0 flex-col border-r border-border bg-muted/10">
-        <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
-          <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Conversations
-          </span>
-          <Button
-            aria-label="Refresh conversations"
-            onClick={refresh}
-            size="icon-sm"
-            variant="ghost"
-          >
-            <RefreshCwIcon className="size-3.5" />
-          </Button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-hidden">
-          {conversations.length === 0 ? (
-            <p className="p-4 text-xs leading-relaxed text-muted-foreground">
-              {failureMessage(result) ?? "No conversations found in the local archive yet."}
-            </p>
-          ) : (
-            <LegendList<ChannelConversation>
-              className="h-full min-h-0 overflow-x-hidden overscroll-y-contain p-1.5"
-              data={conversations}
-              estimatedItemSize={44}
-              keyExtractor={(conversation) => conversation.conversationId}
-              renderItem={({ item: conversation }) => (
-                <ConversationRow
-                  conversation={conversation}
-                  onClick={() => onSelect(conversation.conversationId)}
-                  selected={selected?.conversationId === conversation.conversationId}
-                />
-              )}
-            />
-          )}
-        </div>
-      </aside>
-      {selected === null ? (
-        <EmptyPanel
-          title="No conversation selected"
-          detail="Choose a thread from the local inbox."
-        />
-      ) : (
-        <MessagePanel
-          key={selected.conversationId}
-          account={account}
-          conversation={selected}
-          environmentId={environmentId}
-        />
-      )}
-    </div>
+  const [stableConversations, setStableConversations] = useState(sortedLoadedConversations);
+  useEffect(() => {
+    if (loadedConversations !== undefined) setStableConversations(sortedLoadedConversations);
+  }, [loadedConversations, sortedLoadedConversations]);
+  const conversations =
+    loadedConversations === undefined ? stableConversations : sortedLoadedConversations;
+  const selected = conversations.find(
+    (conversation) => conversation.conversationId === requestedConversationId,
   );
-}
-
-function ConversationRow({
-  conversation,
-  onClick,
-  selected,
-}: {
-  readonly conversation: ChannelConversation;
-  readonly onClick: () => void;
-  readonly selected: boolean;
-}) {
-  return (
-    <button
-      className={cn(
-        "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left",
-        selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
-      )}
-      onClick={onClick}
-      type="button"
-    >
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground">
-        {conversation.kind === "direct" ? (
-          <MessageCircleIcon className="size-3.5" />
-        ) : (
-          <HashIcon className="size-3.5" />
-        )}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-medium">{conversation.title}</span>
-        <span className="block text-[10px] text-muted-foreground">
-          {conversation.unreadCount ? `${conversation.unreadCount} unread · ` : ""}
-          {formatTime(conversation.latestMessageAt)}
-        </span>
-      </span>
-    </button>
+  return selected === undefined ? (
+    <EmptyPanel title="No conversation selected" detail="Choose a chat from the sidebar." />
+  ) : (
+    <MessagePanel
+      key={selected.conversationId}
+      account={account}
+      conversation={selected}
+      environmentId={environmentId}
+    />
   );
 }
 
@@ -436,13 +232,17 @@ function MessagePanel({
   });
   const result = useAtomValue(messagesAtom);
   const refresh = useAtomRefresh(messagesAtom);
-  const messages = useMemo(
+  const loadedMessages = Option.getOrNull(AsyncResult.value(result))?.messages;
+  const sortedLoadedMessages = useMemo(
     () =>
-      [...(Option.getOrNull(AsyncResult.value(result))?.messages ?? [])].sort((left, right) =>
-        left.sentAt.localeCompare(right.sentAt),
-      ),
-    [result],
+      [...(loadedMessages ?? [])].sort((left, right) => left.sentAt.localeCompare(right.sentAt)),
+    [loadedMessages],
   );
+  const [stableMessages, setStableMessages] = useState<ReadonlyArray<ChannelMessage>>([]);
+  useEffect(() => {
+    if (loadedMessages !== undefined) setStableMessages(sortedLoadedMessages);
+  }, [loadedMessages, sortedLoadedMessages]);
+  const messages = loadedMessages === undefined ? stableMessages : sortedLoadedMessages;
   const canSend = account.capabilities.some(
     (capability) =>
       capability.operation === "message.send" && capability.availability === "available",
@@ -458,9 +258,24 @@ function MessagePanel({
             {account.service === "discord" ? "Device cache · read only" : "Messages on this Mac"}
           </p>
         </div>
-        <Button aria-label="Refresh messages" onClick={refresh} size="icon-sm" variant="ghost">
-          <RefreshCwIcon className="size-3.5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          {account.service === "discord" ? (
+            <Button
+              onClick={() => {
+                const scope = conversation.containerId ?? "@me";
+                openExternal(`discord://-/channels/${scope}/${conversation.conversationId}`);
+              }}
+              size="sm"
+              variant="ghost"
+            >
+              <ExternalLinkIcon className="size-3.5" />
+              Open in Discord
+            </Button>
+          ) : null}
+          <Button aria-label="Refresh messages" onClick={refresh} size="icon-sm" variant="ghost">
+            <RefreshCwIcon className="size-3.5" />
+          </Button>
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         {messages.length === 0 ? (
@@ -511,21 +326,92 @@ function MessagePanel({
 }
 
 function MessageRow({ message }: { readonly message: ChannelMessage }) {
+  const isSelf = message.sender.isSelf === true;
   return (
-    <article className="group flex gap-3">
-      <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
-        {message.sender.displayName.slice(0, 2).toUpperCase()}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="truncate text-xs font-semibold">{message.sender.displayName}</span>
+    <article className={cn("group flex gap-2.5", isSelf && "flex-row-reverse")}>
+      <ParticipantAvatar
+        avatarUrl={message.sender.avatarUrl}
+        displayName={message.sender.displayName}
+      />
+      <div className={cn("min-w-0 max-w-[78%]", isSelf && "flex flex-col items-end")}>
+        <div className={cn("flex items-baseline gap-2", isSelf && "flex-row-reverse")}>
+          <span className="max-w-48 truncate text-xs font-semibold">
+            {isSelf ? "You" : message.sender.displayName}
+          </span>
           <time className="text-[10px] text-muted-foreground">{formatTime(message.sentAt)}</time>
         </div>
-        <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
-          {message.text || <span className="italic text-muted-foreground">Attachment</span>}
-        </p>
+        {message.text ? (
+          <p
+            className={cn(
+              "mt-1 w-fit whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm leading-relaxed",
+              isSelf
+                ? "rounded-tr-sm bg-primary text-primary-foreground"
+                : "rounded-tl-sm bg-muted text-foreground",
+            )}
+          >
+            {message.text}
+          </p>
+        ) : null}
+        {message.attachments.length > 0 ? (
+          <div className={cn("mt-1.5 flex max-w-full flex-col gap-1.5", isSelf && "items-end")}>
+            {message.attachments.map((attachment) => {
+              const url = attachment.remoteUrl;
+              const isImage = attachment.mediaType?.startsWith("image/") === true;
+              return isImage && url ? (
+                <button
+                  aria-label={`Open ${attachment.filename ?? "image"}`}
+                  className="max-w-full overflow-hidden rounded-xl border border-border bg-muted/30"
+                  key={attachment.id}
+                  onClick={() => openExternal(url)}
+                  type="button"
+                >
+                  <img
+                    alt={attachment.filename ?? "Discord image"}
+                    className="max-h-96 max-w-full object-contain"
+                    loading="lazy"
+                    src={url}
+                  />
+                </button>
+              ) : (
+                <Button
+                  className="max-w-full justify-start"
+                  disabled={!url}
+                  key={attachment.id}
+                  onClick={() => url && openExternal(url)}
+                  size="sm"
+                  variant="outline"
+                >
+                  <ExternalLinkIcon className="size-3.5" />
+                  <span className="truncate">{attachment.filename ?? "Open attachment"}</span>
+                </Button>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
     </article>
+  );
+}
+
+function ParticipantAvatar({
+  avatarUrl,
+  displayName,
+}: {
+  readonly avatarUrl: string | undefined;
+  readonly displayName: string;
+}) {
+  const initials = displayName.trim().slice(0, 2).toUpperCase() || "?";
+  return avatarUrl ? (
+    <img
+      alt=""
+      className="mt-0.5 size-8 shrink-0 rounded-full bg-muted object-cover"
+      loading="lazy"
+      src={avatarUrl}
+    />
+  ) : (
+    <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
+      {initials}
+    </div>
   );
 }
 

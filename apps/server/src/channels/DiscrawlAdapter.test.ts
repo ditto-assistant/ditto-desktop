@@ -61,6 +61,67 @@ it.effect("never exposes personal Discord sending through Discrawl", () =>
   }),
 );
 
+it.effect("joins attachments and identifies the local Discord author", () =>
+  Effect.gen(function* () {
+    const run: ChannelCommandRun = (input) => {
+      if (input.args.includes("messages")) {
+        return Effect.succeed({
+          stdout: JSON.stringify({
+            messages: [
+              {
+                id: "message-1",
+                channel_id: "123",
+                author_id: "111",
+                author_name: "Peyton",
+                content: "photo",
+                timestamp: "2026-08-28T00:00:00.000Z",
+              },
+            ],
+          }),
+          stderr: "",
+          code: 0,
+        });
+      }
+      if (input.args.includes("attachments")) {
+        return Effect.succeed({
+          stdout: JSON.stringify({
+            attachments: [
+              {
+                attachment_id: "attachment-1",
+                message_id: "message-1",
+                filename: "image.png",
+                content_type: "image/png",
+                proxy_url: "https://cdn.discordapp.com/image.png",
+              },
+            ],
+          }),
+          stderr: "",
+          code: 0,
+        });
+      }
+      return Effect.succeed({
+        stdout: JSON.stringify({ columns: ["author_id"], rows: [["111"]] }),
+        stderr: "",
+        code: 0,
+      });
+    };
+
+    const adapter = makeDiscrawlAdapter(run);
+    const messages = yield* adapter.listMessages(ChannelConversationId.make("123"), 150);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.sender.isSelf).toBe(true);
+    expect(messages[0]?.attachments).toEqual([
+      {
+        id: "attachment-1",
+        filename: "image.png",
+        mediaType: "image/png",
+        remoteUrl: "https://cdn.discordapp.com/image.png",
+      },
+    ]);
+  }),
+);
+
 it.effect("keeps Discord local sync off until the user enables it", () =>
   Effect.gen(function* () {
     let enabled = false;

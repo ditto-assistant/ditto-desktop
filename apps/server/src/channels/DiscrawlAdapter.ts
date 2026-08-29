@@ -3,6 +3,7 @@ import {
   ChannelConversationId,
   ChannelMessageId,
   ChannelOperationError,
+  type ChannelAttachment,
   type ChannelCapability,
   type ChannelConversation,
   type ChannelMessage,
@@ -86,6 +87,20 @@ function decodeRows(
   });
 }
 
+function decodeSqlRows(
+  stdout: string,
+): Effect.Effect<ReadonlyArray<Readonly<Record<string, unknown>>>, ChannelOperationError> {
+  return Effect.try({
+    try: () => parseSqlRows(stdout),
+    catch: (cause) =>
+      new ChannelOperationError({
+        accountId: DISCRAWL_ACCOUNT_ID,
+        kind: "invalid_response",
+        message: `Discrawl returned invalid SQL JSON: ${String(cause)}`,
+      }),
+  });
+}
+
 function normalizeConversation(value: unknown): ChannelConversation | null {
   const row = unknownRecord(value);
   if (row === null) return null;
@@ -94,6 +109,7 @@ function normalizeConversation(value: unknown): ChannelConversation | null {
   const guildId = readString(row, "guild_id", "guildId");
   const latestMessageAt = readString(row, "last_message_at", "lastMessageAt", "latest_at");
   const unreadCount = readNumber(row, "unread_count", "unreadCount");
+  const position = readNumber(row, "position");
   const direct = guildId === "@me" || row.dm === true || row.is_dm === true;
   return {
     accountId: DISCRAWL_ACCOUNT_ID,
@@ -102,13 +118,70 @@ function normalizeConversation(value: unknown): ChannelConversation | null {
     title: readString(row, "name", "channel_name", "display_name", "title") ?? `Discord ${id}`,
     kind: direct ? "direct" : row.thread === true ? "thread" : "channel",
     participants: [],
+    ...(guildId !== undefined && guildId !== "@me" ? { containerId: guildId } : {}),
+    ...(position !== undefined ? { position } : {}),
     ...(latestMessageAt !== undefined ? { latestMessageAt } : {}),
     ...(unreadCount !== undefined ? { unreadCount } : {}),
     completeness: "device_cache_partial",
   };
 }
 
-function normalizeMessage(value: unknown): ChannelMessage | null {
+function parseSqlRows(stdout: string): ReadonlyArray<Readonly<Record<string, unknown>>> {
+  const parsed = unknownRecord(JSON.parse(stdout));
+  if (parsed === null || !Array.isArray(parsed.columns) || !Array.isArray(parsed.rows)) return [];
+  const columns = parsed.columns.filter((column): column is string => typeof column === "string");
+  return parsed.rows.flatMap((row) => {
+    if (!Array.isArray(row)) return [];
+    return [Object.fromEntries(columns.map((column, index) => [column, row[index]]))];
+  });
+}
+
+function discordAvatarUrl(userId: string, avatar?: string): string | undefined {
+  if (avatar?.startsWith("http://") || avatar?.startsWith("https://")) return avatar;
+  if (avatar && /^\d+$/.test(userId)) {
+    return `https://cdn.discordapp.com/avatars/${userId}/${avatar}.png?size=80`;
+  }
+  if (!/^\d+$/.test(userId)) return undefined;
+  const index = Number((BigInt(userId) >> 22n) % 6n);
+  return `https://cdn.discordapp.com/embed/avatars/${index}.png`;
+}
+
+function discordGuildAvatarUrl(guildId: string, icon?: string): string | undefined {
+  if (icon?.startsWith("http://") || icon?.startsWith("https://")) return icon;
+  return icon ? `https://cdn.discordapp.com/icons/${guildId}/${icon}.png?size=80` : undefined;
+}
+
+function normalizeAttachment(
+  value: unknown,
+): { readonly messageId: string; readonly attachment: ChannelAttachment } | null {
+  const row = unknownRecord(value);
+  if (row === null) return null;
+  const id = readString(row, "attachment_id", "attachmentId", "id");
+  const messageId = readString(row, "message_id", "messageId");
+  if (id === undefined || messageId === undefined) return null;
+  const filename = readString(row, "filename", "name");
+  const mediaType = readString(row, "content_type", "contentType", "media_type", "mediaType");
+  const byteSize = readNumber(row, "size", "byte_size", "byteSize");
+  const remoteUrl = readString(row, "proxy_url", "proxyUrl", "url");
+  const localPath = readString(row, "media_path", "mediaPath", "local_path", "localPath");
+  return {
+    messageId,
+    attachment: {
+      id,
+      ...(filename !== undefined ? { filename } : {}),
+      ...(mediaType !== undefined ? { mediaType } : {}),
+      ...(byteSize !== undefined ? { byteSize } : {}),
+      ...(remoteUrl !== undefined ? { remoteUrl } : {}),
+      ...(localPath !== undefined ? { localPath } : {}),
+    },
+  };
+}
+
+function normalizeMessage(
+  value: unknown,
+  selfAuthorId: string | undefined,
+  attachmentsByMessage: ReadonlyMap<string, ReadonlyArray<ChannelAttachment>>,
+): ChannelMessage | null {
   const row = unknownRecord(value);
   if (row === null) return null;
   const id = readString(row, "message_id", "messageId", "id");
@@ -118,6 +191,10 @@ function normalizeMessage(value: unknown): ChannelMessage | null {
   const editedAt = readString(row, "edited_at", "editedAt");
   const replyToMessageId = readString(row, "reply_to_message_id", "replyToMessageId");
   const rawPermalink = readString(row, "url", "permalink");
+  const avatarUrl = discordAvatarUrl(
+    authorId,
+    readString(row, "author_avatar", "authorAvatar", "avatar"),
+  );
   return {
     accountId: DISCRAWL_ACCOUNT_ID,
     conversationId: ChannelConversationId.make(conversationId),
@@ -128,6 +205,8 @@ function normalizeMessage(value: unknown): ChannelMessage | null {
       displayName:
         readString(row, "author_display_name", "author_name", "display_name", "username") ??
         authorId,
+      ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+      isSelf: selfAuthorId !== undefined && authorId === selfAuthorId,
     },
     text: readString(row, "content", "text", "body") ?? "",
     sentAt: readString(row, "timestamp", "sent_at", "created_at") ?? "1970-01-01T00:00:00.000Z",
@@ -135,7 +214,7 @@ function normalizeMessage(value: unknown): ChannelMessage | null {
     ...(replyToMessageId !== undefined
       ? { replyToMessageId: ChannelMessageId.make(replyToMessageId) }
       : {}),
-    attachments: [],
+    attachments: [...(attachmentsByMessage.get(id) ?? [])],
     ...(rawPermalink !== undefined ? { rawPermalink } : {}),
   };
 }
@@ -195,19 +274,75 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
             ),
             Effect.orElseSucceed(() => []),
           ),
+          execute(["--json", "sql", "SELECT id, name, icon FROM guilds"]).pipe(
+            Effect.flatMap(decodeSqlRows),
+            Effect.orElseSucceed(() => []),
+          ),
+          execute([
+            "--json",
+            "sql",
+            "WITH self AS (SELECT author_id FROM messages WHERE guild_id = '@me' AND author_id <> '' GROUP BY author_id ORDER BY COUNT(DISTINCT channel_id) DESC LIMIT 1) SELECT m.channel_id, m.author_id, COALESCE(json_extract(m.raw_json, '$.author.global_name'), json_extract(m.raw_json, '$.author.username'), m.author_id) AS display_name FROM messages m, self WHERE m.guild_id = '@me' AND m.author_id <> '' AND m.author_id <> self.author_id GROUP BY m.channel_id, m.author_id ORDER BY m.channel_id, COUNT(*) DESC",
+          ]).pipe(
+            Effect.flatMap(decodeSqlRows),
+            Effect.orElseSucceed(() => []),
+          ),
         ]),
       ),
-      Effect.map(([channels, dms]) =>
-        [...channels, ...dms]
-          .map(normalizeConversation)
-          .filter((conversation): conversation is ChannelConversation => conversation !== null),
-      ),
+      Effect.map(([channels, dms, guildRows, dmParticipantRows]) => {
+        const guilds = new Map(
+          guildRows.flatMap((row) => {
+            const id = readString(row, "id");
+            const name = readString(row, "name");
+            if (id === undefined || name === undefined) return [];
+            return [[id, { name, icon: readString(row, "icon") }] as const];
+          }),
+        );
+        const dmParticipants = new Map<string, ChannelConversation["participants"][number]>();
+        for (const row of dmParticipantRows) {
+          const channelId = readString(row, "channel_id");
+          const authorId = readString(row, "author_id");
+          if (channelId === undefined || authorId === undefined || dmParticipants.has(channelId)) {
+            continue;
+          }
+          const avatarUrl = discordAvatarUrl(authorId);
+          dmParticipants.set(channelId, {
+            id: authorId,
+            displayName: readString(row, "display_name") ?? authorId,
+            ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+            isSelf: false,
+          });
+        }
+
+        return [...channels, ...dms].flatMap((row) => {
+          const conversation = normalizeConversation(row);
+          if (conversation === null) return [];
+          if (conversation.kind === "direct") {
+            const participant = dmParticipants.get(conversation.conversationId);
+            return [
+              participant === undefined
+                ? conversation
+                : { ...conversation, participants: [participant], title: participant.displayName },
+            ];
+          }
+          const containerId = conversation.containerId;
+          const guild = containerId === undefined ? undefined : guilds.get(containerId);
+          if (containerId === undefined || guild === undefined) return [conversation];
+          const containerAvatarUrl = discordGuildAvatarUrl(containerId, guild.icon);
+          return [
+            {
+              ...conversation,
+              containerTitle: guild.name,
+              ...(containerAvatarUrl !== undefined ? { containerAvatarUrl } : {}),
+            },
+          ];
+        });
+      }),
     ),
     listMessages: (conversationId, limit = 100) =>
       runtime.isEnabled().pipe(
         Effect.flatMap((enabled) =>
           enabled
-            ? execute(["--json", "messages", "--channel", conversationId, "--last", String(limit)])
+            ? Effect.void
             : Effect.fail(
                 new ChannelOperationError({
                   accountId: DISCRAWL_ACCOUNT_ID,
@@ -216,12 +351,51 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
                 }),
               ),
         ),
-        Effect.flatMap((stdout) => decodeRows(stdout, ["messages", "rows", "data"])),
-        Effect.map((rows) =>
-          rows
-            .map(normalizeMessage)
-            .filter((message): message is ChannelMessage => message !== null),
+        Effect.andThen(
+          Effect.all([
+            execute([
+              "--json",
+              "messages",
+              "--channel",
+              conversationId,
+              "--last",
+              String(limit),
+            ]).pipe(Effect.flatMap((stdout) => decodeRows(stdout, ["messages", "rows", "data"]))),
+            execute([
+              "--json",
+              "attachments",
+              "--channel",
+              conversationId,
+              "--limit",
+              String(Math.max(limit, 200)),
+            ]).pipe(
+              Effect.flatMap((stdout) => decodeRows(stdout, ["attachments", "rows", "data"])),
+              Effect.orElseSucceed(() => []),
+            ),
+            execute([
+              "--json",
+              "sql",
+              "SELECT author_id FROM messages WHERE guild_id = '@me' AND author_id <> '' GROUP BY author_id ORDER BY COUNT(DISTINCT channel_id) DESC LIMIT 1",
+            ]).pipe(
+              Effect.flatMap(decodeSqlRows),
+              Effect.orElseSucceed(() => []),
+            ),
+          ]),
         ),
+        Effect.map(([rows, attachmentRows, selfRows]) => {
+          const attachmentsByMessage = new Map<string, Array<ChannelAttachment>>();
+          for (const value of attachmentRows) {
+            const normalized = normalizeAttachment(value);
+            if (normalized === null) continue;
+            const existing = attachmentsByMessage.get(normalized.messageId) ?? [];
+            existing.push(normalized.attachment);
+            attachmentsByMessage.set(normalized.messageId, existing);
+          }
+          const selfAuthorId = readString(selfRows[0] ?? {}, "author_id");
+          return rows
+            .map((row) => normalizeMessage(row, selfAuthorId, attachmentsByMessage))
+            .filter((message): message is ChannelMessage => message !== null);
+        }),
       ),
     sendMessage: () =>
       Effect.fail(

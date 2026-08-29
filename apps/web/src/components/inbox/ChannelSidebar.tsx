@@ -12,6 +12,8 @@ import {
   HashIcon,
   MessageCircleIcon,
   PlusIcon,
+  SearchIcon,
+  ServerIcon,
   SmartphoneIcon,
 } from "lucide-react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
@@ -21,6 +23,7 @@ import { cn } from "../../lib/utils";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import { useSidebar } from "../ui/sidebar";
 
 function compactTime(value?: string): string {
@@ -73,11 +76,22 @@ export function ChannelSidebar({ environmentId }: { readonly environmentId: Envi
   }, [loadedAccounts]);
 
   const accounts = loadedAccounts?.length ? loadedAccounts : stableAccounts;
+  const [query, setQuery] = useState("");
 
   return (
     <div className="border-b border-sidebar-border/60 px-[var(--sidebar-content-inset)] pb-2">
       <div className="flex h-7 items-center px-2 text-[10px] font-semibold tracking-[0.08em] text-sidebar-muted-foreground/60 uppercase">
         Chats
+      </div>
+      <div className="relative mb-1 px-1">
+        <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-3 -translate-y-1/2 text-sidebar-muted-foreground/60" />
+        <Input
+          aria-label="Search chats"
+          className="h-7 border-sidebar-border/70 bg-sidebar-accent/30 pr-2 pl-7 text-xs shadow-none"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search Discord and Messages"
+          value={query}
+        />
       </div>
       <ul className="flex flex-col gap-px" aria-label="Chat sources">
         {accounts.length === 0 ? (
@@ -93,6 +107,7 @@ export function ChannelSidebar({ environmentId }: { readonly environmentId: Envi
               account={account}
               environmentId={environmentId}
               onConfigured={refreshAccounts}
+              query={query}
             />
           ))
         )}
@@ -105,10 +120,12 @@ function ChannelAccountGroup({
   account,
   environmentId,
   onConfigured,
+  query,
 }: {
   readonly account: ConnectedChannelAccount;
   readonly environmentId: EnvironmentId;
   readonly onConfigured: () => void;
+  readonly query: string;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [configuring, setConfiguring] = useState(false);
@@ -220,6 +237,7 @@ function ChannelAccountGroup({
             <ReadyChannelConversations
               account={account}
               environmentId={environmentId}
+              query={query}
               selectedConversation={selectedConversation}
             />
           )}
@@ -232,10 +250,12 @@ function ChannelAccountGroup({
 function ReadyChannelConversations({
   account,
   environmentId,
+  query,
   selectedConversation,
 }: {
   readonly account: ConnectedChannelAccount;
   readonly environmentId: EnvironmentId;
+  readonly query: string;
   readonly selectedConversation: string | null;
 }) {
   const conversationsAtom = serverEnvironment.channelConversations({
@@ -243,34 +263,180 @@ function ReadyChannelConversations({
     input: { accountId: account.accountId },
   });
   const conversationsResult = useAtomValue(conversationsAtom);
-  const conversations = useMemo(
+  const loadedConversations = Option.getOrNull(
+    AsyncResult.value(conversationsResult),
+  )?.conversations;
+  const sortedLoadedConversations = useMemo(
     () =>
-      [...(Option.getOrNull(AsyncResult.value(conversationsResult))?.conversations ?? [])].sort(
-        (left, right) => (right.latestMessageAt ?? "").localeCompare(left.latestMessageAt ?? ""),
+      [...(loadedConversations ?? [])].sort((left, right) =>
+        (right.latestMessageAt ?? "").localeCompare(left.latestMessageAt ?? ""),
       ),
-    [conversationsResult],
+    [loadedConversations],
+  );
+  const [stableConversations, setStableConversations] = useState(sortedLoadedConversations);
+  useEffect(() => {
+    if (loadedConversations !== undefined) setStableConversations(sortedLoadedConversations);
+  }, [loadedConversations, sortedLoadedConversations]);
+  const conversations =
+    loadedConversations === undefined ? stableConversations : sortedLoadedConversations;
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredConversations = useMemo(
+    () =>
+      normalizedQuery.length === 0
+        ? conversations
+        : conversations.filter((conversation) =>
+            `${conversation.title} ${conversation.containerTitle ?? ""}`
+              .toLocaleLowerCase()
+              .includes(normalizedQuery),
+          ),
+    [conversations, normalizedQuery],
   );
 
-  if (conversations.length === 0) {
+  if (filteredConversations.length === 0) {
     return (
       <li className="list-none px-2 py-1.5 text-[11px] text-sidebar-muted-foreground/60">
         {conversationsResult._tag === "Failure"
           ? "Couldn’t load conversations."
-          : "No conversations yet"}
+          : normalizedQuery
+            ? "No matching chats"
+            : "No conversations yet"}
       </li>
     );
   }
 
-  return conversations
-    .slice(0, 30)
-    .map((conversation) => (
-      <ChannelConversationRow
-        key={conversation.conversationId}
-        account={account}
-        conversation={conversation}
-        selected={selectedConversation === conversation.conversationId}
-      />
-    ));
+  if (account.service !== "discord") {
+    return filteredConversations
+      .slice(0, 40)
+      .map((conversation) => (
+        <ChannelConversationRow
+          key={conversation.conversationId}
+          account={account}
+          conversation={conversation}
+          selected={selectedConversation === conversation.conversationId}
+        />
+      ));
+  }
+
+  const directMessages = filteredConversations.filter(
+    (conversation) => conversation.containerId === undefined,
+  );
+  const guilds = new Map<
+    string,
+    { title: string; avatarUrl?: string; conversations: Array<ChannelConversation> }
+  >();
+  for (const conversation of filteredConversations) {
+    if (conversation.containerId === undefined) continue;
+    const existing = guilds.get(conversation.containerId);
+    if (existing) {
+      existing.conversations.push(conversation);
+    } else {
+      guilds.set(conversation.containerId, {
+        title: conversation.containerTitle ?? "Discord server",
+        ...(conversation.containerAvatarUrl ? { avatarUrl: conversation.containerAvatarUrl } : {}),
+        conversations: [conversation],
+      });
+    }
+  }
+  const guildGroups = [...guilds.entries()].sort(([, left], [, right]) => {
+    const leftLatest = left.conversations[0]?.latestMessageAt ?? "";
+    const rightLatest = right.conversations[0]?.latestMessageAt ?? "";
+    return rightLatest.localeCompare(leftLatest);
+  });
+
+  return (
+    <>
+      {directMessages.length > 0 ? (
+        <ConversationGroup
+          account={account}
+          conversations={directMessages}
+          defaultExpanded
+          forceExpanded={normalizedQuery.length > 0}
+          icon={<MessageCircleIcon className="size-3" />}
+          label="Direct messages"
+          selectedConversation={selectedConversation}
+        />
+      ) : null}
+      {guildGroups.map(([guildId, guild]) => (
+        <ConversationGroup
+          account={account}
+          {...(guild.avatarUrl ? { avatarUrl: guild.avatarUrl } : {})}
+          conversations={guild.conversations}
+          forceExpanded={normalizedQuery.length > 0}
+          icon={<ServerIcon className="size-3" />}
+          key={guildId}
+          label={guild.title}
+          selectedConversation={selectedConversation}
+        />
+      ))}
+    </>
+  );
+}
+
+function ConversationGroup({
+  account,
+  avatarUrl,
+  conversations,
+  defaultExpanded = false,
+  forceExpanded,
+  icon,
+  label,
+  selectedConversation,
+}: {
+  readonly account: ConnectedChannelAccount;
+  readonly avatarUrl?: string;
+  readonly conversations: ReadonlyArray<ChannelConversation>;
+  readonly defaultExpanded?: boolean;
+  readonly forceExpanded: boolean;
+  readonly icon: React.ReactNode;
+  readonly label: string;
+  readonly selectedConversation: string | null;
+}) {
+  const containsSelection = conversations.some(
+    (conversation) => conversation.conversationId === selectedConversation,
+  );
+  const [expanded, setExpanded] = useState(defaultExpanded || containsSelection);
+  const visible = forceExpanded || expanded || containsSelection;
+  const orderedConversations = [...conversations].sort(
+    (left, right) =>
+      (left.position ?? Number.MAX_SAFE_INTEGER) - (right.position ?? Number.MAX_SAFE_INTEGER) ||
+      (right.latestMessageAt ?? "").localeCompare(left.latestMessageAt ?? ""),
+  );
+
+  return (
+    <li className="list-none">
+      <button
+        aria-expanded={visible}
+        className="flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[11px] font-medium text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+        onClick={() => setExpanded((value) => !value)}
+        type="button"
+      >
+        {visible ? (
+          <ChevronDownIcon className="size-3 shrink-0 opacity-60" />
+        ) : (
+          <ChevronRightIcon className="size-3 shrink-0 opacity-60" />
+        )}
+        {avatarUrl ? (
+          <img alt="" className="size-4 rounded object-cover" loading="lazy" src={avatarUrl} />
+        ) : (
+          <span className="flex size-4 items-center justify-center">{icon}</span>
+        )}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="text-[9px] tabular-nums opacity-50">{conversations.length}</span>
+      </button>
+      {visible ? (
+        <ul className="ml-3.5 flex flex-col gap-px border-l border-sidebar-border/50 pl-1">
+          {orderedConversations.map((conversation) => (
+            <ChannelConversationRow
+              account={account}
+              conversation={conversation}
+              key={conversation.conversationId}
+              selected={selectedConversation === conversation.conversationId}
+            />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
 }
 
 function ChannelConversationRow({
@@ -285,6 +451,10 @@ function ChannelConversationRow({
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const ConversationIcon = conversation.kind === "direct" ? MessageCircleIcon : HashIcon;
+  const avatarUrl =
+    conversation.kind === "direct"
+      ? conversation.participants.find((participant) => participant.isSelf !== true)?.avatarUrl
+      : undefined;
 
   return (
     <li className="list-none">
@@ -308,7 +478,16 @@ function ChannelConversationRow({
             : "text-sidebar-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
         )}
       >
-        <ConversationIcon className="size-3 shrink-0 opacity-65" />
+        {avatarUrl ? (
+          <img
+            alt=""
+            className="size-4 shrink-0 rounded-full object-cover"
+            loading="lazy"
+            src={avatarUrl}
+          />
+        ) : (
+          <ConversationIcon className="size-3 shrink-0 opacity-65" />
+        )}
         <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
         {conversation.unreadCount ? (
           <span className="flex min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold text-primary-foreground tabular-nums">
