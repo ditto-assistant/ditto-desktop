@@ -1147,11 +1147,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     cwd: isPathTrigger ? gitCwd : null,
     query: isPathTrigger ? pathTriggerQuery : null,
   });
+  const chatAccounts = useEnvironmentQuery(
+    isChatTrigger && chatTriggerService !== undefined
+      ? serverEnvironment.channelAccounts({ environmentId, input: {} })
+      : null,
+  );
+  const scopedChatAccountId = useMemo(
+    () =>
+      chatTriggerService === undefined
+        ? undefined
+        : chatAccounts.data?.accounts.find((account) => account.service === chatTriggerService)
+            ?.accountId,
+    [chatAccounts.data?.accounts, chatTriggerService],
+  );
   const chatConversations = useEnvironmentQuery(
-    isChatTrigger
+    isChatTrigger && (chatTriggerService === undefined || scopedChatAccountId !== undefined)
       ? serverEnvironment.channelConversations({
           environmentId,
-          input: {},
+          input: scopedChatAccountId === undefined ? {} : { accountId: scopedChatAccountId },
         })
       : null,
   );
