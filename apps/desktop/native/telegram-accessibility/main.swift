@@ -136,11 +136,38 @@ private func runningTelegram() -> AppTarget? {
         ?? runningTelegram(bundleIDs: telegramMacBundleIDs, client: "telegram-macos")
 }
 
-private func installedTelegram() -> Bool {
-    let workspace = NSWorkspace.shared
-    return (telegramDesktopBundleIDs + telegramMacBundleIDs).contains {
-        workspace.urlForApplication(withBundleIdentifier: $0) != nil
+private func installedApplicationURL(bundleIDs: [String]) -> URL? {
+    // LaunchServices can retain the path to a mounted Telegram installer after
+    // the app has been copied to /Applications. Prefer a validated local app
+    // bundle so a stale registration cannot make an installed client disappear.
+    let fileManager = FileManager.default
+    let candidateURLs = [
+        URL(fileURLWithPath: "/Applications/Telegram.app"),
+        fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications", isDirectory: true)
+            .appendingPathComponent("Telegram.app", isDirectory: true),
+    ]
+    for url in candidateURLs where fileManager.fileExists(atPath: url.path) {
+        if let bundleID = Bundle(url: url)?.bundleIdentifier, bundleIDs.contains(bundleID) {
+            return url
+        }
     }
+
+    let workspace = NSWorkspace.shared
+    for bundleID in bundleIDs {
+        guard let url = workspace.urlForApplication(withBundleIdentifier: bundleID),
+              fileManager.fileExists(atPath: url.path),
+              Bundle(url: url)?.bundleIdentifier == bundleID
+        else { continue }
+        return url
+    }
+    return nil
+}
+
+private func installedTelegram() -> Bool {
+    runningTelegram() != nil
+        || installedApplicationURL(bundleIDs: telegramDesktopBundleIDs) != nil
+        || installedApplicationURL(bundleIDs: telegramMacBundleIDs) != nil
 }
 
 private func launchTelegramInBackground(
@@ -149,8 +176,7 @@ private func launchTelegramInBackground(
 ) -> AppTarget? {
     if let running = runningTelegram(bundleIDs: bundleIDs, client: client) { return running }
     let workspace = NSWorkspace.shared
-    guard let appURL = bundleIDs.compactMap({ workspace.urlForApplication(withBundleIdentifier: $0) }).first
-    else { return nil }
+    guard let appURL = installedApplicationURL(bundleIDs: bundleIDs) else { return nil }
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.activates = false
     configuration.addsToRecentItems = false
