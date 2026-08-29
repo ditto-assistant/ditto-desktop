@@ -3,12 +3,14 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
+	"mime"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -485,35 +487,24 @@ func (s *sidecar) sendMessage(channelID, guildID, content, replyToID, nonce stri
 		}
 		return wireMessage{}, fmt.Errorf("verify previous Discord send receipt: %w", fetchErr)
 	}
-	files := make([]*discordgo.File, 0, len(paths))
-	opened := make([]io.Closer, 0, len(paths))
-	defer func() {
-		for _, file := range opened {
-			_ = file.Close()
-		}
-	}()
-	for _, path := range paths {
-		file, openErr := os.Open(path)
-		if openErr != nil {
-			return wireMessage{}, fmt.Errorf("open attachment %q: %w", filepath.Base(path), openErr)
-		}
-		opened = append(opened, file)
-		files = append(files, &discordgo.File{Name: filepath.Base(path), Reader: file})
-	}
 	channel, channelErr := session.Channel(channelID)
 	if channelErr == nil && guildID == "" {
 		guildID = channel.GuildID
-	}
-	payload := &discordgo.MessageSend{Content: content, Nonce: nonce, Files: files}
-	if replyToID != "" {
-		failIfMissing := false
-		payload.Reference = &discordgo.MessageReference{MessageID: replyToID, ChannelID: channelID, GuildID: guildID, FailIfNotExists: &failIfMissing}
 	}
 	options := []discordgo.RequestOption{}
 	if channelErr == nil && channel.IsThread() && guildID != "" && channel.ParentID != "" {
 		options = append(options, discordgo.WithThreadReferer(guildID, channel.ParentID, channelID))
 	} else {
 		options = append(options, discordgo.WithChannelReferer(guildID, channelID))
+	}
+	attachments, attachmentErr := prepareAttachments(session, channelID, paths, options)
+	if attachmentErr != nil {
+		return wireMessage{}, attachmentErr
+	}
+	payload := &discordgo.MessageSend{Content: content, Nonce: nonce, Attachments: attachments}
+	if replyToID != "" {
+		failIfMissing := false
+		payload.Reference = &discordgo.MessageReference{MessageID: replyToID, ChannelID: channelID, GuildID: guildID, FailIfNotExists: &failIfMissing}
 	}
 	message, err := session.ChannelMessageSendComplex(channelID, payload, options...)
 	if err != nil {
@@ -530,6 +521,92 @@ func (s *sidecar) sendMessage(channelID, guildID, content, replyToID, nonce stri
 		s.out.write(event{Event: "receipt.persistence_failed", Data: map[string]string{"message": "The delivery receipt could not be saved across restarts."}})
 	}
 	return s.message(message), nil
+}
+
+func prepareAttachments(session *discordgo.Session, channelID string, paths []string, options []discordgo.RequestOption) ([]*discordgo.MessageAttachment, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	if len(paths) > 10 {
+		return nil, errors.New("Discord messages support at most 10 attachments")
+	}
+	type localAttachment struct {
+		data        []byte
+		filename    string
+		contentType string
+	}
+	local := make([]localAttachment, 0, len(paths))
+	request := &discordgo.ReqPrepareAttachments{Files: make([]*discordgo.FilePrepare, 0, len(paths))}
+	totalSize := 0
+	for index, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("open attachment %q: %w", filepath.Base(path), err)
+		}
+		if len(data) > 25*1024*1024 {
+			return nil, fmt.Errorf("attachment %q exceeds the 25 MB local safety limit", filepath.Base(path))
+		}
+		totalSize += len(data)
+		if totalSize > 100*1024*1024 {
+			return nil, errors.New("attachments exceed the 100 MB local safety limit")
+		}
+		contentType := mime.TypeByExtension(filepath.Ext(path))
+		filename := filepath.Base(path)
+		isClip := false
+		local = append(local, localAttachment{data: data, filename: filename, contentType: contentType})
+		request.Files = append(request.Files, &discordgo.FilePrepare{
+			Size:                len(data),
+			Name:                filename,
+			ID:                  fmt.Sprintf("%d", index),
+			IsClip:              &isClip,
+			OriginalContentType: contentType,
+		})
+	}
+	prepared, err := session.ChannelAttachmentCreate(channelID, request, options...)
+	if err != nil {
+		return nil, fmt.Errorf("prepare Discord attachments: %w", err)
+	}
+	if len(prepared.Attachments) != len(local) {
+		return nil, errors.New("Discord returned an incomplete attachment upload plan")
+	}
+	result := make([]*discordgo.MessageAttachment, 0, len(local))
+	for index, attachment := range local {
+		remote := prepared.Attachments[index]
+		if err := uploadAttachment(session.Client, remote.UploadURL, attachment.data); err != nil {
+			return nil, fmt.Errorf("upload Discord attachment %q: %w", attachment.filename, err)
+		}
+		result = append(result, &discordgo.MessageAttachment{
+			ID:                  fmt.Sprintf("%d", index),
+			Filename:            attachment.filename,
+			OriginalContentType: attachment.contentType,
+			UploadedFilename:    remote.UploadFilename,
+		})
+	}
+	return result, nil
+}
+
+func uploadAttachment(client *http.Client, url string, data []byte) error {
+	request, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	for key, value := range discordgo.DroidBaseHeaders {
+		request.Header.Set(key, value)
+	}
+	request.Header.Set("Content-Type", "application/octet-stream")
+	request.Header.Set("Referer", "https://discord.com/")
+	request.Header.Set("Sec-Fetch-Dest", "empty")
+	request.Header.Set("Sec-Fetch-Mode", "cors")
+	request.Header.Set("Sec-Fetch-Site", "cross-site")
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("upload returned HTTP %d", response.StatusCode)
+	}
+	return nil
 }
 
 func (s *sidecar) loadReceipts() {

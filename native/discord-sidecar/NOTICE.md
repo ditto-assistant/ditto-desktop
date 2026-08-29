@@ -8,7 +8,8 @@ stdio protocol.
 The remote-auth implementation is adapted from the `remoteauth` package in
 [`mautrix-discord`](https://github.com/mautrix/discord) at commit
 `c62165a46109d7c824bc0b4bb067ba02ea6528f1`, specifically its remote-auth
-packet, client, and user flow. That source is licensed under AGPL-3.0. The
+packet, client, and user flow plus the prepared-attachment upload behavior in
+`portal.go` and `attachments.go`. That source is licensed under AGPL-3.0. The
 adaptation adds context cancellation, deterministic result delivery, bounded
 writes, and a Ditto-specific protocol surface.
 
