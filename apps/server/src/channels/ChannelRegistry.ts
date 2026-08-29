@@ -21,6 +21,7 @@ import { ProcessRunner, type ProcessRunInput } from "../processRunner.ts";
 import type { ChannelAdapter, ChannelCommandRun } from "./ChannelAdapter.ts";
 import { DISCRAWL_ACCOUNT_ID, makeDiscrawlAdapter } from "./DiscrawlAdapter.ts";
 import { DiscrawlManager } from "./DiscrawlManager.ts";
+import { DiscordMediaCache } from "./DiscordMediaCache.ts";
 import { IMESSAGE_ACCOUNT_ID, makeIMessageAdapter } from "./IMessageAdapter.ts";
 
 export interface ChannelRegistryShape {
@@ -138,7 +139,12 @@ export const layer = Layer.effect(
     });
     return makeChannelRegistry(
       new Map([
-        [DISCRAWL_ACCOUNT_ID, makeDiscrawlAdapter(discrawl)],
+        [
+          DISCRAWL_ACCOUNT_ID,
+          makeDiscrawlAdapter(discrawl, {
+            mediaCache: new DiscordMediaCache({ attachmentsDir: config.attachmentsDir }),
+          }),
+        ],
         [
           IMESSAGE_ACCOUNT_ID,
           makeIMessageAdapter(run, {

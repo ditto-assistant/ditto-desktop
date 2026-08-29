@@ -140,6 +140,9 @@ export const ChannelAttachment = Schema.Struct({
   byteSize: Schema.optionalKey(Schema.Number),
   remoteUrl: Schema.optionalKey(Schema.String),
   localPath: Schema.optionalKey(Schema.String),
+  /** Opaque id for bytes held by the local server's signed asset route. */
+  cachedAttachmentId: Schema.optionalKey(Schema.String),
+  cacheState: Schema.optionalKey(Schema.Literals(["cached", "expired", "unavailable"])),
 });
 export type ChannelAttachment = typeof ChannelAttachment.Type;
 

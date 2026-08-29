@@ -21,6 +21,7 @@ import {
   unknownRecord,
 } from "./ChannelAdapter.ts";
 import type { DiscrawlManager } from "./DiscrawlManager.ts";
+import type { DiscordMediaCache } from "./DiscordMediaCache.ts";
 
 export const DISCRAWL_ACCOUNT_ID = ChannelAccountId.make("discord:discrawl:local");
 
@@ -310,7 +311,10 @@ function runtimeFromRun(run: ChannelCommandRun): DiscrawlRuntime {
   };
 }
 
-export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime): ChannelAdapter {
+export function makeDiscrawlAdapter(
+  input: ChannelCommandRun | DiscrawlRuntime,
+  options: { readonly mediaCache?: DiscordMediaCache } = {},
+): ChannelAdapter {
   const runtime = typeof input === "function" ? runtimeFromRun(input) : input;
   const execute = (args: ReadonlyArray<string>) =>
     runtime
@@ -470,21 +474,43 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
             (mentionRows) => ({ rows, attachmentRows, selfRows, mentionRows }),
           );
         }),
-        Effect.map(({ rows, attachmentRows, selfRows, mentionRows }) => {
-          const attachmentsByMessage = new Map<string, Array<ChannelAttachment>>();
-          for (const value of attachmentRows) {
-            const normalized = normalizeAttachment(value);
-            if (normalized === null) continue;
-            const existing = attachmentsByMessage.get(normalized.messageId) ?? [];
-            existing.push(normalized.attachment);
-            attachmentsByMessage.set(normalized.messageId, existing);
-          }
-          const selfAuthorId = readString(selfRows[0] ?? {}, "author_id");
-          const mentions = resolvedMentionMap(mentionRows);
-          return rows
-            .map((row) => normalizeMessage(row, selfAuthorId, attachmentsByMessage, mentions))
-            .filter((message): message is ChannelMessage => message !== null);
-        }),
+        Effect.flatMap(({ rows, attachmentRows, selfRows, mentionRows }) =>
+          Effect.gen(function* () {
+            const attachmentsByMessage = new Map<string, Array<ChannelAttachment>>();
+            const normalizedAttachments = attachmentRows.flatMap((value) => {
+              const attachment = normalizeAttachment(value);
+              return attachment === null ? [] : [attachment];
+            });
+            const cachedAttachments =
+              options.mediaCache === undefined
+                ? normalizedAttachments.map((normalized) => ({ normalized, cached: undefined }))
+                : yield* Effect.forEach(
+                    normalizedAttachments,
+                    (normalized) =>
+                      Effect.promise(() => options.mediaCache!.cache(normalized.attachment)).pipe(
+                        Effect.map((cached) => ({ normalized, cached })),
+                      ),
+                    { concurrency: 4 },
+                  );
+            for (const { normalized, cached } of cachedAttachments) {
+              const existing = attachmentsByMessage.get(normalized.messageId) ?? [];
+              existing.push({
+                ...normalized.attachment,
+                ...(cached?.state === "cached"
+                  ? { cachedAttachmentId: cached.attachmentId, cacheState: cached.state }
+                  : cached === undefined
+                    ? {}
+                    : { cacheState: cached.state }),
+              });
+              attachmentsByMessage.set(normalized.messageId, existing);
+            }
+            const selfAuthorId = readString(selfRows[0] ?? {}, "author_id");
+            const mentions = resolvedMentionMap(mentionRows);
+            return rows
+              .map((row) => normalizeMessage(row, selfAuthorId, attachmentsByMessage, mentions))
+              .filter((message): message is ChannelMessage => message !== null);
+          }),
+        ),
       ),
     sendMessage: () =>
       Effect.fail(

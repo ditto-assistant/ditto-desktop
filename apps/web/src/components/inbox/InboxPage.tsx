@@ -12,6 +12,7 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import { ArrowUpIcon, InboxIcon, RefreshCwIcon, ExternalLinkIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useAssetUrl } from "../../assets/assetUrls";
 import { isElectron } from "../../env";
 import { readLocalApi } from "../../localApi";
 import { cn, randomUUID } from "../../lib/utils";
@@ -318,6 +319,7 @@ function MessagePanel({
               return (
                 <div className={cn("mx-auto w-full max-w-3xl", showHeader ? "pt-4" : "pt-0.5")}>
                   <MessageRow
+                    conversation={conversation}
                     environmentId={environmentId}
                     message={message}
                     showHeader={showHeader}
@@ -346,10 +348,12 @@ function MessagePanel({
 }
 
 function MessageRow({
+  conversation,
   environmentId,
   message,
   showHeader,
 }: {
+  readonly conversation: ChannelConversation;
   readonly environmentId: EnvironmentId;
   readonly message: ChannelMessage;
   readonly showHeader: boolean;
@@ -388,42 +392,116 @@ function MessageRow({
         ) : null}
         {message.attachments.length > 0 ? (
           <div className="mt-1.5 flex max-w-full flex-col items-start gap-1.5">
-            {message.attachments.map((attachment) => {
-              const url = attachment.remoteUrl;
-              const isImage = attachment.mediaType?.startsWith("image/") === true;
-              return isImage && url ? (
-                <button
-                  aria-label={`Open ${attachment.filename ?? "image"}`}
-                  className="max-w-full overflow-hidden rounded-xl border border-border bg-muted/30"
-                  key={attachment.id}
-                  onClick={() => openExternal(url)}
-                  type="button"
-                >
-                  <img
-                    alt={attachment.filename ?? "Discord image"}
-                    className="max-h-96 max-w-full object-contain"
-                    loading="lazy"
-                    src={url}
-                  />
-                </button>
-              ) : (
-                <Button
-                  className="max-w-full justify-start"
-                  disabled={!url}
-                  key={attachment.id}
-                  onClick={() => url && openExternal(url)}
-                  size="sm"
-                  variant="outline"
-                >
-                  <ExternalLinkIcon className="size-3.5" />
-                  <span className="truncate">{attachment.filename ?? "Open attachment"}</span>
-                </Button>
-              );
-            })}
+            {message.attachments.map((attachment) => (
+              <DiscordAttachment
+                attachment={attachment}
+                environmentId={environmentId}
+                messageUrl={`discord://-/channels/${conversation.containerId ?? "@me"}/${conversation.conversationId}/${message.messageId}`}
+                key={attachment.id}
+              />
+            ))}
           </div>
         ) : null}
       </div>
     </article>
+  );
+}
+
+function DiscordAttachment({
+  attachment,
+  environmentId,
+  messageUrl,
+}: {
+  readonly attachment: ChannelMessage["attachments"][number];
+  readonly environmentId: EnvironmentId;
+  readonly messageUrl: string;
+}) {
+  if (attachment.cachedAttachmentId) {
+    return (
+      <CachedDiscordAttachment
+        attachment={{ ...attachment, cachedAttachmentId: attachment.cachedAttachmentId }}
+        environmentId={environmentId}
+      />
+    );
+  }
+  const remoteUrl = attachment.cacheState === "expired" ? undefined : attachment.remoteUrl;
+  if (attachment.mediaType?.startsWith("image/") === true && remoteUrl) {
+    return <DiscordImage attachment={attachment} url={remoteUrl} />;
+  }
+  if (attachment.cacheState === "expired") {
+    return (
+      <Button onClick={() => openExternal(messageUrl)} size="sm" variant="outline">
+        <ExternalLinkIcon className="size-3.5" />
+        Open message in Discord
+      </Button>
+    );
+  }
+  return <DiscordAttachmentButton attachment={attachment} url={remoteUrl} />;
+}
+
+function CachedDiscordAttachment({
+  attachment,
+  environmentId,
+}: {
+  readonly attachment: ChannelMessage["attachments"][number] & {
+    readonly cachedAttachmentId: string;
+  };
+  readonly environmentId: EnvironmentId;
+}) {
+  const cachedUrl = useAssetUrl(environmentId, {
+    _tag: "attachment",
+    attachmentId: attachment.cachedAttachmentId,
+    ...(attachment.filename ? { fileName: attachment.filename } : {}),
+    ...(attachment.mediaType ? { mimeType: attachment.mediaType } : {}),
+  });
+  if (attachment.mediaType?.startsWith("image/") === true && cachedUrl) {
+    return <DiscordImage attachment={attachment} url={cachedUrl} />;
+  }
+  return <DiscordAttachmentButton attachment={attachment} url={cachedUrl ?? undefined} />;
+}
+
+function DiscordImage({
+  attachment,
+  url,
+}: {
+  readonly attachment: ChannelMessage["attachments"][number];
+  readonly url: string;
+}) {
+  return (
+    <button
+      aria-label={`Open ${attachment.filename ?? "image"}`}
+      className="max-w-full overflow-hidden rounded-xl border border-border bg-muted/30"
+      onClick={() => openExternal(url)}
+      type="button"
+    >
+      <img
+        alt={attachment.filename ?? "Discord image"}
+        className="max-h-96 max-w-full object-contain"
+        loading="lazy"
+        src={url}
+      />
+    </button>
+  );
+}
+
+function DiscordAttachmentButton({
+  attachment,
+  url,
+}: {
+  readonly attachment: ChannelMessage["attachments"][number];
+  readonly url: string | undefined;
+}) {
+  return (
+    <Button
+      className="max-w-full justify-start"
+      disabled={!url}
+      onClick={() => url && openExternal(url)}
+      size="sm"
+      variant="outline"
+    >
+      <ExternalLinkIcon className="size-3.5" />
+      <span className="truncate">{attachment.filename ?? "Open attachment"}</span>
+    </Button>
   );
 }
 
