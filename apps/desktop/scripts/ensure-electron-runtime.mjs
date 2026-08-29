@@ -127,7 +127,10 @@ function installElectronRuntime(electronDir, version) {
       zipPath,
     ]);
     if (hostPlatform === "darwin") {
-      runChecked("ditto", ["-x", "-k", zipPath, NodePath.join(electronDir, "dist")]);
+      // macOS ships /usr/bin/ditto as its archive extraction utility. Use the
+      // absolute system path because Ditto's memory CLI may also install a
+      // `ditto` binary earlier on PATH.
+      runChecked("/usr/bin/ditto", ["-x", "-k", zipPath, NodePath.join(electronDir, "dist")]);
     } else {
       runChecked("python3", [
         "-c",

@@ -10,11 +10,17 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import {
+  HostProcessArchitecture,
+  HostProcessEnvironment,
+  HostProcessPlatform,
+} from "@t3tools/shared/hostProcess";
 
+import { ServerConfig } from "../config.ts";
 import { ProcessRunner, type ProcessRunInput } from "../processRunner.ts";
 import type { ChannelAdapter, ChannelCommandRun } from "./ChannelAdapter.ts";
 import { DISCRAWL_ACCOUNT_ID, makeDiscrawlAdapter } from "./DiscrawlAdapter.ts";
+import { DiscrawlManager } from "./DiscrawlManager.ts";
 import { IMESSAGE_ACCOUNT_ID, makeIMessageAdapter } from "./IMessageAdapter.ts";
 
 export interface ChannelRegistryShape {
@@ -25,6 +31,10 @@ export interface ChannelRegistryShape {
   readonly listConversations: (
     accountId?: ChannelAccountId,
   ) => Effect.Effect<ReadonlyArray<ChannelConversation>, ChannelOperationError>;
+  readonly configureAccount: (
+    accountId: ChannelAccountId,
+    enabled: boolean,
+  ) => Effect.Effect<ConnectedChannelAccount, ChannelOperationError>;
   readonly listMessages: (
     accountId: ChannelAccountId,
     conversationId: string,
@@ -62,6 +72,18 @@ export function makeChannelRegistry(
     listAccounts: Effect.forEach(adapters.values(), (adapter) => adapter.discover, {
       concurrency: "unbounded",
     }).pipe(Effect.map((accounts) => [...accounts])),
+    configureAccount: (accountId, enabled) =>
+      withAdapter(accountId, (adapter) =>
+        adapter.configure === undefined
+          ? Effect.fail(
+              new ChannelOperationError({
+                accountId,
+                kind: "capability_unavailable",
+                message: "This local channel cannot be disabled.",
+              }),
+            )
+          : adapter.configure(enabled),
+      ),
     listConversations: (accountId) => {
       if (accountId !== undefined) {
         return withAdapter(accountId, (adapter) => adapter.listConversations);
@@ -81,7 +103,9 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const processRunner = yield* ProcessRunner;
     const platform = yield* HostProcessPlatform;
+    const architecture = yield* HostProcessArchitecture;
     const environment = yield* HostProcessEnvironment;
+    const config = yield* ServerConfig;
     const run: ChannelCommandRun = (input) => {
       const processInput: ProcessRunInput = {
         command: input.command,
@@ -104,9 +128,17 @@ export const layer = Layer.effect(
         ),
       );
     };
+    const discrawl = new DiscrawlManager({
+      baseDir: config.baseDir,
+      stateDir: config.stateDir,
+      homeDirectory: environment.HOME ?? "",
+      platform,
+      architecture,
+      run,
+    });
     return makeChannelRegistry(
       new Map([
-        [DISCRAWL_ACCOUNT_ID, makeDiscrawlAdapter(run)],
+        [DISCRAWL_ACCOUNT_ID, makeDiscrawlAdapter(discrawl)],
         [
           IMESSAGE_ACCOUNT_ID,
           makeIMessageAdapter(run, {

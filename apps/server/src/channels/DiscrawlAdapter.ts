@@ -18,6 +18,7 @@ import {
   readString,
   unknownRecord,
 } from "./ChannelAdapter.ts";
+import type { DiscrawlManager } from "./DiscrawlManager.ts";
 
 export const DISCRAWL_ACCOUNT_ID = ChannelAccountId.make("discord:discrawl:local");
 
@@ -139,59 +140,62 @@ function normalizeMessage(value: unknown): ChannelMessage | null {
   };
 }
 
-export function makeDiscrawlAdapter(run: ChannelCommandRun): ChannelAdapter {
+type DiscrawlRuntime = Pick<
+  DiscrawlManager,
+  "configure" | "execute" | "isDiscordInstalled" | "isEnabled"
+>;
+
+function runtimeFromRun(run: ChannelCommandRun): DiscrawlRuntime {
+  return {
+    configure: () => Effect.void,
+    execute: (args) => run({ command: "discrawl", args, timeout: "30 seconds" }),
+    isDiscordInstalled: () => Effect.succeed(true),
+    isEnabled: () => Effect.succeed(true),
+  };
+}
+
+export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime): ChannelAdapter {
+  const runtime = typeof input === "function" ? runtimeFromRun(input) : input;
   const execute = (args: ReadonlyArray<string>) =>
-    run({ command: "discrawl", args, timeout: "30 seconds" }).pipe(
-      Effect.flatMap((result) =>
-        result.code === 0
-          ? Effect.succeed(result.stdout)
-          : Effect.fail(transportError(result.stderr.trim() || `discrawl exited ${result.code}`)),
-      ),
-    );
+    runtime
+      .execute(args)
+      .pipe(
+        Effect.flatMap((result) =>
+          result.code === 0
+            ? Effect.succeed(result.stdout)
+            : Effect.fail(transportError(result.stderr.trim() || `discrawl exited ${result.code}`)),
+        ),
+      );
 
   return {
-    discover: execute(["--json", "status"]).pipe(
-      Effect.map(
-        (): ConnectedChannelAccount => ({
-          accountId: DISCRAWL_ACCOUNT_ID,
-          service: "discord",
-          transport: "discord-discrawl",
-          executionLocation: "device",
-          identityMode: "archive",
-          label: "Discord on this device",
-          state: "ready",
-          capabilities: [...DISCRAWL_CAPABILITIES],
-          completeness: "device_cache_partial",
-          statusDetail:
-            "Discrawl archive is available. Run wiretap to refresh cached Discord data.",
-        }),
+    configure: (enabled) =>
+      runtime.configure(enabled).pipe(Effect.andThen(Effect.suspend(() => discoverAccount()))),
+    discover: Effect.suspend(() => discoverAccount()),
+    listConversations: runtime.isEnabled().pipe(
+      Effect.flatMap((enabled) =>
+        enabled
+          ? Effect.void
+          : Effect.fail(
+              new ChannelOperationError({
+                accountId: DISCRAWL_ACCOUNT_ID,
+                kind: "setup_required",
+                message: "Turn on Discord sync before opening its conversations.",
+              }),
+            ),
       ),
-      Effect.catch((error) =>
-        Effect.succeed({
-          accountId: DISCRAWL_ACCOUNT_ID,
-          service: "discord" as const,
-          transport: "discord-discrawl" as const,
-          executionLocation: "device" as const,
-          identityMode: "archive" as const,
-          label: "Discord on this device",
-          state: "setup_required" as const,
-          capabilities: [...DISCRAWL_CAPABILITIES],
-          completeness: "unknown" as const,
-          statusDetail: error.message,
-        }),
+      Effect.andThen(
+        Effect.all([
+          execute(["--json", "channels", "list"]).pipe(
+            Effect.flatMap((stdout) => decodeRows(stdout, ["channels", "rows", "data"])),
+          ),
+          execute(["--json", "dms"]).pipe(
+            Effect.flatMap((stdout) =>
+              decodeRows(stdout, ["conversations", "channels", "rows", "data"]),
+            ),
+            Effect.orElseSucceed(() => []),
+          ),
+        ]),
       ),
-    ),
-    listConversations: Effect.all([
-      execute(["--json", "channels", "list"]).pipe(
-        Effect.flatMap((stdout) => decodeRows(stdout, ["channels", "rows", "data"])),
-      ),
-      execute(["--json", "dms"]).pipe(
-        Effect.flatMap((stdout) =>
-          decodeRows(stdout, ["conversations", "channels", "rows", "data"]),
-        ),
-        Effect.orElseSucceed(() => []),
-      ),
-    ]).pipe(
       Effect.map(([channels, dms]) =>
         [...channels, ...dms]
           .map(normalizeConversation)
@@ -199,7 +203,18 @@ export function makeDiscrawlAdapter(run: ChannelCommandRun): ChannelAdapter {
       ),
     ),
     listMessages: (conversationId, limit = 100) =>
-      execute(["--json", "messages", "--channel", conversationId, "--last", String(limit)]).pipe(
+      runtime.isEnabled().pipe(
+        Effect.flatMap((enabled) =>
+          enabled
+            ? execute(["--json", "messages", "--channel", conversationId, "--last", String(limit)])
+            : Effect.fail(
+                new ChannelOperationError({
+                  accountId: DISCRAWL_ACCOUNT_ID,
+                  kind: "setup_required",
+                  message: "Turn on Discord sync before opening its messages.",
+                }),
+              ),
+        ),
         Effect.flatMap((stdout) => decodeRows(stdout, ["messages", "rows", "data"])),
         Effect.map((rows) =>
           rows
@@ -218,4 +233,50 @@ export function makeDiscrawlAdapter(run: ChannelCommandRun): ChannelAdapter {
         }),
       ),
   };
+
+  function discoverAccount(): Effect.Effect<ConnectedChannelAccount> {
+    return Effect.gen(function* () {
+      const enabled = yield* runtime.isEnabled();
+      const discordInstalled = yield* runtime.isDiscordInstalled();
+      if (!enabled) {
+        return {
+          enabled,
+          discordInstalled,
+          ready: false,
+          detail: "Turn on Discord sync to install Discrawl and import the local Discord cache.",
+        };
+      }
+      const status = yield* Effect.result(execute(["--json", "status"]));
+      return status._tag === "Success"
+        ? {
+            enabled,
+            discordInstalled,
+            ready: true,
+            detail:
+              "Discrawl archive is available. Toggle sync again to refresh the Discord cache.",
+          }
+        : {
+            enabled,
+            discordInstalled,
+            ready: false,
+            detail: status.failure.message,
+          };
+    }).pipe(
+      Effect.map(
+        ({ enabled, discordInstalled, ready, detail }): ConnectedChannelAccount => ({
+          accountId: DISCRAWL_ACCOUNT_ID,
+          service: "discord",
+          transport: "discord-discrawl",
+          executionLocation: "device",
+          identityMode: "archive",
+          label: "Discord on this device",
+          enabled,
+          state: ready ? "ready" : discordInstalled ? "setup_required" : "unavailable",
+          capabilities: [...DISCRAWL_CAPABILITIES],
+          completeness: "device_cache_partial",
+          statusDetail: detail,
+        }),
+      ),
+    );
+  }
 }

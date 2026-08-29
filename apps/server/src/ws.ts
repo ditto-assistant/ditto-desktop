@@ -1808,6 +1808,14 @@ const makeWsRpcLayer = (
             channels.listAccounts.pipe(Effect.map((accounts) => ({ accounts }))),
             { "rpc.aggregate": "channels" },
           ),
+        [WS_METHODS.channelsConfigureAccount]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.channelsConfigureAccount,
+            channels
+              .configureAccount(input.accountId, input.enabled)
+              .pipe(Effect.map((account) => ({ account }))),
+            { "rpc.aggregate": "channels" },
+          ),
         [WS_METHODS.channelsListConversations]: (input) =>
           observeRpcEffect(
             WS_METHODS.channelsListConversations,

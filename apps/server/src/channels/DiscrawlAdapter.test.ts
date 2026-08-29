@@ -60,3 +60,26 @@ it.effect("never exposes personal Discord sending through Discrawl", () =>
     }
   }),
 );
+
+it.effect("keeps Discord local sync off until the user enables it", () =>
+  Effect.gen(function* () {
+    let enabled = false;
+    const adapter = makeDiscrawlAdapter({
+      configure: (next) => Effect.sync(() => void (enabled = next)),
+      execute: () => Effect.succeed({ stdout: "{}", stderr: "", code: 0 }),
+      isDiscordInstalled: () => Effect.succeed(true),
+      isEnabled: () => Effect.sync(() => enabled),
+    });
+
+    const disabledAccount = yield* adapter.discover;
+    expect(disabledAccount.enabled).toBe(false);
+    expect(disabledAccount.state).toBe("setup_required");
+
+    const configure = adapter.configure;
+    expect(configure).toBeDefined();
+    if (configure === undefined) return;
+    const enabledAccount = yield* configure(true);
+    expect(enabledAccount.enabled).toBe(true);
+    expect(enabledAccount.state).toBe("ready");
+  }),
+);

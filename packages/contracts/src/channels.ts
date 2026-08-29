@@ -103,6 +103,7 @@ export const ConnectedChannelAccount = Schema.Struct({
   executionLocation: ChannelExecutionLocation,
   identityMode: ChannelIdentityMode,
   label: Schema.String,
+  enabled: Schema.Boolean,
   state: ChannelConnectionState,
   capabilities: Schema.Array(ChannelCapability),
   completeness: ChannelDataCompleteness,
@@ -110,6 +111,17 @@ export const ConnectedChannelAccount = Schema.Struct({
   statusDetail: Schema.optionalKey(Schema.String),
 });
 export type ConnectedChannelAccount = typeof ConnectedChannelAccount.Type;
+
+export const ChannelConfigureAccountInput = Schema.Struct({
+  accountId: ChannelAccountId,
+  enabled: Schema.Boolean,
+});
+export type ChannelConfigureAccountInput = typeof ChannelConfigureAccountInput.Type;
+
+export const ChannelConfigureAccountResult = Schema.Struct({
+  account: ConnectedChannelAccount,
+});
+export type ChannelConfigureAccountResult = typeof ChannelConfigureAccountResult.Type;
 
 export const ChannelParticipant = Schema.Struct({
   id: Schema.String,

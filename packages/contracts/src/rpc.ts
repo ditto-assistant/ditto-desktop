@@ -26,6 +26,8 @@ import {
   DittoHarnessStatus,
 } from "./dittoHarness.ts";
 import {
+  ChannelConfigureAccountInput,
+  ChannelConfigureAccountResult,
   ChannelListAccountsResult,
   ChannelListConversationsInput,
   ChannelListConversationsResult,
@@ -323,6 +325,7 @@ export const WS_METHODS = {
 
   // Local and hosted human-chat adapters
   channelsListAccounts: "channels.listAccounts",
+  channelsConfigureAccount: "channels.configureAccount",
   channelsListConversations: "channels.listConversations",
   channelsListMessages: "channels.listMessages",
   channelsSendMessage: "channels.sendMessage",
@@ -527,6 +530,12 @@ export const WsDittoHarnessDreamRpc = Rpc.make(WS_METHODS.dittoHarnessDream, {
 export const WsChannelsListAccountsRpc = Rpc.make(WS_METHODS.channelsListAccounts, {
   payload: Schema.Struct({}),
   success: ChannelListAccountsResult,
+  error: Schema.Union([ChannelOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsChannelsConfigureAccountRpc = Rpc.make(WS_METHODS.channelsConfigureAccount, {
+  payload: ChannelConfigureAccountInput,
+  success: ChannelConfigureAccountResult,
   error: Schema.Union([ChannelOperationError, EnvironmentAuthorizationError]),
 });
 
@@ -1131,6 +1140,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsDittoHarnessSearchSubjectsRpc,
   WsDittoHarnessDreamRpc,
   WsChannelsListAccountsRpc,
+  WsChannelsConfigureAccountRpc,
   WsChannelsListConversationsRpc,
   WsChannelsListMessagesRpc,
   WsChannelsSendMessageRpc,

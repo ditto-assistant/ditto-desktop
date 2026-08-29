@@ -728,6 +728,29 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.serverGetUsageSummary,
       staleTimeMs: 60_000,
     }),
+    channelAccounts: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:channels:accounts",
+      tag: WS_METHODS.channelsListAccounts,
+      staleTimeMs: 5_000,
+    }),
+    channelConversations: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:channels:conversations",
+      tag: WS_METHODS.channelsListConversations,
+      staleTimeMs: 2_000,
+    }),
+    channelMessages: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:channels:messages",
+      tag: WS_METHODS.channelsListMessages,
+      staleTimeMs: 1_000,
+    }),
+    configureChannel: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:channels:configure",
+      tag: WS_METHODS.channelsConfigureAccount,
+    }),
+    sendChannelMessage: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:channels:send-message",
+      tag: WS_METHODS.channelsSendMessage,
+    }),
     configProjection,
     welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:welcome",
