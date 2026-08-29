@@ -12,15 +12,33 @@ export interface PendingKnowledgePacket extends ChannelKnowledgePacketRequest {
 }
 
 interface KnowledgePacketState {
-  readonly pending: PendingKnowledgePacket | null;
+  readonly pending: ReadonlyArray<PendingKnowledgePacket>;
   readonly attach: (packet: PendingKnowledgePacket) => void;
+  readonly detach: (accountId: ChannelAccountId, conversationId: ChannelConversationId) => void;
   readonly clear: () => void;
 }
 
 export const useKnowledgePacketStore = create<KnowledgePacketState>((set) => ({
-  pending: null,
-  attach: (pending) => set({ pending }),
-  clear: () => set({ pending: null }),
+  pending: [],
+  attach: (packet) =>
+    set((state) => ({
+      pending: [
+        ...state.pending.filter(
+          (candidate) =>
+            candidate.accountId !== packet.accountId ||
+            candidate.conversationId !== packet.conversationId,
+        ),
+        packet,
+      ].slice(-8),
+    })),
+  detach: (accountId, conversationId) =>
+    set((state) => ({
+      pending: state.pending.filter(
+        (candidate) =>
+          candidate.accountId !== accountId || candidate.conversationId !== conversationId,
+      ),
+    })),
+  clear: () => set({ pending: [] }),
 }));
 
 export function pendingKnowledgePacket(input: {
@@ -39,15 +57,16 @@ export function pendingKnowledgePacket(input: {
   };
 }
 
-export function knowledgePacketBootstrap(packet: PendingKnowledgePacket, destinationCwd: string) {
+export function knowledgePacketBootstrap(
+  packets: ReadonlyArray<PendingKnowledgePacket>,
+  destinationCwd: string,
+) {
   return {
-    knowledgePackets: [
-      {
-        accountId: packet.accountId,
-        conversationId: packet.conversationId,
-        messageLimit: packet.messageLimit,
-      },
-    ],
+    knowledgePackets: packets.map((packet) => ({
+      accountId: packet.accountId,
+      conversationId: packet.conversationId,
+      messageLimit: packet.messageLimit,
+    })),
     knowledgePacketCwd: destinationCwd,
   } as const;
 }

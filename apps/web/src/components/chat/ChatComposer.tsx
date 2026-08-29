@@ -1,5 +1,6 @@
 import type {
   ApprovalRequestId,
+  ChannelConversation,
   EnvironmentId,
   ModelSelection,
   PreviewAnnotationPayload,
@@ -99,6 +100,9 @@ import {
   removeInlineTerminalContextPlaceholder,
 } from "../../lib/terminalContext";
 import { useComposerPathSearch } from "../../lib/composerPathSearchState";
+import { pendingKnowledgePacket, useKnowledgePacketStore } from "../../knowledgePacketStore";
+import { serverEnvironment } from "../../state/server";
+import { useEnvironmentQuery } from "../../state/query";
 import { type ElementContextDraft } from "../../lib/elementContext";
 import { ComposerPendingElementContexts } from "./ComposerPendingElementContexts";
 import { ComposerPendingReviewComments } from "./ComposerPendingReviewComments";
@@ -119,6 +123,7 @@ import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { ComposerControl, ComposerControlIcon, ComposerSelectControl } from "./ComposerControl";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { searchSlashCommandItems } from "./composerSlashCommandSearch";
+import { searchComposerChats } from "./composerChatSearch";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
@@ -753,6 +758,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerReviewComments = composerDraft.reviewComments;
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const uploadsByImageId = useAttachmentUploadStore((state) => state.uploadsByImageId);
+  const attachKnowledgePacket = useKnowledgePacketStore((state) => state.attach);
   const attachmentBlockReason = supportsAttachmentUploads
     ? attachmentUploadBlockReason({
         imageIds: composerImages.map((image) => image.id),
@@ -1122,18 +1128,46 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     cwd: isPathTrigger ? gitCwd : null,
     query: isPathTrigger ? pathTriggerQuery : null,
   });
+  const chatConversations = useEnvironmentQuery(
+    isPathTrigger
+      ? serverEnvironment.channelConversations({
+          environmentId,
+          input: {},
+        })
+      : null,
+  );
+  const matchingChats = useMemo(
+    () =>
+      searchComposerChats(
+        (chatConversations.data?.conversations ?? []) as ReadonlyArray<ChannelConversation>,
+        pathTriggerQuery,
+      ),
+    [chatConversations.data?.conversations, pathTriggerQuery],
+  );
 
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
-      return workspaceEntries.entries.map((entry) => ({
-        id: `path:${entry.kind}:${entry.path}`,
-        type: "path",
-        path: entry.path,
-        pathKind: entry.kind,
-        label: basenameOfPath(entry.path),
-        description: entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
-      }));
+      return [
+        ...matchingChats.map((conversation) => ({
+          id: `chat-context:${conversation.accountId}:${conversation.conversationId}`,
+          type: "chat-context" as const,
+          conversation,
+          label: `@${conversation.title}`,
+          description:
+            conversation.kind === "direct"
+              ? "Attach recent messages and available files"
+              : `Attach from ${conversation.containerTitle ?? "chat"}`,
+        })),
+        ...workspaceEntries.entries.map((entry) => ({
+          id: `path:${entry.kind}:${entry.path}`,
+          type: "path" as const,
+          path: entry.path,
+          pathKind: entry.kind,
+          label: basenameOfPath(entry.path),
+          description: entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
+        })),
+      ];
     }
     if (composerTrigger.kind === "slash-command") {
       const builtInSlashCommandItems = [
@@ -1219,6 +1253,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProvider,
     selectedProviderStatus,
     settings.showSkillsInSlashMenu,
+    matchingChats,
     workspaceEntries.entries,
   ]);
 
@@ -1284,13 +1319,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   ]);
 
   const isComposerMenuLoading =
-    composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending;
+    composerTriggerKind === "path" &&
+    pathTriggerQuery.length > 0 &&
+    (workspaceEntries.isPending || chatConversations.isPending);
   const composerMenuEmptyState = useMemo(() => {
     if (composerTriggerKind === "skill") {
       return "No skills found. Try / to browse provider commands.";
     }
     return composerTriggerKind === "path"
-      ? "No matching files or folders."
+      ? "No matching chats, files, or folders."
       : "No matching command.";
   }, [composerTriggerKind]);
 
@@ -1800,6 +1837,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       });
       const { snapshot, trigger } = resolveActiveComposerTrigger();
       if (!trigger) return;
+      if (item.type === "chat-context") {
+        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+        });
+        if (applied) {
+          attachKnowledgePacket(
+            pendingKnowledgePacket({
+              accountId: item.conversation.accountId,
+              conversationId: item.conversation.conversationId,
+              label: item.conversation.title,
+              source: item.conversation.service,
+            }),
+          );
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
       if (item.type === "path") {
         const replacement = `${serializeComposerFileLink(item.path)} `;
         const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
@@ -1876,7 +1930,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
     },
-    [applyPromptReplacement, handleInteractionModeChange, resolveActiveComposerTrigger],
+    [
+      applyPromptReplacement,
+      attachKnowledgePacket,
+      handleInteractionModeChange,
+      resolveActiveComposerTrigger,
+    ],
   );
 
   const onComposerMenuItemHighlighted = useCallback(
@@ -1985,6 +2044,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
     },
     [
+      attachKnowledgePacket,
       activeThreadId,
       activePendingProgress,
       blurMobileComposerAfterSend,

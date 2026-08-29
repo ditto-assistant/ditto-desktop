@@ -1275,8 +1275,9 @@ function ChatViewContent(props: ChatViewProps) {
   const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
   const threadDetailLoading = threadSyncPhase === "loading";
   const handleNewThread = useNewThreadHandler();
-  const pendingKnowledgePacket = useKnowledgePacketStore((state) => state.pending);
-  const clearPendingKnowledgePacket = useKnowledgePacketStore((state) => state.clear);
+  const pendingKnowledgePackets = useKnowledgePacketStore((state) => state.pending);
+  const detachKnowledgePacket = useKnowledgePacketStore((state) => state.detach);
+  const clearPendingKnowledgePackets = useKnowledgePacketStore((state) => state.clear);
   const { settleThread, pinThread, unpinThread } = useThreadActions();
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
@@ -4923,18 +4924,19 @@ function ChatViewContent(props: ChatViewProps) {
     }
     void handleSwitchCheckoutToThread();
   }, [gitStatusQuery.data?.hasWorkingTreeChanges, handleSwitchCheckoutToThread]);
-  const knowledgePacketBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
-    if (!pendingKnowledgePacket) return null;
-    return {
-      id: `knowledge-packet:${pendingKnowledgePacket.accountId}:${pendingKnowledgePacket.conversationId}`,
-      variant: "info",
-      icon: <MessageSquareTextIcon />,
-      title: `Chat attached: ${pendingKnowledgePacket.label}`,
-      description: `The latest ${pendingKnowledgePacket.messageLimit} messages and available attachments will be copied into a private, Git-ignored knowledge packet when you send.`,
-      dismissLabel: "Remove chat context",
-      onDismiss: clearPendingKnowledgePacket,
-    };
-  }, [clearPendingKnowledgePacket, pendingKnowledgePacket]);
+  const knowledgePacketBannerItems = useMemo<ComposerBannerStackItem[]>(
+    () =>
+      pendingKnowledgePackets.map((packet) => ({
+        id: `knowledge-packet:${packet.accountId}:${packet.conversationId}`,
+        variant: "info",
+        icon: <MessageSquareTextIcon />,
+        title: `Chat attached: ${packet.label}`,
+        description: `The latest ${packet.messageLimit} messages and available attachments will be copied into a private, Git-ignored knowledge packet when you send.`,
+        dismissLabel: `Remove ${packet.label}`,
+        onDismiss: () => detachKnowledgePacket(packet.accountId, packet.conversationId),
+      })),
+    [detachKnowledgePacket, pendingKnowledgePackets],
+  );
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const isUrgentSystemItem = (item: ComposerBannerStackItem) =>
       item.urgent === true || item.variant === "error" || item.variant === "warning";
@@ -4946,8 +4948,6 @@ function ChatViewContent(props: ChatViewProps) {
       resumeCompactionBannerItem === null ? [] : [resumeCompactionBannerItem];
     const wokeThreadItems = wokeThreadBannerItem === null ? [] : [wokeThreadBannerItem];
     const parkedThreadItems = parkedThreadBannerItem === null ? [] : [parkedThreadBannerItem];
-    const knowledgePacketItems =
-      knowledgePacketBannerItem === null ? [] : [knowledgePacketBannerItem];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...urgentSystemItems,
@@ -4955,7 +4955,7 @@ function ChatViewContent(props: ChatViewProps) {
         ...calmSystemItems,
         ...resumeCompactionItems,
         ...wokeThreadItems,
-        ...knowledgePacketItems,
+        ...knowledgePacketBannerItems,
         ...parkedThreadItems,
       ];
     }
@@ -4965,7 +4965,7 @@ function ChatViewContent(props: ChatViewProps) {
       ...calmSystemItems,
       ...resumeCompactionItems,
       ...wokeThreadItems,
-      ...knowledgePacketItems,
+      ...knowledgePacketBannerItems,
       {
         id: `branch-mismatch:${activeBranchMismatchKey}`,
         variant: "info",
@@ -5012,7 +5012,7 @@ function ChatViewContent(props: ChatViewProps) {
     backgroundLivenessBannerItem,
     handleRestoreThreadBranch,
     isRestoringThreadBranch,
-    knowledgePacketBannerItem,
+    knowledgePacketBannerItems,
     localCheckoutBranchMismatch,
     parkedThreadBannerItem,
     resumeCompactionBannerItem,
@@ -5658,7 +5658,7 @@ function ChatViewContent(props: ChatViewProps) {
     const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
     const composerReviewCommentsSnapshot: ReviewCommentContext[] = [...composerReviewComments];
-    const knowledgePacketSnapshot = pendingKnowledgePacket;
+    const knowledgePacketSnapshot = pendingKnowledgePackets;
     const messageTextWithContexts = appendElementContextsToPrompt(
       appendTerminalContextsToPrompt(promptForSend, composerTerminalContextsSnapshot),
       composerElementContextsSnapshot,
@@ -5867,7 +5867,7 @@ function ChatViewContent(props: ChatViewProps) {
     let turnStartSucceeded = false;
     if (failure === null && turnAttachmentsResult._tag === "Success") {
       const bootstrap =
-        isLocalDraftThread || baseBranchForWorktree || knowledgePacketSnapshot
+        isLocalDraftThread || baseBranchForWorktree || knowledgePacketSnapshot.length > 0
           ? {
               ...(isLocalDraftThread
                 ? {
@@ -5894,7 +5894,7 @@ function ChatViewContent(props: ChatViewProps) {
                     runSetupScript: true,
                   }
                 : {}),
-              ...(knowledgePacketSnapshot
+              ...(knowledgePacketSnapshot.length > 0
                 ? knowledgePacketBootstrap(
                     knowledgePacketSnapshot,
                     activeThread.worktreePath ?? activeProject.workspaceRoot,
@@ -5935,7 +5935,7 @@ function ChatViewContent(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
-        if (knowledgePacketSnapshot) clearPendingKnowledgePacket();
+        if (knowledgePacketSnapshot.length > 0) clearPendingKnowledgePackets();
         if (supportsAttachmentUploads) {
           releaseAttachmentUploads(composerImagesSnapshot);
         }

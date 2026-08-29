@@ -75,7 +75,10 @@ import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import { DittoHarnessService } from "./dittoHarness/DittoHarnessService.ts";
 import { ChannelRegistry } from "./channels/ChannelRegistry.ts";
-import { materializeKnowledgePacket } from "./channels/KnowledgePacketWriter.ts";
+import {
+  materializeKnowledgePacket,
+  resolveKnowledgePacketWorktreePath,
+} from "./channels/KnowledgePacketWriter.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import {
@@ -1100,7 +1103,10 @@ const makeWsRpcLayer = (
             let finalTurnStartCommand = baseTurnStartCommand;
             const knowledgePackets = bootstrap?.knowledgePackets ?? [];
             if (knowledgePackets.length > 0) {
-              const packetCwd = targetWorktreePath ?? bootstrap?.knowledgePacketCwd;
+              const packetCwd = resolveKnowledgePacketWorktreePath({
+                preparedWorktreePath: targetWorktreePath,
+                currentCheckoutPath: bootstrap?.knowledgePacketCwd,
+              });
               if (!packetCwd) {
                 return yield* new OrchestrationDispatchCommandError({
                   message: "A worktree is required before chat context can be attached.",

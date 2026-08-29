@@ -7,7 +7,10 @@ import * as NodePath from "node:path";
 import { ChannelAccountId, ChannelConversationId, ChannelMessageId } from "@t3tools/contracts";
 import { afterEach, describe, expect, it } from "@effect/vitest";
 
-import { materializeKnowledgePacket } from "./KnowledgePacketWriter.ts";
+import {
+  materializeKnowledgePacket,
+  resolveKnowledgePacketWorktreePath,
+} from "./KnowledgePacketWriter.ts";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -17,6 +20,21 @@ afterEach(async () => {
 });
 
 describe("materializeKnowledgePacket", () => {
+  it("uses a new worktree when prepared and otherwise writes into the current checkout", () => {
+    expect(
+      resolveKnowledgePacketWorktreePath({
+        preparedWorktreePath: "/worktrees/new-task",
+        currentCheckoutPath: "/repos/current-checkout",
+      }),
+    ).toBe("/worktrees/new-task");
+    expect(
+      resolveKnowledgePacketWorktreePath({
+        preparedWorktreePath: null,
+        currentCheckoutPath: "/repos/current-checkout",
+      }),
+    ).toBe("/repos/current-checkout");
+  });
+
   it("writes a bounded, git-ignored packet with transcript provenance and localized attachments", async () => {
     const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-packet-"));
     roots.push(root);
@@ -134,6 +152,9 @@ describe("materializeKnowledgePacket", () => {
     expect(
       await NodeFSP.readFile(NodePath.join(root, ".git", "info", "exclude"), "utf8"),
     ).toContain("/.t3/knowledge-packets/");
+    expect(
+      await NodeFSP.readFile(NodePath.join(root, ".t3", "knowledge-packets", ".gitignore"), "utf8"),
+    ).toContain("Knowledge packets are private local task context");
   });
 
   it("fails closed outside a Git worktree so private packets cannot become visible files", async () => {
@@ -158,6 +179,36 @@ describe("materializeKnowledgePacket", () => {
         },
       }),
     ).rejects.toThrow();
+  });
+
+  it("refuses a repository-controlled symlink for the private packet directory", async () => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-packet-symlink-"));
+    roots.push(root);
+    await NodeFSP.mkdir(NodePath.join(root, ".git", "info"), { recursive: true });
+    const outside = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-packet-outside-"));
+    roots.push(outside);
+    await NodeFSP.symlink(outside, NodePath.join(root, ".t3"));
+
+    await expect(
+      materializeKnowledgePacket({
+        worktreePath: root,
+        attachmentsDir: NodePath.join(root, "cache"),
+        source: {
+          requestedMessageLimit: 10,
+          conversation: {
+            accountId: ChannelAccountId.make("discord:local"),
+            conversationId: ChannelConversationId.make("liam-dm"),
+            service: "discord",
+            title: "Liam",
+            kind: "direct",
+            participants: [],
+            completeness: "device_cache_partial",
+          },
+          messages: [],
+        },
+      }),
+    ).rejects.toThrow("Private packet path is not a regular directory");
+    expect(await NodeFSP.readdir(outside)).toEqual([]);
   });
 
   it("writes the exclude rule to the common Git directory for linked worktrees", async () => {

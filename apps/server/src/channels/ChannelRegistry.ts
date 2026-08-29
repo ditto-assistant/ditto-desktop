@@ -92,9 +92,13 @@ export function makeChannelRegistry(
       if (accountId !== undefined) {
         return withAdapter(accountId, (adapter) => adapter.listConversations);
       }
-      return Effect.forEach(adapters.values(), (adapter) => adapter.listConversations, {
-        concurrency: "unbounded",
-      }).pipe(Effect.map((groups) => groups.flat()));
+      return Effect.forEach(
+        adapters.values(),
+        (adapter) => adapter.listConversations.pipe(Effect.orElseSucceed(() => [])),
+        {
+          concurrency: "unbounded",
+        },
+      ).pipe(Effect.map((groups) => groups.flat()));
     },
     listMessages: (accountId, conversationId, limit) =>
       withAdapter(accountId, (adapter) => adapter.listMessages(conversationId, limit)),
