@@ -4,6 +4,7 @@ import {
   ChannelOperationError,
   type ChannelCapability,
   type ChannelMessage,
+  type ChannelOperation,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
@@ -13,6 +14,7 @@ import type {
   TelegramSidecarMessage,
   TelegramSidecarStatus,
 } from "./TelegramSidecarClient.ts";
+import { TelegramSidecarRequestError } from "./TelegramSidecarClient.ts";
 
 const capabilities: ReadonlyArray<ChannelCapability> = [
   { operation: "history.read", availability: "available" },
@@ -51,14 +53,22 @@ const capabilities: ReadonlyArray<ChannelCapability> = [
   ).map((operation) => ({ operation, availability: "unsupported" as const })),
 ];
 
-function operation<A>(run: () => Promise<A>): Effect.Effect<A, ChannelOperationError> {
+function operation<A>(
+  channelOperation: ChannelOperation,
+  label: string,
+  run: () => Promise<A>,
+): Effect.Effect<A, ChannelOperationError> {
   return Effect.tryPromise({
     try: run,
     catch: (cause) =>
       new ChannelOperationError({
         accountId: TELEGRAM_LOCAL_ACCOUNT_ID,
-        kind: String(cause).includes("not connected") ? "setup_required" : "transport_failed",
-        message: cause instanceof Error ? cause.message : String(cause),
+        operation: channelOperation,
+        kind:
+          cause instanceof TelegramSidecarRequestError && cause.code === "not_connected"
+            ? "setup_required"
+            : "transport_failed",
+        message: `Telegram ${label} failed on this device.`,
       }),
   });
 }
@@ -112,15 +122,17 @@ export function makeTelegramProtocolSource(
   client: TelegramSidecarClient,
   archiveFallback: TelegramChannelSource,
 ): TelegramChannelSource {
-  const discover = operation(() => client.restore()).pipe(
+  const discover = operation("history.read", "account discovery", () => client.restore()).pipe(
     Effect.map(account),
-    Effect.catch(() => operation(() => client.status()).pipe(Effect.map(account))),
+    Effect.catch(() =>
+      operation("history.read", "account status", () => client.status()).pipe(Effect.map(account)),
+    ),
   );
   return {
     discover,
     configure: (enabled) =>
       enabled
-        ? operation(() => client.startLogin()).pipe(
+        ? operation("history.read", "account connection", () => client.startLogin()).pipe(
             Effect.map((result) =>
               result.connected
                 ? account(result.status)
@@ -136,8 +148,12 @@ export function makeTelegramProtocolSource(
                   },
             ),
           )
-        : operation(() => client.logout()).pipe(Effect.andThen(discover)),
-    listConversations: operation(() => client.listConversations()).pipe(
+        : operation("history.read", "account disconnection", () => client.logout()).pipe(
+            Effect.andThen(discover),
+          ),
+    listConversations: operation("history.read", "conversation listing", () =>
+      client.listConversations(),
+    ).pipe(
       Effect.map((values) =>
         values.map((value) => ({
           accountId: TELEGRAM_LOCAL_ACCOUNT_ID,
@@ -152,15 +168,23 @@ export function makeTelegramProtocolSource(
           completeness: "provider_scoped" as const,
         })),
       ),
-      Effect.catch(() => archiveFallback.listConversations),
+      Effect.catchIf(
+        (error) => error.kind === "setup_required",
+        () => archiveFallback.listConversations,
+      ),
     ),
     listMessages: (conversationId, limit = 100) =>
-      operation(() => client.listMessages(conversationId, limit)).pipe(
+      operation("history.read", "message history", () =>
+        client.listMessages(conversationId, limit),
+      ).pipe(
         Effect.map((values) => values.map(normalizeMessage)),
-        Effect.catch(() => archiveFallback.listMessages(conversationId, limit)),
+        Effect.catchIf(
+          (error) => error.kind === "setup_required",
+          () => archiveFallback.listMessages(conversationId, limit),
+        ),
       ),
     sendMessage: (input) =>
-      operation(() =>
+      operation("message.send", "message send", () =>
         client.sendMessage({
           channelId: input.conversationId,
           content: input.text,

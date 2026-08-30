@@ -659,6 +659,7 @@ private func execute(_ command: HelperCommand) -> ReplyResponse {
         )
     }
     let discordElement = AXUIElementCreateApplication(discord.processIdentifier)
+    let baselineMessageIDs = Set(snapshot(command).messages.map(\.id))
 
     _ = AXUIElementSetAttributeValue(
         match.element,
@@ -695,20 +696,31 @@ private func execute(_ command: HelperCommand) -> ReplyResponse {
         )
     }
     let confirmationDeadline = min(deadline, Date().addingTimeInterval(1.5))
+    var composerCleared = false
     while Date() < confirmationDeadline {
         if composerValue(match.element).isEmpty {
-            return result(
-                "sent",
-                "Discord cleared the verified composer after its Accessibility confirm action.",
-                sent: true
-            )
+            composerCleared = true
+            let observed = snapshot(command)
+            if observed.targetVerified,
+               observed.messages.contains(where: {
+                   !baselineMessageIDs.contains($0.id) && $0.content == text
+               })
+            {
+                return result(
+                    "sent",
+                    "Discord exposed the matching message in the verified conversation after send.",
+                    sent: true
+                )
+            }
         }
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
     }
     return result(
         "send_not_confirmed",
-        "Discord did not clear the composer, so Ditto cannot confirm that the message was sent.",
-        draftPrepared: true
+        composerCleared
+            ? "Discord cleared the composer, but Ditto did not observe matching message evidence. Check Discord before retrying."
+            : "Discord did not clear the composer, so Ditto cannot confirm that the message was sent.",
+        draftPrepared: !composerCleared
     )
 }
 

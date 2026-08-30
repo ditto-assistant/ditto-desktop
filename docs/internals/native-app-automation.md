@@ -37,11 +37,12 @@ authentication.
 2. `snapshot` observes only the selected app/window and returns bounded semantic
    state. Future persistent drivers will also return an opaque revision and
    short-lived element handles.
-3. `setDraft` re-resolves the target and sets the exact composer value without
-   global keyboard or pointer input, then verifies the observed draft.
-4. `commitDraft` is a separate explicit side effect. It rechecks the target,
-   revision, exact draft hash, focus policy, deadline, and user-intervention
-   state before invoking a semantic send action.
+3. A typed `perform` action re-resolves the target, sets the exact composer
+   value without global keyboard or pointer input, and verifies the observed
+   draft. In prepare mode it stops here and returns the verified draft state.
+4. In send mode, the same bounded `perform` action rechecks the target and exact
+   draft before invoking the explicit semantic send action. A future persistent
+   driver API may expose these prepare and commit phases as separate methods.
 5. The adapter returns an audited receipt and verifies the postcondition. A
    cleared composer without corroborating message evidence is not necessarily a
    confirmed send.
@@ -53,11 +54,12 @@ sessions.
 
 ## Focus, pointer, and lock policy
 
-`never_activate` is the default policy for background chat operations. An
-adapter must fail with `requires_activation` rather than silently focus an app.
-Accessibility value/action calls and renderer-scoped protocols can be
-cursorless; global keyboard events, coordinates, and physical-pointer movement
-are not acceptable fallbacks for this mode.
+The v1 Discord helper uses cursorless Accessibility value/action calls and
+best-effort background operation. It may briefly activate an internal app
+surface when macOS requires it, then restores the previously frontmost app.
+Global coordinates and physical-pointer movement are not acceptable fallbacks.
+An enforceable `never_activate` policy belongs to a future request-context API;
+the current adapter does not claim that guarantee.
 
 The macOS login window is a separate security boundary. The initial Ditto
 driver reports locked-session control as unsupported and fails closed when the

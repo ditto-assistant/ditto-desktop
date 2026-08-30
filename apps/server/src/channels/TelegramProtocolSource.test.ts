@@ -1,10 +1,11 @@
-import { ChannelConversationId, ChannelMessageId } from "@t3tools/contracts";
+import { ChannelConversationId, ChannelMessageId, ChannelOperationError } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import type { TelegramChannelSource } from "./TelegramAdapter.ts";
 import { makeTelegramProtocolSource } from "./TelegramProtocolSource.ts";
 import type { TelegramSidecarClient } from "./TelegramSidecarClient.ts";
+import { TelegramSidecarRequestError } from "./TelegramSidecarClient.ts";
 
 const archiveFallback: TelegramChannelSource = {
   discover: Effect.die("unused"),
@@ -86,12 +87,44 @@ describe("TelegramProtocolSource", () => {
         ]),
       };
       const client = {
-        listConversations: vi.fn().mockRejectedValue(new Error("not connected")),
+        listConversations: vi
+          .fn()
+          .mockRejectedValue(
+            new TelegramSidecarRequestError("not_connected", "sensitive child detail"),
+          ),
       } as unknown as TelegramSidecarClient;
 
       const conversations = yield* makeTelegramProtocolSource(client, fallback).listConversations;
 
       expect(conversations.map((value) => value.title)).toEqual(["Archive chat"]);
+    }),
+  );
+
+  it.effect("returns a typed stable send error without leaking sidecar details", () =>
+    Effect.gen(function* () {
+      const client = {
+        sendMessage: vi
+          .fn()
+          .mockRejectedValue(
+            new TelegramSidecarRequestError("operation_failed", "sensitive child detail"),
+          ),
+      } as unknown as TelegramSidecarClient;
+      const source = makeTelegramProtocolSource(client, archiveFallback);
+
+      const error = yield* Effect.flip(
+        source.sendMessage({
+          accountId: "telegram:desktop:local" as never,
+          conversationId: ChannelConversationId.make("user:42"),
+          text: "hello",
+          idempotencyKey: "action-2",
+        }),
+      );
+
+      expect(error).toBeInstanceOf(ChannelOperationError);
+      expect(error.operation).toBe("message.send");
+      expect(error.kind).toBe("transport_failed");
+      expect(error.message).toBe("Telegram message send failed on this device.");
+      expect(error.message).not.toContain("sensitive child detail");
     }),
   );
 });

@@ -22,44 +22,104 @@ export function acquireDevLauncherLock({
   temporaryDirectory = NodeOS.tmpdir(),
   processId = process.pid,
   isProcessAlive = processIsAlive,
+  afterStaleOwnerDetected,
 }) {
   const lockPath = resolveDevLauncherLockPath(desktopRoot, temporaryDirectory);
+  const reclaimPath = `${lockPath}.reclaim`;
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  const unavailable = (ownerPid) => ({
+    acquired: false,
+    ownerPid,
+    lockPath,
+    release() {},
+  });
+  const readOwner = () => {
     try {
-      const descriptor = NodeFS.openSync(lockPath, "wx", 0o600);
+      return Number.parseInt(NodeFS.readFileSync(lockPath, "utf8"), 10);
+    } catch (cause) {
+      if (cause?.code !== "ENOENT") throw cause;
+      return Number.NaN;
+    }
+  };
+  const installOwnedLock = () => {
+    const descriptor = NodeFS.openSync(lockPath, "wx", 0o600);
+    try {
       NodeFS.writeFileSync(descriptor, `${processId}\n`, "utf8");
+    } finally {
       NodeFS.closeSync(descriptor);
-      return {
-        acquired: true,
-        ownerPid: processId,
-        lockPath,
-        release() {
-          try {
-            if (Number.parseInt(NodeFS.readFileSync(lockPath, "utf8"), 10) === processId) {
-              NodeFS.unlinkSync(lockPath);
-            }
-          } catch (cause) {
-            if (cause?.code !== "ENOENT") throw cause;
-          }
-        },
-      };
+    }
+  };
+  const ownedResult = () => ({
+    acquired: true,
+    ownerPid: processId,
+    lockPath,
+    release() {
+      try {
+        if (readOwner() === processId) NodeFS.unlinkSync(lockPath);
+      } catch (cause) {
+        if (cause?.code !== "ENOENT") throw cause;
+      }
+    },
+  });
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      if (NodeFS.existsSync(reclaimPath)) return unavailable(readOwner());
+      installOwnedLock();
+      if (!NodeFS.existsSync(reclaimPath)) return ownedResult();
+      if (readOwner() === processId) NodeFS.unlinkSync(lockPath);
+      continue;
     } catch (cause) {
       if (cause?.code !== "EEXIST") throw cause;
-      let ownerPid = Number.NaN;
-      try {
-        ownerPid = Number.parseInt(NodeFS.readFileSync(lockPath, "utf8"), 10);
-      } catch (readCause) {
-        if (readCause?.code !== "ENOENT") throw readCause;
-      }
+      const ownerPid = readOwner();
       if (Number.isInteger(ownerPid) && ownerPid > 0 && isProcessAlive(ownerPid)) {
-        return { acquired: false, ownerPid, lockPath, release() {} };
+        return unavailable(ownerPid);
       }
+
+      afterStaleOwnerDetected?.({ lockPath, ownerPid });
+      let reclaimDescriptor;
       try {
-        NodeFS.unlinkSync(lockPath);
+        reclaimDescriptor = NodeFS.openSync(reclaimPath, "wx", 0o600);
+      } catch (reclaimCause) {
+        if (reclaimCause?.code !== "EEXIST") throw reclaimCause;
+        return unavailable(readOwner());
+      }
+
+      let reclaimResult;
+      let reclaimError;
+      try {
+        const currentOwnerPid = readOwner();
+        if (
+          Number.isInteger(currentOwnerPid) &&
+          currentOwnerPid > 0 &&
+          isProcessAlive(currentOwnerPid)
+        ) {
+          reclaimResult = unavailable(currentOwnerPid);
+        } else {
+          try {
+            NodeFS.unlinkSync(lockPath);
+          } catch (unlinkCause) {
+            if (unlinkCause?.code !== "ENOENT") throw unlinkCause;
+          }
+          try {
+            installOwnedLock();
+            reclaimResult = ownedResult();
+          } catch (installCause) {
+            if (installCause?.code !== "EEXIST") throw installCause;
+            reclaimResult = unavailable(readOwner());
+          }
+        }
+      } catch (cause) {
+        reclaimError = cause;
+      }
+      NodeFS.closeSync(reclaimDescriptor);
+      try {
+        NodeFS.unlinkSync(reclaimPath);
       } catch (unlinkCause) {
         if (unlinkCause?.code !== "ENOENT") throw unlinkCause;
       }
+      if (reclaimError !== undefined) throw reclaimError;
+      return reclaimResult;
     }
   }
 

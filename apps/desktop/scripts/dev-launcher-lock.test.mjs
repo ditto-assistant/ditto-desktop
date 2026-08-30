@@ -50,4 +50,30 @@ describe("desktop development launcher ownership", () => {
       NodeFS.rmSync(temporaryDirectory, { recursive: true, force: true });
     }
   });
+
+  it("does not delete a replacement owner while reclaiming a stale lock", () => {
+    const temporaryDirectory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-lock-test-"));
+    const desktopRoot = "/repo/apps/desktop-reclaim-race";
+    const lockPath = resolveDevLauncherLockPath(desktopRoot, temporaryDirectory);
+    const replacementPid = 424_242;
+    NodeFS.writeFileSync(lockPath, "999999\n", "utf8");
+
+    try {
+      const lock = acquireDevLauncherLock({
+        desktopRoot,
+        temporaryDirectory,
+        processId: process.pid,
+        isProcessAlive: (pid) => pid === replacementPid,
+        afterStaleOwnerDetected: () => {
+          NodeFS.unlinkSync(lockPath);
+          NodeFS.writeFileSync(lockPath, `${replacementPid}\n`, "utf8");
+        },
+      });
+      assert.isFalse(lock.acquired);
+      assert.equal(lock.ownerPid, replacementPid);
+      assert.equal(NodeFS.readFileSync(lockPath, "utf8"), `${replacementPid}\n`);
+    } finally {
+      NodeFS.rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
 });

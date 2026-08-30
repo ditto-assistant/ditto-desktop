@@ -39,9 +39,17 @@ const (
 )
 
 var (
-	buildAPIID   string
-	buildAPIHash string
+	buildAPIID      string
+	buildAPIHash    string
+	errNotConnected = errors.New("telegram sidecar is not connected")
 )
+
+func protocolErrorCode(err error) string {
+	if errors.Is(err, errNotConnected) {
+		return "not_connected"
+	}
+	return "operation_failed"
+}
 
 type keychainSession struct{}
 
@@ -344,7 +352,7 @@ func (s *server) startLogin() (any, error) {
 func (s *server) requireConnected() (*tg.Client, *tg.User, error) {
 	st, err := s.restore()
 	if err != nil || !st.Connected {
-		return nil, nil, errors.New("Telegram is not connected")
+		return nil, nil, errNotConnected
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -643,7 +651,7 @@ func main() {
 			defer requests.Done()
 			result, err := s.handle(req)
 			if err != nil {
-				s.write(response{ID: req.ID, Error: &protocolError{Code: "operation_failed", Message: err.Error()}})
+				s.write(response{ID: req.ID, Error: &protocolError{Code: protocolErrorCode(err), Message: err.Error()}})
 				return
 			}
 			s.write(response{ID: req.ID, Result: result})

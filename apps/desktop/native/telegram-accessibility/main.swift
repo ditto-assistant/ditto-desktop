@@ -133,8 +133,8 @@ private func runningTelegram(
 }
 
 private func runningTelegram() -> AppTarget? {
-    runningTelegram(bundleIDs: telegramMacBundleIDs, client: "telegram-macos")
-        ?? runningTelegram(bundleIDs: telegramDesktopBundleIDs, client: "telegram-desktop")
+    runningTelegram(bundleIDs: telegramDesktopBundleIDs, client: "telegram-desktop")
+        ?? runningTelegram(bundleIDs: telegramMacBundleIDs, client: "telegram-macos")
 }
 
 private func installedApplicationURL(bundleIDs: [String]) -> URL? {
@@ -172,16 +172,14 @@ private func installedTelegram() -> Bool {
 }
 
 private func preferredInstalledTelegramClient() -> String {
-    if runningTelegram(bundleIDs: telegramMacBundleIDs, client: "telegram-macos") != nil
-        || installedApplicationURL(bundleIDs: telegramMacBundleIDs) != nil
-    {
-        return "telegram-macos"
-    }
-    if runningTelegram(bundleIDs: telegramDesktopBundleIDs, client: "telegram-desktop") != nil
-        || installedApplicationURL(bundleIDs: telegramDesktopBundleIDs) != nil
-    {
+    if runningTelegram(bundleIDs: telegramDesktopBundleIDs, client: "telegram-desktop") != nil {
         return "telegram-desktop"
     }
+    if runningTelegram(bundleIDs: telegramMacBundleIDs, client: "telegram-macos") != nil {
+        return "telegram-macos"
+    }
+    if installedApplicationURL(bundleIDs: telegramMacBundleIDs) != nil { return "telegram-macos" }
+    if installedApplicationURL(bundleIDs: telegramDesktopBundleIDs) != nil { return "telegram-desktop" }
     return "none"
 }
 
@@ -207,13 +205,16 @@ private func launchTelegramInBackground(
 }
 
 private func launchTelegramInBackground() -> AppTarget? {
-    // Respect the user's installed client. If Telegram for macOS is present,
-    // do not silently launch Telegram Desktop merely because its Accessibility
-    // tree is richer. A protocol bridge can provide local sync independently
-    // of either UI; this helper must not choose a different Telegram app.
-    if installedApplicationURL(bundleIDs: telegramMacBundleIDs) != nil
-        || runningTelegram(bundleIDs: telegramMacBundleIDs, client: "telegram-macos") != nil
-    {
+    // Preserve an explicitly running client. Otherwise prefer Telegram for
+    // macOS and never launch Telegram Desktop merely because its Accessibility
+    // tree is richer. The protocol bridge syncs independently of either UI.
+    if let running = runningTelegram(bundleIDs: telegramDesktopBundleIDs, client: "telegram-desktop") {
+        return running
+    }
+    if let running = runningTelegram(bundleIDs: telegramMacBundleIDs, client: "telegram-macos") {
+        return running
+    }
+    if installedApplicationURL(bundleIDs: telegramMacBundleIDs) != nil {
         return launchTelegramInBackground(bundleIDs: telegramMacBundleIDs, client: "telegram-macos")
     }
     return launchTelegramInBackground(

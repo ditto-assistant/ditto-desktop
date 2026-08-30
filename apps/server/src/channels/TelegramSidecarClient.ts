@@ -51,9 +51,19 @@ export interface TelegramSidecarMessage {
 interface SidecarResponse {
   readonly id?: string;
   readonly result?: unknown;
-  readonly error?: { readonly message?: string };
+  readonly error?: { readonly code?: string; readonly message?: string };
   readonly event?: string;
   readonly data?: unknown;
+}
+
+export class TelegramSidecarRequestError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message = "Telegram sidecar request failed.") {
+    super(message);
+    this.name = "TelegramSidecarRequestError";
+    this.code = code;
+  }
 }
 
 interface PendingRequest {
@@ -190,7 +200,12 @@ export class TelegramSidecarClient {
     clearTimeout(pending.timer);
     this.#pending.delete(message.id);
     if (message.error !== undefined)
-      pending.reject(new Error(message.error.message ?? "Telegram sidecar failed."));
+      pending.reject(
+        new TelegramSidecarRequestError(
+          message.error.code ?? "operation_failed",
+          message.error.message,
+        ),
+      );
     else pending.resolve(message.result);
   }
 

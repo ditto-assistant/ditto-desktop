@@ -34,6 +34,8 @@ type HelperCommand =
   | {
       readonly command: "execute";
       readonly actionId: string;
+      readonly accountId: string;
+      readonly conversationId: string;
       readonly origin: DiscordAccessibilityReplyInput["origin"];
       readonly mode: DiscordAccessibilityReplyInput["mode"];
       readonly deepLink: string;
@@ -382,6 +384,8 @@ export class DiscordAccessibilityTransport implements AppScopedAutomationAdapter
         {
           command: "execute",
           actionId: input.actionId,
+          accountId: input.accountId,
+          conversationId: input.conversationId,
           origin: input.origin,
           mode: input.mode,
           deepLink: discordDeepLink(target),
