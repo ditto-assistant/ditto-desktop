@@ -47,6 +47,47 @@ function minimalSource(text: string): KnowledgePacketSource {
   };
 }
 
+function sourceWithRemoteAttachment(remoteUrl: string): KnowledgePacketSource {
+  return {
+    requestedMessageLimit: 10,
+    conversation: {
+      accountId: ChannelAccountId.make("discord:local"),
+      conversationId: ChannelConversationId.make("liam-dm"),
+      service: "discord",
+      title: "Liam",
+      kind: "direct",
+      participants: [],
+      completeness: "provider_scoped",
+    },
+    messages: [
+      {
+        accountId: ChannelAccountId.make("discord:local"),
+        conversationId: ChannelConversationId.make("liam-dm"),
+        messageId: ChannelMessageId.make("message-1"),
+        service: "discord",
+        sender: { id: "liam", displayName: "Liam" },
+        text: "Here is the log.",
+        sentAt: "2026-08-29T12:00:00.000Z",
+        attachments: [
+          {
+            id: "attachment-1",
+            filename: "message.txt",
+            mediaType: "text/plain; charset=utf-8",
+            remoteUrl,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+async function gitWorktree(prefix: string): Promise<string> {
+  const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), prefix));
+  roots.push(root);
+  await NodeFSP.mkdir(NodePath.join(root, ".git", "info"), { recursive: true });
+  return root;
+}
+
 describe("materializeKnowledgePacket", () => {
   it("uses a new worktree when prepared and otherwise writes into the current checkout", () => {
     expect(
@@ -184,6 +225,87 @@ describe("materializeKnowledgePacket", () => {
     expect(
       await NodeFSP.readFile(NodePath.join(root, ".t3", "knowledge-packets", ".gitignore"), "utf8"),
     ).toContain("Knowledge packets are private local task context");
+  });
+
+  it("retries on the Discord CDN when the media proxy refuses a non-image attachment", async () => {
+    const root = await gitWorktree("t3-packet-cdn-");
+    const bytes = Buffer.from("the real attachment text");
+    const requestedHosts: string[] = [];
+
+    const result = await materializeKnowledgePacket({
+      worktreePath: root,
+      attachmentsDir: NodePath.join(root, "cache"),
+      taskId: "thread-1-turn-1",
+      fetch: (input) => {
+        const url = new URL(String(input));
+        requestedHosts.push(url.hostname);
+        return Promise.resolve(
+          url.hostname === "media.discordapp.net"
+            ? new Response(null, { status: 415, statusText: "Unsupported Media Type" })
+            : new Response(bytes, { status: 200 }),
+        );
+      },
+      source: sourceWithRemoteAttachment(
+        "https://media.discordapp.net/attachments/1/2/message.txt?ex=a&is=b&hm=c",
+      ),
+    });
+
+    expect(requestedHosts).toEqual(["media.discordapp.net", "cdn.discordapp.com"]);
+    expect(result.attachmentCount).toBe(1);
+    const manifest = JSON.parse(
+      await NodeFSP.readFile(NodePath.join(result.absolutePath, "manifest.json"), "utf8"),
+    );
+    expect(manifest.attachments[0]).toMatchObject({
+      status: "localized",
+      sizeBytes: bytes.length,
+    });
+    expect(manifest.errors).toEqual([]);
+  });
+
+  it("records the HTTP status when an attachment cannot be downloaded", async () => {
+    const root = await gitWorktree("t3-packet-http-error-");
+
+    const result = await materializeKnowledgePacket({
+      worktreePath: root,
+      attachmentsDir: NodePath.join(root, "cache"),
+      taskId: "thread-1-turn-1",
+      fetch: () => Promise.resolve(new Response(null, { status: 404, statusText: "Not Found" })),
+      source: sourceWithRemoteAttachment(
+        "https://cdn.discordapp.com/attachments/1/2/message.txt?ex=a&is=b&hm=c",
+      ),
+    });
+
+    expect(result.attachmentCount).toBe(0);
+    const manifest = JSON.parse(
+      await NodeFSP.readFile(NodePath.join(result.absolutePath, "manifest.json"), "utf8"),
+    );
+    expect(manifest.errors[0]?.detail).toBe("cdn.discordapp.com returned HTTP 404 Not Found.");
+  });
+
+  it("reports the size limit only when the attachment actually exceeds it", async () => {
+    const root = await gitWorktree("t3-packet-too-large-");
+
+    const result = await materializeKnowledgePacket({
+      worktreePath: root,
+      attachmentsDir: NodePath.join(root, "cache"),
+      taskId: "thread-1-turn-1",
+      fetch: () =>
+        Promise.resolve(
+          new Response(Buffer.from("body"), {
+            status: 200,
+            headers: { "content-length": String(26 * 1024 * 1024) },
+          }),
+        ),
+      source: sourceWithRemoteAttachment(
+        "https://cdn.discordapp.com/attachments/1/2/message.txt?ex=a&is=b&hm=c",
+      ),
+    });
+
+    expect(result.attachmentCount).toBe(0);
+    const manifest = JSON.parse(
+      await NodeFSP.readFile(NodePath.join(result.absolutePath, "manifest.json"), "utf8"),
+    );
+    expect(manifest.errors[0]?.detail).toBe("The attachment exceeded the 25 MB file limit.");
   });
 
   it("fails closed outside a Git worktree so private packets cannot become visible files", async () => {

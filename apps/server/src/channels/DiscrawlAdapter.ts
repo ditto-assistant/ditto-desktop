@@ -165,7 +165,9 @@ function normalizeAttachment(value: unknown): {
   const filename = readString(row, "filename", "name");
   const mediaType = readString(row, "content_type", "contentType", "media_type", "mediaType");
   const byteSize = readNumber(row, "size", "byte_size", "byteSize");
-  const remoteUrl = readString(row, "proxy_url", "proxyUrl", "url");
+  // The CDN url comes first: `proxy_url` points at `media.discordapp.net`, which
+  // only serves proxyable media and answers 415 for text and documents.
+  const remoteUrl = readString(row, "url", "proxy_url", "proxyUrl");
   const localPath = readString(row, "media_path", "mediaPath", "local_path", "localPath");
   return {
     messageId,

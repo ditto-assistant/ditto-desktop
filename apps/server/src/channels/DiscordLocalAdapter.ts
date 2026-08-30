@@ -93,8 +93,10 @@ function normalizeMessage(message: DiscordSidecarMessage): ChannelMessage {
       ...(attachment.filename !== undefined ? { filename: attachment.filename } : {}),
       ...(attachment.contentType !== undefined ? { mediaType: attachment.contentType } : {}),
       ...(attachment.size !== undefined ? { byteSize: attachment.size } : {}),
-      ...((attachment.proxyUrl ?? attachment.url) !== undefined
-        ? { remoteUrl: attachment.proxyUrl ?? attachment.url }
+      // `url` is the CDN host; `proxyUrl` is the media proxy, which only serves
+      // proxyable media and answers 415 for text and documents.
+      ...((attachment.url ?? attachment.proxyUrl) !== undefined
+        ? { remoteUrl: attachment.url ?? attachment.proxyUrl }
         : {}),
     })),
     rawPermalink: `https://discord.com/channels/${message.guildId ?? "@me"}/${message.channelId}/${message.id}`,

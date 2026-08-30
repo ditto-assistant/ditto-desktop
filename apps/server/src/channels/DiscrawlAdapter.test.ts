@@ -134,7 +134,8 @@ it.effect("joins attachments and identifies the local Discord author", () =>
                 message_id: "message-1",
                 filename: "image.png",
                 content_type: "image/png",
-                proxy_url: "https://cdn.discordapp.com/image.png",
+                url: "https://cdn.discordapp.com/attachments/123/attachment-1/image.png",
+                proxy_url: "https://media.discordapp.net/attachments/123/attachment-1/image.png",
               },
             ],
           }),
@@ -159,7 +160,7 @@ it.effect("joins attachments and identifies the local Discord author", () =>
         id: "attachment-1",
         filename: "image.png",
         mediaType: "image/png",
-        remoteUrl: "https://cdn.discordapp.com/image.png",
+        remoteUrl: "https://cdn.discordapp.com/attachments/123/attachment-1/image.png",
       },
     ]);
   }),
