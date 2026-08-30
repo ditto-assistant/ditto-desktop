@@ -3,8 +3,9 @@ import ApplicationServices
 import Darwin
 import Foundation
 
-// Keep these ordered. Telegram Desktop is the supported semantic Accessibility
-// source and must win when it coexists with the native macOS client.
+// Telegram Desktop exposes the semantic Accessibility tree used by this helper,
+// but it must never be launched behind the user's back when the native macOS
+// client is their installed Telegram application.
 private let telegramDesktopBundleIDs = [
     // Direct build from desktop.telegram.org.
     "com.tdesktop.Telegram",
@@ -132,8 +133,8 @@ private func runningTelegram(
 }
 
 private func runningTelegram() -> AppTarget? {
-    runningTelegram(bundleIDs: telegramDesktopBundleIDs, client: "telegram-desktop")
-        ?? runningTelegram(bundleIDs: telegramMacBundleIDs, client: "telegram-macos")
+    runningTelegram(bundleIDs: telegramMacBundleIDs, client: "telegram-macos")
+        ?? runningTelegram(bundleIDs: telegramDesktopBundleIDs, client: "telegram-desktop")
 }
 
 private func installedApplicationURL(bundleIDs: [String]) -> URL? {
@@ -170,6 +171,20 @@ private func installedTelegram() -> Bool {
         || installedApplicationURL(bundleIDs: telegramMacBundleIDs) != nil
 }
 
+private func preferredInstalledTelegramClient() -> String {
+    if runningTelegram(bundleIDs: telegramMacBundleIDs, client: "telegram-macos") != nil
+        || installedApplicationURL(bundleIDs: telegramMacBundleIDs) != nil
+    {
+        return "telegram-macos"
+    }
+    if runningTelegram(bundleIDs: telegramDesktopBundleIDs, client: "telegram-desktop") != nil
+        || installedApplicationURL(bundleIDs: telegramDesktopBundleIDs) != nil
+    {
+        return "telegram-desktop"
+    }
+    return "none"
+}
+
 private func launchTelegramInBackground(
     bundleIDs: [String],
     client: String
@@ -192,11 +207,19 @@ private func launchTelegramInBackground(
 }
 
 private func launchTelegramInBackground() -> AppTarget? {
-    // Prefer the supported client even when the native client is already
-    // running. This lets both apps coexist without requiring the user to
-    // manually foreground or launch Telegram Desktop first.
-    launchTelegramInBackground(bundleIDs: telegramDesktopBundleIDs, client: "telegram-desktop")
-        ?? launchTelegramInBackground(bundleIDs: telegramMacBundleIDs, client: "telegram-macos")
+    // Respect the user's installed client. If Telegram for macOS is present,
+    // do not silently launch Telegram Desktop merely because its Accessibility
+    // tree is richer. A protocol bridge can provide local sync independently
+    // of either UI; this helper must not choose a different Telegram app.
+    if installedApplicationURL(bundleIDs: telegramMacBundleIDs) != nil
+        || runningTelegram(bundleIDs: telegramMacBundleIDs, client: "telegram-macos") != nil
+    {
+        return launchTelegramInBackground(bundleIDs: telegramMacBundleIDs, client: "telegram-macos")
+    }
+    return launchTelegramInBackground(
+        bundleIDs: telegramDesktopBundleIDs,
+        client: "telegram-desktop"
+    )
 }
 
 private func status(prompt: Bool) -> Status {
@@ -215,7 +238,7 @@ private func status(prompt: Bool) -> Status {
             available: false,
             installed: true,
             permission: "not_granted",
-            client: runningTelegram()?.client ?? "telegram-desktop",
+            client: preferredInstalledTelegramClient(),
             detail: "Allow Ditto's Telegram helper in System Settings > Privacy & Security > Accessibility."
         )
     }
@@ -224,7 +247,7 @@ private func status(prompt: Bool) -> Status {
             available: false,
             installed: true,
             permission: "granted",
-            client: "telegram-desktop",
+            client: preferredInstalledTelegramClient(),
             detail: "Open Telegram once so Ditto can read its screen-reader view."
         )
     }
@@ -234,7 +257,7 @@ private func status(prompt: Bool) -> Status {
             installed: true,
             permission: "granted",
             client: target.client,
-            detail: "Telegram for macOS does not currently expose chats to Accessibility. Telegram Desktop 6.9 or newer is supported."
+            detail: "Telegram for macOS is installed. Local sync needs the upcoming protocol bridge; Ditto will not open another Telegram client."
         )
     }
     return Status(
