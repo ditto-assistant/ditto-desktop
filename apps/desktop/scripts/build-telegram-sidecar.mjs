@@ -4,6 +4,8 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 
+import { resolveTelegramBuildCredentials } from "./telegram-sidecar-credentials.mjs";
+
 const desktopRoot = NodePath.resolve(
   NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)),
   "..",
@@ -26,11 +28,11 @@ if (arch !== "arm64" && arch !== "x64" && arch !== "universal") {
 }
 
 function build(targetArch, destination) {
-  const apiID = process.env.DITTO_TELEGRAM_API_ID?.trim() ?? "";
-  const apiHash = process.env.DITTO_TELEGRAM_API_HASH?.trim() ?? "";
+  const { configured, apiID, apiHash } = resolveTelegramBuildCredentials(process.env);
   const ldflags = ["-s", "-w"];
-  if (apiID !== "") ldflags.push(`-X main.buildAPIID=${apiID}`);
-  if (apiHash !== "") ldflags.push(`-X main.buildAPIHash=${apiHash}`);
+  if (configured) {
+    ldflags.push(`-X main.buildAPIID=${apiID}`, `-X main.buildAPIHash=${apiHash}`);
+  }
   const result = NodeChildProcess.spawnSync(
     "go",
     [

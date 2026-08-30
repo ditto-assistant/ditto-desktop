@@ -88,6 +88,8 @@ jobs:
         env:
           T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR: ${{ steps.resource_monitor_cache.outputs.cache-hit == 'true' }}
           PREVIEW_VERSION: ${{ steps.version.outputs.version }}
+          DITTO_TELEGRAM_API_ID: ${{ secrets.DITTO_TELEGRAM_API_ID }}
+          DITTO_TELEGRAM_API_HASH: ${{ secrets.DITTO_TELEGRAM_API_HASH }}
         run: |
           set -euo pipefail
 
