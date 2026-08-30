@@ -4,17 +4,24 @@ import type {
   ChannelConversation,
   ChannelMessage,
   ConnectedChannelAccount,
+  DiscordAccessibilityReplyResult,
+  DiscordAccessibilitySnapshotResult,
+  DiscordAccessibilityStatus,
   EnvironmentId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { ArrowUpIcon, InboxIcon, RefreshCwIcon, ExternalLinkIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { ArrowUpIcon, BotIcon, InboxIcon, RefreshCwIcon, ExternalLinkIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useAssetUrl } from "../../assets/assetUrls";
 import { isElectron } from "../../env";
 import { readLocalApi } from "../../localApi";
 import { cn, randomUUID } from "../../lib/utils";
+import { useVisiblePolling } from "../../hooks/useVisiblePolling";
+import { pendingKnowledgePacket, useKnowledgePacketStore } from "../../knowledgePacketStore";
 import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -24,6 +31,8 @@ import { SidebarInset } from "../ui/sidebar";
 import { Textarea } from "../ui/textarea";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { resolveDiscordMessageText } from "./discordMessageText";
+import { mergeDiscordLiveSnapshot } from "./discordLiveMessages";
+import { useChannelAccountConnectionStore } from "./channelAccountConnectionStore";
 
 function formatTime(value?: string) {
   if (!value) return "";
@@ -41,6 +50,7 @@ function failureMessage(result: AsyncResult.AsyncResult<unknown, unknown>): stri
 }
 
 const KEEP_VIRTUAL_LIST_POSITION = { data: true, size: true } as const;
+const EMPTY_CHANNEL_ACCOUNTS: ReadonlyArray<ConnectedChannelAccount> = [];
 
 function openExternal(url: string) {
   const request = readLocalApi()?.shell.openExternal(url);
@@ -111,23 +121,32 @@ function ConnectedInbox({
   readonly conversationId: string | undefined;
   readonly environmentId: EnvironmentId;
 }) {
-  const accountsAtom = serverEnvironment.channelAccounts({ environmentId, input: {} });
+  const accountsAtom = serverEnvironment.channelAccounts({
+    environmentId,
+    input: {},
+  });
   const accountsResult = useAtomValue(accountsAtom);
   const refreshAccounts = useAtomRefresh(accountsAtom);
   const loadedAccounts = Option.getOrNull(AsyncResult.value(accountsResult))?.accounts;
   const [stableAccounts, setStableAccounts] = useState<ReadonlyArray<ConnectedChannelAccount>>([]);
+  const sharedAccounts = useChannelAccountConnectionStore(
+    (state) => state.accountsByEnvironment[environmentId] ?? EMPTY_CHANNEL_ACCOUNTS,
+  );
   useEffect(() => {
     if (loadedAccounts !== undefined && loadedAccounts.length > 0) {
       setStableAccounts(loadedAccounts);
     }
   }, [loadedAccounts]);
-  const accounts = loadedAccounts?.length ? loadedAccounts : stableAccounts;
+  const accounts = loadedAccounts?.length
+    ? loadedAccounts
+    : stableAccounts.length > 0
+      ? stableAccounts
+      : sharedAccounts;
   const syncing = accounts.some((account) => account.state === "syncing");
-  useEffect(() => {
-    if (!syncing) return;
-    const interval = window.setInterval(refreshAccounts, 1_500);
-    return () => window.clearInterval(interval);
-  }, [refreshAccounts, syncing]);
+  useVisiblePolling(refreshAccounts, {
+    enabled: syncing || loadedAccounts === undefined || loadedAccounts.length === 0,
+    intervalMs: 1_500,
+  });
   const selectedAccount =
     accounts.find((account) => account.accountId === accountId) ?? accounts[0] ?? null;
 
@@ -136,7 +155,7 @@ function ConnectedInbox({
       {selectedAccount === null ? (
         <EmptyPanel
           title="Looking for local chats"
-          detail="Discord and Messages accounts will appear here when this device reports them."
+          detail="Local chat accounts will appear here when this device reports them."
         />
       ) : (
         <ConversationWorkspace
@@ -223,6 +242,11 @@ function MessagePanel({
   readonly conversation: ChannelConversation;
   readonly environmentId: EnvironmentId;
 }) {
+  const navigate = useNavigate();
+  const attachKnowledgePacket = useKnowledgePacketStore((state) => state.attach);
+  const knowledgePacketTarget = useKnowledgePacketStore(
+    (state) => state.activeTargetByEnvironment[environmentId],
+  );
   const [messageLimit, setMessageLimit] = useState(150);
   const messagesAtom = serverEnvironment.channelMessages({
     environmentId,
@@ -234,6 +258,10 @@ function MessagePanel({
   });
   const result = useAtomValue(messagesAtom);
   const refresh = useAtomRefresh(messagesAtom);
+  useVisiblePolling(refresh, {
+    enabled: account.service === "discord",
+    intervalMs: 3_000,
+  });
   const loadedMessages = Option.getOrNull(AsyncResult.value(result))?.messages;
   const sortedLoadedMessages = useMemo(
     () =>
@@ -242,17 +270,52 @@ function MessagePanel({
   );
   const [stableMessages, setStableMessages] = useState<ReadonlyArray<ChannelMessage>>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const [liveSnapshot, setLiveSnapshot] = useState<DiscordAccessibilitySnapshotResult | null>(null);
+  const snapshotInFlight = useRef(false);
   useEffect(() => {
     if (loadedMessages !== undefined) {
       setStableMessages(sortedLoadedMessages);
       setLoadingOlder(false);
     }
   }, [loadedMessages, sortedLoadedMessages]);
-  const messages = loadedMessages === undefined ? stableMessages : sortedLoadedMessages;
+  const archivedMessages = loadedMessages === undefined ? stableMessages : sortedLoadedMessages;
+  const discordAccessibility =
+    account.service === "discord" && account.transport !== "discord-local-user"
+      ? readLocalApi()?.discordAccessibility
+      : undefined;
+  const refreshLiveMessages = useCallback(() => {
+    if (!discordAccessibility || snapshotInFlight.current) return;
+    snapshotInFlight.current = true;
+    void discordAccessibility
+      .snapshot({
+        accountId: account.accountId,
+        conversationId: conversation.conversationId,
+        conversationTitle: conversation.title,
+        maxMessages: 150,
+      })
+      .then((snapshot) => {
+        if (snapshot.targetVerified) setLiveSnapshot(snapshot);
+      })
+      .finally(() => {
+        snapshotInFlight.current = false;
+      });
+  }, [account.accountId, conversation.conversationId, conversation.title, discordAccessibility]);
+  useEffect(() => {
+    refreshLiveMessages();
+  }, [refreshLiveMessages]);
+  useVisiblePolling(refreshLiveMessages, {
+    enabled: discordAccessibility !== undefined,
+    intervalMs: 3_000,
+  });
+  const messages = useMemo(
+    () => mergeDiscordLiveSnapshot(archivedMessages, account, conversation, liveSnapshot),
+    [account, archivedMessages, conversation, liveSnapshot],
+  );
   const canSend = account.capabilities.some(
     (capability) =>
       capability.operation === "message.send" && capability.availability === "available",
   );
+  const canReplyThroughDiscord = discordAccessibility !== undefined;
   const canLoadOlder = messages.length >= messageLimit && messageLimit < 5_000;
   const loadOlder = useCallback(() => {
     if (!canLoadOlder || loadingOlder) return;
@@ -266,10 +329,45 @@ function MessagePanel({
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{conversation.title}</p>
           <p className="text-[10px] text-muted-foreground">
-            {account.service === "discord" ? "Device cache · read only" : "Messages on this Mac"}
+            {account.service === "discord"
+              ? account.transport === "discord-local-user"
+                ? "Live on this device · Discrawl archive fallback"
+                : canReplyThroughDiscord
+                  ? "Device cache · Accessibility reply fallback"
+                  : "Device cache · read only"
+              : account.service === "telegram"
+                ? "Telegram on this Mac · switches to Ditto Cloud after sign in"
+                : "Messages on this Mac"}
           </p>
         </div>
         <div className="flex items-center gap-1">
+          <Button
+            onClick={() => {
+              if (!knowledgePacketTarget) return;
+              attachKnowledgePacket(
+                knowledgePacketTarget,
+                pendingKnowledgePacket({
+                  accountId: account.accountId,
+                  conversationId: conversation.conversationId,
+                  label: conversation.title,
+                  source: account.service,
+                  messageLimit: 50,
+                }),
+              );
+              void navigate({ to: "/" });
+            }}
+            disabled={!knowledgePacketTarget}
+            size="sm"
+            title={
+              knowledgePacketTarget
+                ? "Attach this chat to the most recently active coding task"
+                : "Open a coding task before attaching chat context"
+            }
+            variant="outline"
+          >
+            <BotIcon className="size-3.5" />
+            Use in coding task
+          </Button>
           {account.service === "discord" ? (
             <Button
               onClick={() => {
@@ -283,7 +381,29 @@ function MessagePanel({
               Open in Discord
             </Button>
           ) : null}
-          <Button aria-label="Refresh messages" onClick={refresh} size="icon-sm" variant="ghost">
+          {account.service === "telegram" && conversation.conversationId.startsWith("username:") ? (
+            <Button
+              onClick={() =>
+                openExternal(
+                  `tg://resolve?domain=${encodeURIComponent(conversation.conversationId.slice("username:".length))}`,
+                )
+              }
+              size="sm"
+              variant="ghost"
+            >
+              <ExternalLinkIcon className="size-3.5" />
+              Open in Telegram
+            </Button>
+          ) : null}
+          <Button
+            aria-label="Refresh messages"
+            onClick={() => {
+              refresh();
+              refreshLiveMessages();
+            }}
+            size="icon-sm"
+            variant="ghost"
+          >
             <RefreshCwIcon className="size-3.5" />
           </Button>
         </div>
@@ -318,6 +438,7 @@ function MessagePanel({
               return (
                 <div className={cn("mx-auto w-full max-w-3xl", showHeader ? "pt-4" : "pt-0.5")}>
                   <MessageRow
+                    conversation={conversation}
                     environmentId={environmentId}
                     message={message}
                     showHeader={showHeader}
@@ -339,17 +460,22 @@ function MessagePanel({
         canSend={canSend}
         conversation={conversation}
         environmentId={environmentId}
-        onSent={refresh}
+        onSent={() => {
+          refresh();
+          refreshLiveMessages();
+        }}
       />
     </section>
   );
 }
 
 function MessageRow({
+  conversation,
   environmentId,
   message,
   showHeader,
 }: {
+  readonly conversation: ChannelConversation;
   readonly environmentId: EnvironmentId;
   readonly message: ChannelMessage;
   readonly showHeader: boolean;
@@ -388,42 +514,119 @@ function MessageRow({
         ) : null}
         {message.attachments.length > 0 ? (
           <div className="mt-1.5 flex max-w-full flex-col items-start gap-1.5">
-            {message.attachments.map((attachment) => {
-              const url = attachment.remoteUrl;
-              const isImage = attachment.mediaType?.startsWith("image/") === true;
-              return isImage && url ? (
-                <button
-                  aria-label={`Open ${attachment.filename ?? "image"}`}
-                  className="max-w-full overflow-hidden rounded-xl border border-border bg-muted/30"
-                  key={attachment.id}
-                  onClick={() => openExternal(url)}
-                  type="button"
-                >
-                  <img
-                    alt={attachment.filename ?? "Discord image"}
-                    className="max-h-96 max-w-full object-contain"
-                    loading="lazy"
-                    src={url}
-                  />
-                </button>
-              ) : (
-                <Button
-                  className="max-w-full justify-start"
-                  disabled={!url}
-                  key={attachment.id}
-                  onClick={() => url && openExternal(url)}
-                  size="sm"
-                  variant="outline"
-                >
-                  <ExternalLinkIcon className="size-3.5" />
-                  <span className="truncate">{attachment.filename ?? "Open attachment"}</span>
-                </Button>
-              );
-            })}
+            {message.attachments.map((attachment) => (
+              <DiscordAttachment
+                attachment={attachment}
+                environmentId={environmentId}
+                messageUrl={`discord://-/channels/${conversation.containerId ?? "@me"}/${conversation.conversationId}/${message.messageId}`}
+                key={attachment.id}
+              />
+            ))}
           </div>
         ) : null}
       </div>
     </article>
+  );
+}
+
+function DiscordAttachment({
+  attachment,
+  environmentId,
+  messageUrl,
+}: {
+  readonly attachment: ChannelMessage["attachments"][number];
+  readonly environmentId: EnvironmentId;
+  readonly messageUrl: string;
+}) {
+  if (attachment.cachedAttachmentId) {
+    return (
+      <CachedDiscordAttachment
+        attachment={{
+          ...attachment,
+          cachedAttachmentId: attachment.cachedAttachmentId,
+        }}
+        environmentId={environmentId}
+      />
+    );
+  }
+  const remoteUrl = attachment.cacheState === "expired" ? undefined : attachment.remoteUrl;
+  if (attachment.mediaType?.startsWith("image/") === true && remoteUrl) {
+    return <DiscordImage attachment={attachment} url={remoteUrl} />;
+  }
+  if (attachment.cacheState === "expired") {
+    return (
+      <Button onClick={() => openExternal(messageUrl)} size="sm" variant="outline">
+        <ExternalLinkIcon className="size-3.5" />
+        Open message in Discord
+      </Button>
+    );
+  }
+  return <DiscordAttachmentButton attachment={attachment} url={remoteUrl} />;
+}
+
+function CachedDiscordAttachment({
+  attachment,
+  environmentId,
+}: {
+  readonly attachment: ChannelMessage["attachments"][number] & {
+    readonly cachedAttachmentId: string;
+  };
+  readonly environmentId: EnvironmentId;
+}) {
+  const cachedUrl = useAssetUrl(environmentId, {
+    _tag: "attachment",
+    attachmentId: attachment.cachedAttachmentId,
+    ...(attachment.filename ? { fileName: attachment.filename } : {}),
+    ...(attachment.mediaType ? { mimeType: attachment.mediaType } : {}),
+  });
+  if (attachment.mediaType?.startsWith("image/") === true && cachedUrl) {
+    return <DiscordImage attachment={attachment} url={cachedUrl} />;
+  }
+  return <DiscordAttachmentButton attachment={attachment} url={cachedUrl ?? undefined} />;
+}
+
+function DiscordImage({
+  attachment,
+  url,
+}: {
+  readonly attachment: ChannelMessage["attachments"][number];
+  readonly url: string;
+}) {
+  return (
+    <button
+      aria-label={`Open ${attachment.filename ?? "image"}`}
+      className="max-w-full overflow-hidden rounded-xl border border-border bg-muted/30"
+      onClick={() => openExternal(url)}
+      type="button"
+    >
+      <img
+        alt={attachment.filename ?? "Discord image"}
+        className="max-h-96 max-w-full object-contain"
+        loading="lazy"
+        src={url}
+      />
+    </button>
+  );
+}
+
+function DiscordAttachmentButton({
+  attachment,
+  url,
+}: {
+  readonly attachment: ChannelMessage["attachments"][number];
+  readonly url: string | undefined;
+}) {
+  return (
+    <Button
+      className="max-w-full justify-start"
+      disabled={!url}
+      onClick={() => url && openExternal(url)}
+      size="sm"
+      variant="outline"
+    >
+      <ExternalLinkIcon className="size-3.5" />
+      <span className="truncate">{attachment.filename ?? "Open attachment"}</span>
+    </Button>
   );
 }
 
@@ -462,16 +665,76 @@ function Composer({
   readonly environmentId: EnvironmentId;
   readonly onSent: () => void;
 }) {
-  const send = useAtomCommand(serverEnvironment.sendChannelMessage, { reportFailure: false });
+  const send = useAtomCommand(serverEnvironment.sendChannelMessage, {
+    reportFailure: false,
+  });
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [useAccessibilityFallback, setUseAccessibilityFallback] = useState(false);
+  const [accessibilityStatus, setAccessibilityStatus] = useState<DiscordAccessibilityStatus | null>(
+    null,
+  );
+  const [accessibilityResult, setAccessibilityResult] =
+    useState<DiscordAccessibilityReplyResult | null>(null);
+  const [activeActionId, setActiveActionId] = useState<string | null>(null);
+  const accessibility =
+    account.service === "discord" ? readLocalApi()?.discordAccessibility : undefined;
+  const canReply = canSend || accessibility !== undefined;
+
+  useEffect(() => {
+    if (!accessibility) return;
+    let active = true;
+    void accessibility.status(false).then((status) => {
+      if (active) setAccessibilityStatus(status);
+    });
+    return () => {
+      active = false;
+    };
+  }, [accessibility]);
 
   const submit = async () => {
     const content = text.trim();
-    if (!content || !canSend) return;
+    if (!content || !canReply) return;
     setSending(true);
     setError(null);
+    setAccessibilityResult(null);
+    if ((!canSend || useAccessibilityFallback) && accessibility) {
+      let permission = accessibilityStatus;
+      if (permission?.permission !== "granted") {
+        permission = await accessibility.status(true);
+        setAccessibilityStatus(permission);
+      }
+      if (permission.permission !== "granted") {
+        setError(permission.detail);
+        setSending(false);
+        return;
+      }
+      const actionId = randomUUID();
+      setActiveActionId(actionId);
+      const replyResult = await accessibility.execute({
+        actionId,
+        origin: "local_desktop",
+        requestedAt: new Date().toISOString(),
+        accountId: account.accountId,
+        conversationId: conversation.conversationId,
+        ...(conversation.containerId ? { containerId: conversation.containerId } : {}),
+        conversationTitle: conversation.title,
+        text: content,
+        mode: "send",
+      });
+      setActiveActionId(null);
+      setAccessibilityResult(replyResult);
+      if (replyResult.sent) {
+        setText("");
+        setUseAccessibilityFallback(false);
+        onSent();
+      } else if (!replyResult.draftPrepared) {
+        setError(replyResult.detail);
+      }
+      setSending(false);
+      return;
+    }
     const result = await send({
       environmentId,
       input: {
@@ -492,7 +755,7 @@ function Composer({
 
   return (
     <div className="border-t border-border bg-background p-3">
-      {canSend ? (
+      {canReply ? (
         <div className="mx-auto max-w-3xl">
           <div className="flex items-end gap-2 rounded-lg border border-border bg-muted/20 p-2 focus-within:border-ring">
             <Textarea
@@ -509,14 +772,76 @@ function Composer({
               value={text}
             />
             <Button
-              aria-label="Send message"
+              aria-label={canSend ? "Send message" : "Send through Discord"}
               disabled={sending || text.trim().length === 0}
               onClick={() => void submit()}
-              size="icon-sm"
+              size={canSend ? "icon-sm" : "sm"}
             >
               <ArrowUpIcon className="size-3.5" />
+              {!canSend || useAccessibilityFallback ? "Send locally" : null}
             </Button>
           </div>
+          {(!canSend || useAccessibilityFallback) &&
+          accessibilityStatus?.permission !== "granted" ? (
+            <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
+              <p className="text-[11px] text-muted-foreground">
+                Allow Accessibility so Ditto can verify this Discord composer and send only when you
+                click.
+              </p>
+              <Button
+                onClick={() => {
+                  void accessibility?.status(true).then(setAccessibilityStatus);
+                }}
+                size="sm"
+                variant="outline"
+              >
+                Enable Accessibility
+              </Button>
+            </div>
+          ) : null}
+          {canSend && error && accessibility && !useAccessibilityFallback ? (
+            <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
+              <p className="text-[11px] text-muted-foreground">
+                The live send did not return a receipt. Check Discord before using the local UI
+                fallback so you don’t send twice.
+              </p>
+              <Button onClick={() => setUseAccessibilityFallback(true)} size="sm" variant="outline">
+                Use local fallback
+              </Button>
+            </div>
+          ) : null}
+          {sending && activeActionId && accessibility ? (
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <span>Verifying the exact Discord conversation…</span>
+              <Button
+                onClick={() => void accessibility.cancel(activeActionId)}
+                size="sm"
+                variant="ghost"
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : null}
+          {accessibilityResult?.draftPrepared ? (
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <span>{accessibilityResult.detail}</span>
+              <Button
+                onClick={() => {
+                  const scope = conversation.containerId ?? "@me";
+                  openExternal(`discord://-/channels/${scope}/${conversation.conversationId}`);
+                }}
+                size="sm"
+                variant="ghost"
+              >
+                Open Discord
+              </Button>
+            </div>
+          ) : null}
+          {accessibilityResult?.sent ? (
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              Sent through the verified Discord composer.
+            </p>
+          ) : null}
           {error ? <p className="mt-1.5 text-xs text-destructive">{error}</p> : null}
         </div>
       ) : (

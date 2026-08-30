@@ -11,7 +11,11 @@ it.effect("discovers Discrawl and normalizes guild and DM conversations", () =>
     const run: ChannelCommandRun = (input) => {
       commands.push(input.args);
       if (input.args.includes("status")) {
-        return Effect.succeed({ stdout: '{"messages":12}', stderr: "", code: 0 });
+        return Effect.succeed({
+          stdout: '{"messages":12}',
+          stderr: "",
+          code: 0,
+        });
       }
       if (input.args.includes("channels")) {
         return Effect.succeed({
@@ -36,6 +40,45 @@ it.effect("discovers Discrawl and normalizes guild and DM conversations", () =>
     expect(conversations.map((conversation) => conversation.title)).toEqual(["general", "Peyton"]);
     expect(conversations[1]?.kind).toBe("direct");
     expect(commands).toContainEqual(["--json", "status"]);
+  }),
+);
+
+it.effect("deduplicates overlapping Desktop channel and DM catalogs", () =>
+  Effect.gen(function* () {
+    const run: ChannelCommandRun = (input) => {
+      if (input.args.includes("channels")) {
+        return Effect.succeed({
+          stdout: JSON.stringify([{ id: "dm-1", name: "Peyton", guild_id: "@me", kind: "dm" }]),
+          stderr: "",
+          code: 0,
+        });
+      }
+      if (input.args.includes("dms")) {
+        return Effect.succeed({
+          stdout: JSON.stringify([
+            {
+              channel_id: "dm-1",
+              name: "Peyton",
+              guild_id: "@me",
+              last_message_at: "2026-08-29T00:00:00.000Z",
+            },
+          ]),
+          stderr: "",
+          code: 0,
+        });
+      }
+      return Effect.succeed({
+        stdout: '{"columns":[],"rows":[]}',
+        stderr: "",
+        code: 0,
+      });
+    };
+
+    const conversations = yield* makeDiscrawlAdapter(run).listConversations;
+
+    expect(conversations).toHaveLength(1);
+    expect(conversations[0]?.conversationId).toBe("dm-1");
+    expect(conversations[0]?.latestMessageAt).toBe("2026-08-29T00:00:00.000Z");
   }),
 );
 
@@ -145,7 +188,11 @@ it.effect("resolves Discord user and channel mentions with one bounded lookup", 
         });
       }
       if (input.args.includes("attachments")) {
-        return Effect.succeed({ stdout: '{"attachments":[]}', stderr: "", code: 0 });
+        return Effect.succeed({
+          stdout: '{"attachments":[]}',
+          stderr: "",
+          code: 0,
+        });
       }
       const query = input.args.at(-1) ?? "";
       sqlQueries.push(query);
@@ -185,6 +232,7 @@ it.effect("keeps Discord local sync off until the user enables it", () =>
     let enabled = false;
     const adapter = makeDiscrawlAdapter({
       configure: (next) => Effect.sync(() => void (enabled = next)),
+      ensureContinuousSync: () => Effect.void,
       execute: () => Effect.succeed({ stdout: "{}", stderr: "", code: 0 }),
       getSyncState: () => Effect.succeed({ state: "idle" }),
       isDiscordInstalled: () => Effect.succeed(true),
@@ -209,6 +257,7 @@ it.effect("reports background Discord setup without probing the archive", () =>
     let executeCount = 0;
     const adapter = makeDiscrawlAdapter({
       configure: () => Effect.void,
+      ensureContinuousSync: () => Effect.void,
       execute: () =>
         Effect.sync(() => {
           executeCount += 1;

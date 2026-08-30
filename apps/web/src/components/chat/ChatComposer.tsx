@@ -1,5 +1,6 @@
 import type {
   ApprovalRequestId,
+  ChannelConversation,
   EnvironmentId,
   ModelSelection,
   PreviewAnnotationPayload,
@@ -99,6 +100,13 @@ import {
   removeInlineTerminalContextPlaceholder,
 } from "../../lib/terminalContext";
 import { useComposerPathSearch } from "../../lib/composerPathSearchState";
+import {
+  knowledgePacketTargetKey,
+  pendingKnowledgePacket,
+  useKnowledgePacketStore,
+} from "../../knowledgePacketStore";
+import { serverEnvironment } from "../../state/server";
+import { useEnvironmentQuery } from "../../state/query";
 import { type ElementContextDraft } from "../../lib/elementContext";
 import { ComposerPendingElementContexts } from "./ComposerPendingElementContexts";
 import { ComposerPendingReviewComments } from "./ComposerPendingReviewComments";
@@ -119,6 +127,7 @@ import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { ComposerControl, ComposerControlIcon, ComposerSelectControl } from "./ComposerControl";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { searchSlashCommandItems } from "./composerSlashCommandSearch";
+import { searchComposerChats } from "./composerChatSearch";
 import {
   getComposerPromptInjectionState,
   getComposerProviderState,
@@ -144,6 +153,8 @@ type ComposerCommandMenuPosition = {
   maxHeight: number;
   width: number;
 };
+
+const EMPTY_KNOWLEDGE_PACKETS = [] as const;
 
 function composerCommandMenuPositionsEqual(
   a: ComposerCommandMenuPosition,
@@ -753,6 +764,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerReviewComments = composerDraft.reviewComments;
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const uploadsByImageId = useAttachmentUploadStore((state) => state.uploadsByImageId);
+  const knowledgePacketTarget = useMemo(
+    () => knowledgePacketTargetKey(environmentId, composerDraftTarget),
+    [composerDraftTarget, environmentId],
+  );
+  const pendingKnowledgePackets = useKnowledgePacketStore(
+    (state) => state.pendingByTarget[knowledgePacketTarget] ?? EMPTY_KNOWLEDGE_PACKETS,
+  );
+  const attachKnowledgePacket = useKnowledgePacketStore((state) => state.attach);
   const attachmentBlockReason = supportsAttachmentUploads
     ? attachmentUploadBlockReason({
         imageIds: composerImages.map((image) => image.id),
@@ -1100,6 +1119,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           composerElementContexts.length +
           composerPreviewAnnotations.length +
           composerReviewComments.length,
+        knowledgePacketCount: pendingKnowledgePackets.length,
       }),
     [
       composerElementContexts.length,
@@ -1107,6 +1127,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerPreviewAnnotations.length,
       composerReviewComments.length,
       composerTerminalContexts,
+      pendingKnowledgePackets.length,
       prompt,
     ],
   );
@@ -1116,23 +1137,70 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
+  const chatTriggerQuery = composerTrigger?.kind === "chat-context" ? composerTrigger.query : "";
+  const chatTriggerService =
+    composerTrigger?.kind === "chat-context" ? composerTrigger.chatService : undefined;
   const isPathTrigger = composerTriggerKind === "path";
+  const isChatTrigger = composerTriggerKind === "chat-context";
   const workspaceEntries = useComposerPathSearch({
     environmentId,
     cwd: isPathTrigger ? gitCwd : null,
     query: isPathTrigger ? pathTriggerQuery : null,
   });
+  const chatAccounts = useEnvironmentQuery(
+    isChatTrigger && chatTriggerService !== undefined
+      ? serverEnvironment.channelAccounts({ environmentId, input: {} })
+      : null,
+  );
+  const scopedChatAccountId = useMemo(
+    () =>
+      chatTriggerService === undefined
+        ? undefined
+        : chatAccounts.data?.accounts.find((account) => account.service === chatTriggerService)
+            ?.accountId,
+    [chatAccounts.data?.accounts, chatTriggerService],
+  );
+  const chatConversations = useEnvironmentQuery(
+    isChatTrigger && (chatTriggerService === undefined || scopedChatAccountId !== undefined)
+      ? serverEnvironment.channelConversations({
+          environmentId,
+          input: scopedChatAccountId === undefined ? {} : { accountId: scopedChatAccountId },
+        })
+      : null,
+  );
+  const matchingChats = useMemo(
+    () =>
+      searchComposerChats(
+        (chatConversations.data?.conversations ?? []) as ReadonlyArray<ChannelConversation>,
+        chatTriggerQuery,
+        8,
+        chatTriggerService,
+      ),
+    [chatConversations.data?.conversations, chatTriggerQuery, chatTriggerService],
+  );
 
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
       return workspaceEntries.entries.map((entry) => ({
         id: `path:${entry.kind}:${entry.path}`,
-        type: "path",
+        type: "path" as const,
         path: entry.path,
         pathKind: entry.kind,
         label: basenameOfPath(entry.path),
         description: entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
+      }));
+    }
+    if (composerTrigger.kind === "chat-context") {
+      return matchingChats.map((conversation) => ({
+        id: `chat-context:${conversation.accountId}:${conversation.conversationId}`,
+        type: "chat-context" as const,
+        conversation,
+        label: conversation.title,
+        description:
+          conversation.kind === "direct"
+            ? "Attach recent messages and available files"
+            : `Attach from ${conversation.containerTitle ?? "chat"}`,
       }));
     }
     if (composerTrigger.kind === "slash-command") {
@@ -1143,6 +1211,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           command: "model",
           label: "/model",
           description: "Switch response model for this thread",
+        },
+        {
+          id: "slash:chat",
+          type: "slash-command",
+          command: "chat",
+          label: "/chat",
+          description: "Attach a conversation from any connected chat service",
+        },
+        {
+          id: "slash:discord",
+          type: "slash-command",
+          command: "discord",
+          label: "/discord",
+          description: "Attach a Discord conversation",
+        },
+        {
+          id: "slash:telegram",
+          type: "slash-command",
+          command: "telegram",
+          label: "/telegram",
+          description: "Attach a Telegram conversation",
         },
         ...(planModeUiEnabled
           ? ([
@@ -1219,12 +1308,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProvider,
     selectedProviderStatus,
     settings.showSkillsInSlashMenu,
+    matchingChats,
     workspaceEntries.entries,
   ]);
 
   const composerMenuOpen = Boolean(composerTrigger);
   const composerMenuSearchKey = composerTrigger
-    ? `${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
+    ? `${composerTrigger.kind}:${composerTrigger.chatService ?? "all"}:${composerTrigger.query.trim().toLowerCase()}`
     : null;
   const activeComposerMenuItem = useMemo(() => {
     const activeItemId = resolveComposerMenuActiveItemId({
@@ -1284,14 +1374,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   ]);
 
   const isComposerMenuLoading =
-    composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending;
+    (composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending) ||
+    (composerTriggerKind === "chat-context" && chatConversations.isPending);
   const composerMenuEmptyState = useMemo(() => {
     if (composerTriggerKind === "skill") {
       return "No skills found. Try / to browse provider commands.";
     }
     return composerTriggerKind === "path"
       ? "No matching files or folders."
-      : "No matching command.";
+      : composerTriggerKind === "chat-context"
+        ? "No matching conversations."
+        : "No matching command.";
   }, [composerTriggerKind]);
 
   // ------------------------------------------------------------------
@@ -1800,6 +1893,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       });
       const { snapshot, trigger } = resolveActiveComposerTrigger();
       if (!trigger) return;
+      if (item.type === "chat-context") {
+        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+        });
+        if (applied) {
+          attachKnowledgePacket(
+            knowledgePacketTarget,
+            pendingKnowledgePacket({
+              accountId: item.conversation.accountId,
+              conversationId: item.conversation.conversationId,
+              label: item.conversation.title,
+              source: item.conversation.service,
+            }),
+          );
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
       if (item.type === "path") {
         const replacement = `${serializeComposerFileLink(item.path)} `;
         const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
@@ -1819,6 +1930,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
       if (item.type === "slash-command") {
+        if (item.command === "chat" || item.command === "discord" || item.command === "telegram") {
+          const replacement = `/${item.command} `;
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            trigger.rangeEnd,
+            replacement,
+            {
+              expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+            },
+          );
+          if (applied) setComposerHighlightedItemId(null);
+          return;
+        }
         if (item.command === "model") {
           const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
             expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
@@ -1876,7 +2000,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
     },
-    [applyPromptReplacement, handleInteractionModeChange, resolveActiveComposerTrigger],
+    [
+      applyPromptReplacement,
+      attachKnowledgePacket,
+      handleInteractionModeChange,
+      resolveActiveComposerTrigger,
+    ],
   );
 
   const onComposerMenuItemHighlighted = useCallback(
@@ -1985,6 +2114,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
     },
     [
+      attachKnowledgePacket,
       activeThreadId,
       activePendingProgress,
       blurMobileComposerAfterSend,

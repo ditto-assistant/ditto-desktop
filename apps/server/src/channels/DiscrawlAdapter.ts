@@ -21,6 +21,7 @@ import {
   unknownRecord,
 } from "./ChannelAdapter.ts";
 import type { DiscrawlManager } from "./DiscrawlManager.ts";
+import type { DiscordMediaCache } from "./DiscordMediaCache.ts";
 
 export const DISCRAWL_ACCOUNT_ID = ChannelAccountId.make("discord:discrawl:local");
 
@@ -152,9 +153,10 @@ function discordGuildAvatarUrl(guildId: string, icon?: string): string | undefin
   return icon ? `https://cdn.discordapp.com/icons/${guildId}/${icon}.png?size=80` : undefined;
 }
 
-function normalizeAttachment(
-  value: unknown,
-): { readonly messageId: string; readonly attachment: ChannelAttachment } | null {
+function normalizeAttachment(value: unknown): {
+  readonly messageId: string;
+  readonly attachment: ChannelAttachment;
+} | null {
   const row = unknownRecord(value);
   if (row === null) return null;
   const id = readString(row, "attachment_id", "attachmentId", "id");
@@ -297,12 +299,18 @@ function resolvedMentionMap(
 
 type DiscrawlRuntime = Pick<
   DiscrawlManager,
-  "configure" | "execute" | "getSyncState" | "isDiscordInstalled" | "isEnabled"
+  | "configure"
+  | "ensureContinuousSync"
+  | "execute"
+  | "getSyncState"
+  | "isDiscordInstalled"
+  | "isEnabled"
 >;
 
 function runtimeFromRun(run: ChannelCommandRun): DiscrawlRuntime {
   return {
     configure: () => Effect.void,
+    ensureContinuousSync: () => Effect.void,
     execute: (args) => run({ command: "discrawl", args, timeout: "30 seconds" }),
     getSyncState: () => Effect.succeed({ state: "idle" as const }),
     isDiscordInstalled: () => Effect.succeed(true),
@@ -310,7 +318,10 @@ function runtimeFromRun(run: ChannelCommandRun): DiscrawlRuntime {
   };
 }
 
-export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime): ChannelAdapter {
+export function makeDiscrawlAdapter(
+  input: ChannelCommandRun | DiscrawlRuntime,
+  options: { readonly mediaCache?: DiscordMediaCache } = {},
+): ChannelAdapter {
   const runtime = typeof input === "function" ? runtimeFromRun(input) : input;
   const execute = (args: ReadonlyArray<string>) =>
     runtime
@@ -339,6 +350,7 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
               }),
             ),
       ),
+      Effect.andThen(Effect.suspend(() => runtime.ensureContinuousSync())),
       Effect.andThen(
         Effect.all([
           execute(["--json", "channels", "list"]).pipe(
@@ -389,28 +401,43 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
           });
         }
 
-        return [...channels, ...dms].flatMap((row) => {
+        const conversationsById = new Map<string, ChannelConversation>();
+        for (const row of channels) {
           const conversation = normalizeConversation(row);
-          if (conversation === null) return [];
+          if (conversation === null) continue;
+          conversationsById.set(conversation.conversationId, conversation);
+        }
+        for (const row of dms) {
+          const conversation = normalizeConversation(row);
+          if (conversation === null) continue;
+          const existing = conversationsById.get(conversation.conversationId);
+          conversationsById.set(conversation.conversationId, {
+            ...existing,
+            ...conversation,
+            kind: "direct",
+          });
+        }
+
+        return [...conversationsById.values()].map((conversation) => {
           if (conversation.kind === "direct") {
             const participant = dmParticipants.get(conversation.conversationId);
-            return [
-              participant === undefined
-                ? conversation
-                : { ...conversation, participants: [participant], title: participant.displayName },
-            ];
+            return participant === undefined
+              ? conversation
+              : {
+                  ...conversation,
+                  participants: [participant],
+                  title: participant.displayName,
+                };
           }
           const containerId = conversation.containerId;
           const guild = containerId === undefined ? undefined : guilds.get(containerId);
-          if (containerId === undefined || guild === undefined) return [conversation];
+          if (containerId === undefined || guild === undefined) return conversation;
           const containerAvatarUrl = discordGuildAvatarUrl(containerId, guild.icon);
-          return [
-            {
-              ...conversation,
-              containerTitle: guild.name,
-              ...(containerAvatarUrl !== undefined ? { containerAvatarUrl } : {}),
-            },
-          ];
+          return {
+            ...conversation,
+            containerTitle: guild.name,
+            ...(containerAvatarUrl !== undefined ? { containerAvatarUrl } : {}),
+          };
         });
       }),
     ),
@@ -427,6 +454,7 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
                 }),
               ),
         ),
+        Effect.andThen(Effect.suspend(() => runtime.ensureContinuousSync())),
         Effect.andThen(
           Effect.all([
             execute([
@@ -470,21 +498,49 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
             (mentionRows) => ({ rows, attachmentRows, selfRows, mentionRows }),
           );
         }),
-        Effect.map(({ rows, attachmentRows, selfRows, mentionRows }) => {
-          const attachmentsByMessage = new Map<string, Array<ChannelAttachment>>();
-          for (const value of attachmentRows) {
-            const normalized = normalizeAttachment(value);
-            if (normalized === null) continue;
-            const existing = attachmentsByMessage.get(normalized.messageId) ?? [];
-            existing.push(normalized.attachment);
-            attachmentsByMessage.set(normalized.messageId, existing);
-          }
-          const selfAuthorId = readString(selfRows[0] ?? {}, "author_id");
-          const mentions = resolvedMentionMap(mentionRows);
-          return rows
-            .map((row) => normalizeMessage(row, selfAuthorId, attachmentsByMessage, mentions))
-            .filter((message): message is ChannelMessage => message !== null);
-        }),
+        Effect.flatMap(({ rows, attachmentRows, selfRows, mentionRows }) =>
+          Effect.gen(function* () {
+            const attachmentsByMessage = new Map<string, Array<ChannelAttachment>>();
+            const normalizedAttachments = attachmentRows.flatMap((value) => {
+              const attachment = normalizeAttachment(value);
+              return attachment === null ? [] : [attachment];
+            });
+            const cachedAttachments =
+              options.mediaCache === undefined
+                ? normalizedAttachments.map((normalized) => ({
+                    normalized,
+                    cached: undefined,
+                  }))
+                : yield* Effect.forEach(
+                    normalizedAttachments,
+                    (normalized) =>
+                      Effect.promise(() => options.mediaCache!.cache(normalized.attachment)).pipe(
+                        Effect.map((cached) => ({ normalized, cached })),
+                      ),
+                    { concurrency: 4 },
+                  );
+            for (const { normalized, cached } of cachedAttachments) {
+              const existing = attachmentsByMessage.get(normalized.messageId) ?? [];
+              existing.push({
+                ...normalized.attachment,
+                ...(cached?.state === "cached"
+                  ? {
+                      cachedAttachmentId: cached.attachmentId,
+                      cacheState: cached.state,
+                    }
+                  : cached === undefined
+                    ? {}
+                    : { cacheState: cached.state }),
+              });
+              attachmentsByMessage.set(normalized.messageId, existing);
+            }
+            const selfAuthorId = readString(selfRows[0] ?? {}, "author_id");
+            const mentions = resolvedMentionMap(mentionRows);
+            return rows
+              .map((row) => normalizeMessage(row, selfAuthorId, attachmentsByMessage, mentions))
+              .filter((message): message is ChannelMessage => message !== null);
+          }),
+        ),
       ),
     sendMessage: () =>
       Effect.fail(
@@ -498,7 +554,7 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
       ),
   };
 
-  function discoverAccount(): Effect.Effect<ConnectedChannelAccount> {
+  function discoverAccount(): Effect.Effect<ConnectedChannelAccount, ChannelOperationError> {
     return Effect.gen(function* () {
       const enabled = yield* runtime.isEnabled();
       const discordInstalled = yield* runtime.isDiscordInstalled();
@@ -512,6 +568,7 @@ export function makeDiscrawlAdapter(input: ChannelCommandRun | DiscrawlRuntime):
             : "Install and sign in to Discord first.",
         };
       }
+      yield* runtime.ensureContinuousSync();
       const sync = yield* runtime.getSyncState();
       if (sync.state === "syncing") {
         return {

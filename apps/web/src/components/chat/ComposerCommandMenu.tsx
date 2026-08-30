@@ -5,6 +5,7 @@ import {
 } from "@t3tools/client-runtime/providerSkills";
 import {
   type ProjectEntry,
+  type ChannelConversation,
   type ProviderDriverKind,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
@@ -12,6 +13,7 @@ import {
 import {
   BlocksIcon,
   FolderIcon,
+  MessageCircleIcon,
   PackageIcon,
   SettingsIcon,
   UserRoundIcon,
@@ -26,6 +28,13 @@ import { Command, CommandGroup, CommandItem, CommandList } from "../ui/command";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 
 export type ComposerCommandItem =
+  | {
+      id: string;
+      type: "chat-context";
+      conversation: ChannelConversation;
+      label: string;
+      description: string;
+    }
   | {
       id: string;
       type: "path";
@@ -115,13 +124,17 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
               {props.isLoading
                 ? props.triggerKind === "skill"
                   ? "Searching workspace skills..."
-                  : "Searching workspace files..."
+                  : props.triggerKind === "chat-context"
+                    ? "Searching conversations..."
+                    : "Searching workspace..."
                 : (props.emptyStateText ??
                   (props.triggerKind === "skill"
                     ? "No skills found. Try / to browse provider commands."
                     : props.triggerKind === "path"
                       ? "No matching files or folders."
-                      : "No matching command."))}
+                      : props.triggerKind === "chat-context"
+                        ? "No matching conversations."
+                        : "No matching command."))}
             </p>
           </div>
         )}
@@ -168,6 +181,11 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           theme={props.resolvedTheme}
         />
       ) : null}
+      {props.item.type === "chat-context" ? (
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
+          <MessageCircleIcon aria-hidden="true" className="size-3.5" />
+        </span>
+      ) : null}
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="min-w-0 max-w-[45%] shrink-0 truncate font-sans text-xs font-medium">
           {isSlashSkill ? (
@@ -187,6 +205,11 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
             kind={skillSourceKind}
             showSkillSuffix={props.triggerKind === "skill"}
           />
+        ) : null}
+        {props.item.type === "chat-context" ? (
+          <Badge className="ms-auto capitalize" variant="secondary">
+            {props.item.conversation.service} chat
+          </Badge>
         ) : null}
       </span>
     </CommandItem>

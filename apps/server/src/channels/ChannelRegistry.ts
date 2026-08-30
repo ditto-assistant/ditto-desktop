@@ -19,9 +19,17 @@ import {
 import { ServerConfig } from "../config.ts";
 import { ProcessRunner, type ProcessRunInput } from "../processRunner.ts";
 import type { ChannelAdapter, ChannelCommandRun } from "./ChannelAdapter.ts";
-import { DISCRAWL_ACCOUNT_ID, makeDiscrawlAdapter } from "./DiscrawlAdapter.ts";
+import { DISCORD_ACCOUNT_ID, makeDiscordCompositeAdapter } from "./DiscordCompositeAdapter.ts";
+import { makeDiscordLocalAdapter } from "./DiscordLocalAdapter.ts";
+import { DiscordSidecarClient } from "./DiscordSidecarClient.ts";
+import { makeDiscrawlAdapter } from "./DiscrawlAdapter.ts";
 import { DiscrawlManager } from "./DiscrawlManager.ts";
+import { DiscordMediaCache } from "./DiscordMediaCache.ts";
 import { IMESSAGE_ACCOUNT_ID, makeIMessageAdapter } from "./IMessageAdapter.ts";
+import { makeTelegramAdapter, TELEGRAM_LOCAL_ACCOUNT_ID } from "./TelegramAdapter.ts";
+import { makeTelegramLocalSource } from "./TelegramLocalSource.ts";
+import { makeTelegramProtocolSource } from "./TelegramProtocolSource.ts";
+import { TelegramSidecarClient } from "./TelegramSidecarClient.ts";
 
 export interface ChannelRegistryShape {
   readonly listAccounts: Effect.Effect<
@@ -88,9 +96,13 @@ export function makeChannelRegistry(
       if (accountId !== undefined) {
         return withAdapter(accountId, (adapter) => adapter.listConversations);
       }
-      return Effect.forEach(adapters.values(), (adapter) => adapter.listConversations, {
-        concurrency: "unbounded",
-      }).pipe(Effect.map((groups) => groups.flat()));
+      return Effect.forEach(
+        adapters.values(),
+        (adapter) => adapter.listConversations.pipe(Effect.orElseSucceed(() => [])),
+        {
+          concurrency: "unbounded",
+        },
+      ).pipe(Effect.map((groups) => groups.flat()));
     },
     listMessages: (accountId, conversationId, limit) =>
       withAdapter(accountId, (adapter) => adapter.listMessages(conversationId, limit)),
@@ -136,15 +148,42 @@ export const layer = Layer.effect(
       architecture,
       run,
     });
+    const archive = makeDiscrawlAdapter(discrawl, {
+      mediaCache: new DiscordMediaCache({
+        attachmentsDir: config.attachmentsDir,
+      }),
+    });
+    const sidecar = yield* Effect.acquireRelease(
+      Effect.sync(() => new DiscordSidecarClient(config.discordSidecarPath, config.stateDir)),
+      (client) => Effect.sync(() => client.close()),
+    );
+    const discord = makeDiscordCompositeAdapter({
+      protocol: makeDiscordLocalAdapter(sidecar),
+      archive,
+    });
+    const telegramLocal = makeTelegramLocalSource({
+      platform,
+      helperPath: environment.DITTO_TELEGRAM_HELPER_PATH,
+      run,
+    });
+    const telegramSidecar = yield* Effect.acquireRelease(
+      Effect.sync(() => new TelegramSidecarClient(config.telegramSidecarPath, config.stateDir)),
+      (client) => Effect.sync(() => client.close()),
+    );
+    const telegram = makeTelegramProtocolSource(telegramSidecar, telegramLocal);
     return makeChannelRegistry(
       new Map([
-        [DISCRAWL_ACCOUNT_ID, makeDiscrawlAdapter(discrawl)],
+        [DISCORD_ACCOUNT_ID, discord],
         [
           IMESSAGE_ACCOUNT_ID,
           makeIMessageAdapter(run, {
             platform,
             homeDirectory: environment.HOME ?? "",
           }),
+        ],
+        [
+          TELEGRAM_LOCAL_ACCOUNT_ID,
+          makeTelegramAdapter(() => ({ mode: "local", source: telegram })),
         ],
       ]),
     );

@@ -8,6 +8,7 @@ import {
   resolveDevProtocolClient,
   resolveElectronLaunchCommand,
 } from "./electron-launcher.mjs";
+import { acquireDevLauncherLock } from "./dev-launcher-lock.mjs";
 import { waitForResources } from "./wait-for-resources.mjs";
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL?.trim();
@@ -36,6 +37,14 @@ const childTreeGracePeriodMs = 1_200;
 const remoteDebuggingPort = process.env.T3CODE_DESKTOP_REMOTE_DEBUGGING_PORT?.trim();
 // oxlint-disable-next-line t3code/no-global-process-runtime -- Standalone dev script has no Effect runtime.
 const hostPlatform = NodeOS.platform();
+const launcherLock = acquireDevLauncherLock({ desktopRoot: desktopDir });
+if (!launcherLock.acquired) {
+  console.error(
+    `[dev-electron] another launcher already owns ${desktopDir} (pid ${launcherLock.ownerPid ?? "unknown"}); exiting`,
+  );
+  process.exit(0);
+}
+process.once("exit", () => launcherLock.release());
 
 await waitForResources({
   baseDir: desktopDir,

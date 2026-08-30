@@ -82,6 +82,8 @@ export class ServerConfig extends Context.Service<
     readonly desktopTelemetryFd?: number | undefined;
     readonly desktopTelemetryControlFd?: number | undefined;
     readonly resourceMonitorPath?: string | undefined;
+    readonly discordSidecarPath?: string | undefined;
+    readonly telegramSidecarPath?: string | undefined;
     readonly autoBootstrapProjectFromCwd: boolean;
     readonly logWebSocketEvents: boolean;
     readonly tailscaleServeEnabled: boolean;
@@ -147,11 +149,21 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(derivedPaths.terminalLogsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.attachmentsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.worktreesDir, { recursive: true }),
-      fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),
-      fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true }),
-      fs.makeDirectory(derivedPaths.providerStatusCacheDir, { recursive: true }),
-      fs.makeDirectory(path.dirname(derivedPaths.anonymousIdPath), { recursive: true }),
-      fs.makeDirectory(path.dirname(derivedPaths.serverRuntimeStatePath), { recursive: true }),
+      fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), {
+        recursive: true,
+      }),
+      fs.makeDirectory(path.dirname(derivedPaths.settingsPath), {
+        recursive: true,
+      }),
+      fs.makeDirectory(derivedPaths.providerStatusCacheDir, {
+        recursive: true,
+      }),
+      fs.makeDirectory(path.dirname(derivedPaths.anonymousIdPath), {
+        recursive: true,
+      }),
+      fs.makeDirectory(path.dirname(derivedPaths.serverRuntimeStatePath), {
+        recursive: true,
+      }),
     ],
     { concurrency: "unbounded" },
   );
@@ -161,7 +173,9 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
     nowMs: yield* Clock.currentTimeMillis,
   });
   if (swept.deleted > 0) {
-    yield* Effect.logInfo("Removed expired attachment uploads.", { deleted: swept.deleted });
+    yield* Effect.logInfo("Removed expired attachment uploads.", {
+      deleted: swept.deleted,
+    });
   }
 });
 
@@ -203,6 +217,8 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
     desktopTelemetryFd: undefined,
     desktopTelemetryControlFd: undefined,
     resourceMonitorPath: undefined,
+    discordSidecarPath: undefined,
+    telegramSidecarPath: undefined,
     staticDir: undefined,
     devUrl,
     devAllowedOrigins: [],

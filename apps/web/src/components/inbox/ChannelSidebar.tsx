@@ -15,15 +15,27 @@ import {
   SearchIcon,
   ServerIcon,
   SmartphoneIcon,
+  SendIcon,
 } from "lucide-react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "../../lib/utils";
+import { useVisiblePolling } from "../../hooks/useVisiblePolling";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
+import { useChannelAccountConnectionStore } from "./channelAccountConnectionStore";
+import {
+  Dialog,
+  DialogDescription,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../ui/dialog";
 import { Input } from "../ui/input";
+import { QRCodeSvg } from "../ui/qr-code";
 import { useSidebar } from "../ui/sidebar";
 
 function compactTime(value?: string): string {
@@ -44,6 +56,7 @@ function accountIcon(account: ConnectedChannelAccount) {
 function accountLabel(account: ConnectedChannelAccount): string {
   if (account.service === "discord") return "Discord";
   if (account.service === "imessage") return "iMessage";
+  if (account.service === "telegram") return "Telegram";
   return account.label;
 }
 
@@ -58,16 +71,25 @@ function accountStatus(account: ConnectedChannelAccount): string {
   if (account.service === "imessage" && account.state === "permission_required") {
     return "Allow Full Disk Access to Ditto in System Settings.";
   }
+  if (account.service === "telegram") return account.statusDetail ?? "Telegram needs attention.";
   if (account.state === "error") return "Couldn’t load chats. Try again.";
   return account.statusDetail ?? "Setup required";
 }
 
 export function ChannelSidebar({ environmentId }: { readonly environmentId: EnvironmentId }) {
-  const accountsAtom = serverEnvironment.channelAccounts({ environmentId, input: {} });
+  const accountsAtom = serverEnvironment.channelAccounts({
+    environmentId,
+    input: {},
+  });
   const accountsResult = useAtomValue(accountsAtom);
   const refreshAccounts = useAtomRefresh(accountsAtom);
   const loadedAccounts = Option.getOrNull(AsyncResult.value(accountsResult))?.accounts;
   const [stableAccounts, setStableAccounts] = useState<ReadonlyArray<ConnectedChannelAccount>>([]);
+
+  // Connection state can change outside the renderer (QR approval, Gateway
+  // reconnect, credential restore), so keep the sidebar converged even when a
+  // one-shot setup event is missed.
+  useVisiblePolling(refreshAccounts, { enabled: true, intervalMs: 10_000 });
 
   useEffect(() => {
     if (loadedAccounts !== undefined && loadedAccounts.length > 0) {
@@ -76,6 +98,10 @@ export function ChannelSidebar({ environmentId }: { readonly environmentId: Envi
   }, [loadedAccounts]);
 
   const accounts = loadedAccounts?.length ? loadedAccounts : stableAccounts;
+  const setSharedAccounts = useChannelAccountConnectionStore((state) => state.setAccounts);
+  useEffect(() => {
+    if (accounts.length > 0) setSharedAccounts(environmentId, accounts);
+  }, [accounts, environmentId, setSharedAccounts]);
   const [query, setQuery] = useState("");
 
   return (
@@ -89,7 +115,7 @@ export function ChannelSidebar({ environmentId }: { readonly environmentId: Envi
           aria-label="Search chats"
           className="h-7 border-sidebar-border/70 bg-sidebar-accent/30 pr-2 pl-7 text-xs shadow-none"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search Discord and Messages"
+          placeholder="Search all chats"
           value={query}
         />
       </div>
@@ -129,24 +155,49 @@ function ChannelAccountGroup({
 }) {
   const [expanded, setExpanded] = useState(true);
   const [configuring, setConfiguring] = useState(false);
-  const configure = useAtomCommand(serverEnvironment.configureChannel, { reportFailure: false });
+  const [configuredAccount, setConfiguredAccount] = useState<ConnectedChannelAccount | null>(null);
+  const upsertSharedAccount = useChannelAccountConnectionStore((state) => state.upsertAccount);
+  const [setupUrl, setSetupUrl] = useState<string | null>(null);
+  const configure = useAtomCommand(serverEnvironment.configureChannel, {
+    reportFailure: false,
+  });
   const route = useRouterState({
-    select: (state) => ({ pathname: state.location.pathname, search: state.location.search }),
+    select: (state) => ({
+      pathname: state.location.pathname,
+      search: state.location.search,
+    }),
   });
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
-  const ServiceIcon = accountIcon(account);
+  const displayedAccount = configuredAccount ?? account;
+  const ServiceIcon =
+    displayedAccount.service === "telegram" ? SendIcon : accountIcon(displayedAccount);
   const selectedAccount = route.pathname === "/inbox" && route.search.account === account.accountId;
   const selectedConversation =
     route.pathname === "/inbox" && typeof route.search.conversation === "string"
       ? route.search.conversation
       : null;
 
+  useVisiblePolling(onConfigured, {
+    enabled: displayedAccount.state === "syncing" || setupUrl !== null,
+    intervalMs: 1_500,
+  });
+
   useEffect(() => {
-    if (account.state !== "syncing") return;
-    const interval = window.setInterval(onConfigured, 1_500);
-    return () => window.clearInterval(interval);
-  }, [account.state, onConfigured]);
+    if (
+      account.state === "ready" &&
+      (account.transport === "discord-local-user" || account.service === "telegram")
+    ) {
+      setConfiguredAccount(null);
+      setSetupUrl(null);
+    } else if (account.service === "telegram" && account.state === "syncing") {
+      setConfiguredAccount(account);
+      if (account.setupUrl !== undefined) setSetupUrl(account.setupUrl);
+    } else if (account.service === "telegram") {
+      setConfiguredAccount(null);
+      setSetupUrl(null);
+    }
+  }, [account.state, account.service, account.transport, account.setupUrl]);
 
   const enable = async () => {
     setConfiguring(true);
@@ -155,12 +206,21 @@ function ChannelAccountGroup({
       input: { accountId: account.accountId, enabled: true },
     });
     setConfiguring(false);
-    if (result._tag === "Success") onConfigured();
+    if (result._tag === "Success") {
+      setConfiguredAccount(result.value.account);
+      upsertSharedAccount(environmentId, result.value.account);
+      setSetupUrl(result.value.account.setupUrl ?? null);
+      onConfigured();
+    }
   };
 
-  const canConnectDiscord =
-    account.service === "discord" &&
-    (!account.enabled || account.state === "error" || account.state === "setup_required");
+  const liveSendAvailable = displayedAccount.capabilities.some(
+    (capability) =>
+      capability.operation === "message.send" && capability.availability === "available",
+  );
+  const canConfigure =
+    (displayedAccount.service === "discord" && !liveSendAvailable) ||
+    (displayedAccount.service === "telegram" && displayedAccount.state === "setup_required");
 
   const openAccount = () => {
     setExpanded((value) => !value);
@@ -193,20 +253,24 @@ function ChannelAccountGroup({
         <span
           className={cn(
             "flex size-4 shrink-0 items-center justify-center rounded-[4px]",
-            account.service === "discord"
+            displayedAccount.service === "discord"
               ? "bg-[#5865f2]/15 text-[#7c87ff]"
-              : "bg-emerald-500/15 text-emerald-500",
+              : displayedAccount.service === "telegram"
+                ? "bg-[#229ed9]/15 text-[#42b9ed]"
+                : "bg-emerald-500/15 text-emerald-500",
           )}
         >
           <ServiceIcon className="size-3" />
         </span>
-        <span className="min-w-0 flex-1 truncate font-medium">{accountLabel(account)}</span>
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {accountLabel(displayedAccount)}
+        </span>
         <span
           className={cn(
             "size-1.5 rounded-full",
-            account.state === "ready"
+            displayedAccount.state === "ready"
               ? "bg-emerald-500"
-              : account.state === "error" || account.state === "unavailable"
+              : displayedAccount.state === "error" || displayedAccount.state === "unavailable"
                 ? "bg-destructive"
                 : "bg-amber-500",
           )}
@@ -215,7 +279,7 @@ function ChannelAccountGroup({
 
       {expanded ? (
         <ul className="ml-5.5 flex flex-col gap-px border-l border-sidebar-border/60 pl-1.5">
-          {canConnectDiscord ? (
+          {canConfigure ? (
             <li className="list-none py-1 pr-1">
               <Button
                 type="button"
@@ -226,23 +290,64 @@ function ChannelAccountGroup({
                 className="h-7 w-full justify-start gap-1.5 px-2 text-xs text-sidebar-muted-foreground"
               >
                 <PlusIcon className="size-3" />
-                {configuring ? "Connecting…" : account.enabled ? "Try again" : "Connect Discord"}
+                {configuring
+                  ? "Connecting…"
+                  : displayedAccount.service === "telegram"
+                    ? "Connect Telegram"
+                    : "Connect live Discord"}
               </Button>
             </li>
-          ) : account.state !== "ready" ? (
+          ) : null}
+          {displayedAccount.state !== "ready" ? (
             <li className="list-none px-2 py-1.5 text-[11px] leading-4 text-sidebar-muted-foreground/70">
-              {accountStatus(account)}
+              {accountStatus(displayedAccount)}
             </li>
-          ) : (
+          ) : null}
+          {displayedAccount.state === "ready" ? (
             <ReadyChannelConversations
-              account={account}
+              account={displayedAccount}
               environmentId={environmentId}
               query={query}
               selectedConversation={selectedConversation}
             />
-          )}
+          ) : null}
         </ul>
       ) : null}
+      <Dialog
+        open={setupUrl !== null}
+        onOpenChange={(open) => {
+          if (!open) setSetupUrl(null);
+        }}
+      >
+        <DialogPopup className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              Connect {displayedAccount.service === "telegram" ? "Telegram" : "Discord"}
+            </DialogTitle>
+            <DialogDescription>
+              Scan this code in {displayedAccount.service === "telegram" ? "Telegram" : "Discord"}{" "}
+              on a device where you’re signed in, then approve the connection.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            {setupUrl ? (
+              <div className="flex justify-center rounded-xl border border-border/60 bg-white p-4">
+                <QRCodeSvg
+                  level="M"
+                  marginSize={2}
+                  size={196}
+                  title={`${displayedAccount.service === "telegram" ? "Telegram" : "Discord"} connection code`}
+                  value={setupUrl}
+                />
+              </div>
+            ) : null}
+            <p className="mt-3 text-center text-xs text-muted-foreground">
+              Your {displayedAccount.service === "telegram" ? "Telegram" : "Discord"} credential
+              stays in this Mac’s credential store.
+            </p>
+          </DialogPanel>
+        </DialogPopup>
+      </Dialog>
     </li>
   );
 }
@@ -263,6 +368,11 @@ function ReadyChannelConversations({
     input: { accountId: account.accountId },
   });
   const conversationsResult = useAtomValue(conversationsAtom);
+  const refreshConversations = useAtomRefresh(conversationsAtom);
+  useVisiblePolling(refreshConversations, {
+    enabled: account.service === "discord" || account.service === "telegram",
+    intervalMs: 10_000,
+  });
   const loadedConversations = Option.getOrNull(
     AsyncResult.value(conversationsResult),
   )?.conversations;
@@ -322,7 +432,11 @@ function ReadyChannelConversations({
   );
   const guilds = new Map<
     string,
-    { title: string; avatarUrl?: string; conversations: Array<ChannelConversation> }
+    {
+      title: string;
+      avatarUrl?: string;
+      conversations: Array<ChannelConversation>;
+    }
   >();
   for (const conversation of filteredConversations) {
     if (conversation.containerId === undefined) continue;
