@@ -193,6 +193,9 @@ function ChannelAccountGroup({
     } else if (account.service === "telegram" && account.state === "syncing") {
       setConfiguredAccount(account);
       if (account.setupUrl !== undefined) setSetupUrl(account.setupUrl);
+    } else if (account.service === "telegram") {
+      setConfiguredAccount(null);
+      setSetupUrl(null);
     }
   }, [account.state, account.service, account.transport, account.setupUrl]);
 
