@@ -1,4 +1,5 @@
 import * as NodeCrypto from "node:crypto";
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -17,11 +18,23 @@ function processIsAlive(pid) {
   }
 }
 
+function processIdentity(pid) {
+  try {
+    return NodeChildProcess.execFileSync("/bin/ps", ["-o", "lstart=", "-p", String(pid)], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
 export function acquireDevLauncherLock({
   desktopRoot,
   temporaryDirectory = NodeOS.tmpdir(),
   processId = process.pid,
   isProcessAlive = processIsAlive,
+  getProcessIdentity = processIdentity,
   afterStaleOwnerDetected,
 }) {
   const lockPath = resolveDevLauncherLockPath(desktopRoot, temporaryDirectory);
@@ -33,18 +46,32 @@ export function acquireDevLauncherLock({
     lockPath,
     release() {},
   });
-  const readOwner = () => {
+  const currentIdentity = getProcessIdentity(processId);
+  const readOwner = (path = lockPath) => {
     try {
-      return Number.parseInt(NodeFS.readFileSync(lockPath, "utf8"), 10);
+      const value = NodeFS.readFileSync(path, "utf8");
+      try {
+        const parsed = JSON.parse(value);
+        return { pid: parsed.pid, identity: parsed.identity };
+      } catch {
+        return { pid: Number.parseInt(value, 10), identity: undefined };
+      }
     } catch (cause) {
       if (cause?.code !== "ENOENT") throw cause;
-      return Number.NaN;
+      return undefined;
     }
   };
+  const ownerIsAlive = (owner) =>
+    owner !== undefined &&
+    Number.isInteger(owner.pid) &&
+    owner.pid > 0 &&
+    isProcessAlive(owner.pid) &&
+    (owner.identity === undefined || owner.identity === getProcessIdentity(owner.pid));
+  const ownerPayload = () => `${JSON.stringify({ pid: processId, identity: currentIdentity })}\n`;
   const installOwnedLock = () => {
     const descriptor = NodeFS.openSync(lockPath, "wx", 0o600);
     try {
-      NodeFS.writeFileSync(descriptor, `${processId}\n`, "utf8");
+      NodeFS.writeFileSync(descriptor, ownerPayload(), "utf8");
     } finally {
       NodeFS.closeSync(descriptor);
     }
@@ -55,7 +82,9 @@ export function acquireDevLauncherLock({
     lockPath,
     release() {
       try {
-        if (readOwner() === processId) NodeFS.unlinkSync(lockPath);
+        const owner = readOwner();
+        if (owner?.pid === processId && owner.identity === currentIdentity)
+          NodeFS.unlinkSync(lockPath);
       } catch (cause) {
         if (cause?.code !== "ENOENT") throw cause;
       }
@@ -64,37 +93,45 @@ export function acquireDevLauncherLock({
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      if (NodeFS.existsSync(reclaimPath)) return unavailable(readOwner());
+      const reclaimOwner = readOwner(reclaimPath);
+      if (reclaimOwner !== undefined) {
+        if (ownerIsAlive(reclaimOwner)) return unavailable(readOwner()?.pid);
+        try {
+          NodeFS.unlinkSync(reclaimPath);
+        } catch (cause) {
+          if (cause?.code !== "ENOENT") throw cause;
+        }
+      }
       installOwnedLock();
       if (!NodeFS.existsSync(reclaimPath)) return ownedResult();
-      if (readOwner() === processId) NodeFS.unlinkSync(lockPath);
+      const installedOwner = readOwner();
+      if (installedOwner?.pid === processId && installedOwner.identity === currentIdentity) {
+        NodeFS.unlinkSync(lockPath);
+      }
       continue;
     } catch (cause) {
       if (cause?.code !== "EEXIST") throw cause;
-      const ownerPid = readOwner();
-      if (Number.isInteger(ownerPid) && ownerPid > 0 && isProcessAlive(ownerPid)) {
-        return unavailable(ownerPid);
+      const owner = readOwner();
+      if (ownerIsAlive(owner)) {
+        return unavailable(owner.pid);
       }
 
-      afterStaleOwnerDetected?.({ lockPath, ownerPid });
+      afterStaleOwnerDetected?.({ lockPath, ownerPid: owner?.pid });
       let reclaimDescriptor;
       try {
         reclaimDescriptor = NodeFS.openSync(reclaimPath, "wx", 0o600);
+        NodeFS.writeFileSync(reclaimDescriptor, ownerPayload(), "utf8");
       } catch (reclaimCause) {
         if (reclaimCause?.code !== "EEXIST") throw reclaimCause;
-        return unavailable(readOwner());
+        return unavailable(readOwner()?.pid);
       }
 
       let reclaimResult;
       let reclaimError;
       try {
-        const currentOwnerPid = readOwner();
-        if (
-          Number.isInteger(currentOwnerPid) &&
-          currentOwnerPid > 0 &&
-          isProcessAlive(currentOwnerPid)
-        ) {
-          reclaimResult = unavailable(currentOwnerPid);
+        const currentOwner = readOwner();
+        if (ownerIsAlive(currentOwner)) {
+          reclaimResult = unavailable(currentOwner.pid);
         } else {
           try {
             NodeFS.unlinkSync(lockPath);
@@ -106,7 +143,7 @@ export function acquireDevLauncherLock({
             reclaimResult = ownedResult();
           } catch (installCause) {
             if (installCause?.code !== "EEXIST") throw installCause;
-            reclaimResult = unavailable(readOwner());
+            reclaimResult = unavailable(readOwner()?.pid);
           }
         }
       } catch (cause) {

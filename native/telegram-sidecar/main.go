@@ -123,6 +123,8 @@ type status struct {
 	Configured      bool         `json:"configured"`
 	Connected       bool         `json:"connected"`
 	LoginPending    bool         `json:"loginPending"`
+	QRURL           string       `json:"qrUrl,omitempty"`
+	QRExpiresAt     string       `json:"qrExpiresAt,omitempty"`
 	Detail          string       `json:"detail"`
 	User            *participant `json:"user,omitempty"`
 }
@@ -135,19 +137,21 @@ type peerRecord struct {
 }
 
 type server struct {
-	mu           sync.RWMutex
-	writeMu      sync.Mutex
-	client       *telegram.Client
-	api          *tg.Client
-	loggedIn     qrlogin.LoggedIn
-	self         *tg.User
-	connected    bool
-	loginPending bool
-	lastError    string
-	peers        map[string]peerRecord
-	receipts     map[string]chatMessage
-	cancel       context.CancelFunc
-	ready        chan struct{}
+	mu               sync.RWMutex
+	writeMu          sync.Mutex
+	client           *telegram.Client
+	api              *tg.Client
+	loggedIn         qrlogin.LoggedIn
+	self             *tg.User
+	connected        bool
+	loginPending     bool
+	loginQRURL       string
+	loginQRExpiresAt time.Time
+	lastError        string
+	peers            map[string]peerRecord
+	receipts         map[string]chatMessage
+	cancel           context.CancelFunc
+	ready            chan struct{}
 }
 
 func credentials() (int, string, bool) {
@@ -210,17 +214,19 @@ func (s *server) ensureClient() error {
 			close(ready)
 			s.mu.Unlock()
 			if authStatus, statusErr := client.Auth().Status(ctx); statusErr == nil && authStatus.Authorized {
-				s.markAuthorized(ctx)
+				_ = s.markAuthorized(ctx)
 			}
 			<-ctx.Done()
 			return ctx.Err()
 		})
 		s.mu.Lock()
-		s.client = nil
-		s.api = nil
-		s.connected = false
-		if err != nil && !errors.Is(err, context.Canceled) {
-			s.lastError = err.Error()
+		if s.client == client {
+			s.client = nil
+			s.api = nil
+			s.connected = false
+			if err != nil && !errors.Is(err, context.Canceled) {
+				s.lastError = err.Error()
+			}
 		}
 		s.mu.Unlock()
 	}()
@@ -233,22 +239,32 @@ func (s *server) ensureClient() error {
 	}
 }
 
-func (s *server) markAuthorized(ctx context.Context) {
+func (s *server) markAuthorized(ctx context.Context) error {
 	s.mu.RLock()
 	client := s.client
 	s.mu.RUnlock()
 	if client == nil {
-		return
+		return errNotConnected
 	}
 	self, err := client.Self(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err == nil {
-		s.self = self
+	if s.client != client {
+		return errNotConnected
 	}
-	s.connected = err == nil
+	if err != nil {
+		s.connected = false
+		s.self = nil
+		s.lastError = err.Error()
+		return err
+	}
+	s.self = self
+	s.connected = true
 	s.loginPending = false
+	s.loginQRURL = ""
+	s.loginQRExpiresAt = time.Time{}
 	s.lastError = ""
+	return nil
 }
 
 func (s *server) currentStatus() status {
@@ -266,6 +282,10 @@ func (s *server) currentStatus() status {
 		detail = s.lastError
 	}
 	result := status{ProtocolVersion: protocolVersion, Configured: configured, Connected: s.connected, LoginPending: s.loginPending, Detail: detail}
+	if s.loginPending && s.loginQRURL != "" {
+		result.QRURL = s.loginQRURL
+		result.QRExpiresAt = s.loginQRExpiresAt.UTC().Format(time.RFC3339)
+	}
 	if s.self != nil {
 		p := userParticipant(s.self, true)
 		result.User = &p
@@ -290,7 +310,9 @@ func (s *server) restore() (status, error) {
 		return s.currentStatus(), err
 	}
 	if authStatus.Authorized {
-		s.markAuthorized(ctx)
+		if err := s.markAuthorized(ctx); err != nil {
+			return s.currentStatus(), err
+		}
 	}
 	return s.currentStatus(), nil
 }
@@ -305,11 +327,12 @@ func (s *server) startLogin() (any, error) {
 		return nil, errors.New("Telegram sign-in is already pending")
 	}
 	client := s.client
-	s.loginPending = true
-	s.mu.Unlock()
 	if client == nil {
+		s.mu.Unlock()
 		return nil, errors.New("Telegram client unavailable")
 	}
+	s.loginPending = true
+	s.mu.Unlock()
 	tokens := make(chan qrlogin.Token, 1)
 	// Auth receives login-token updates through the client's handler and also
 	// refreshes expired codes. The first token is returned immediately; later
@@ -320,6 +343,10 @@ func (s *server) startLogin() (any, error) {
 	ctx := context.Background()
 	go func() {
 		_, err := client.QR().Auth(ctx, loggedIn, func(_ context.Context, token qrlogin.Token) error {
+			s.mu.Lock()
+			s.loginQRURL = token.URL()
+			s.loginQRExpiresAt = token.Expires()
+			s.mu.Unlock()
 			select {
 			case tokens <- token:
 			default:
@@ -328,11 +355,13 @@ func (s *server) startLogin() (any, error) {
 			return nil
 		})
 		if err == nil {
-			s.markAuthorized(context.Background())
+			_ = s.markAuthorized(context.Background())
 			s.emit("connection.status", s.currentStatus())
 		} else {
 			s.mu.Lock()
 			s.loginPending = false
+			s.loginQRURL = ""
+			s.loginQRExpiresAt = time.Time{}
 			s.lastError = err.Error()
 			s.mu.Unlock()
 			s.emit("connection.status", s.currentStatus())
@@ -344,6 +373,8 @@ func (s *server) startLogin() (any, error) {
 	case <-time.After(20 * time.Second):
 		s.mu.Lock()
 		s.loginPending = false
+		s.loginQRURL = ""
+		s.loginQRExpiresAt = time.Time{}
 		s.mu.Unlock()
 		return nil, errors.New("Telegram did not issue a QR code")
 	}
@@ -458,6 +489,9 @@ func (s *server) sendMessage(channelID, content, idempotencyKey string) (chatMes
 	}
 	if strings.TrimSpace(content) == "" {
 		return chatMessage{}, errors.New("message text is required")
+	}
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return chatMessage{}, errors.New("idempotency key is required")
 	}
 	s.mu.RLock()
 	if receipt, ok := s.receipts[idempotencyKey]; ok {
@@ -598,8 +632,15 @@ func (s *server) handle(req request) (any, error) {
 		s.mu.Lock()
 		cancel := s.cancel
 		s.cancel = nil
+		s.client = nil
+		s.api = nil
 		s.connected = false
 		s.self = nil
+		s.loginPending = false
+		s.loginQRURL = ""
+		s.loginQRExpiresAt = time.Time{}
+		s.receipts = make(map[string]chatMessage)
+		s.peers = make(map[string]peerRecord)
 		s.mu.Unlock()
 		if cancel != nil {
 			cancel()

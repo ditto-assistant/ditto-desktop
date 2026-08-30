@@ -64,14 +64,49 @@ describe("desktop development launcher ownership", () => {
         temporaryDirectory,
         processId: process.pid,
         isProcessAlive: (pid) => pid === replacementPid,
+        getProcessIdentity: (pid) => (pid === replacementPid ? "replacement-start" : "test-start"),
         afterStaleOwnerDetected: () => {
           NodeFS.unlinkSync(lockPath);
-          NodeFS.writeFileSync(lockPath, `${replacementPid}\n`, "utf8");
+          NodeFS.writeFileSync(
+            lockPath,
+            `${JSON.stringify({ pid: replacementPid, identity: "replacement-start" })}\n`,
+            "utf8",
+          );
         },
       });
       assert.isFalse(lock.acquired);
       assert.equal(lock.ownerPid, replacementPid);
-      assert.equal(NodeFS.readFileSync(lockPath, "utf8"), `${replacementPid}\n`);
+      assert.include(NodeFS.readFileSync(lockPath, "utf8"), '"identity":"replacement-start"');
+    } finally {
+      NodeFS.rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("reclaims stale PID reuse and abandoned reclaim markers", () => {
+    const temporaryDirectory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-lock-test-"));
+    const desktopRoot = "/repo/apps/desktop-pid-reuse";
+    const lockPath = resolveDevLauncherLockPath(desktopRoot, temporaryDirectory);
+    NodeFS.writeFileSync(
+      lockPath,
+      `${JSON.stringify({ pid: 77, identity: "old-start" })}\n`,
+      "utf8",
+    );
+    NodeFS.writeFileSync(
+      `${lockPath}.reclaim`,
+      `${JSON.stringify({ pid: 88, identity: "dead-reclaimer" })}\n`,
+      "utf8",
+    );
+
+    try {
+      const lock = acquireDevLauncherLock({
+        desktopRoot,
+        temporaryDirectory,
+        processId: process.pid,
+        isProcessAlive: (pid) => pid === 77 || pid === process.pid,
+        getProcessIdentity: (pid) => (pid === 77 ? "new-start" : "test-start"),
+      });
+      assert.isTrue(lock.acquired);
+      lock.release();
     } finally {
       NodeFS.rmSync(temporaryDirectory, { recursive: true, force: true });
     }

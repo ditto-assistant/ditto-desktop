@@ -65,7 +65,8 @@ function operation<A>(
         accountId: TELEGRAM_LOCAL_ACCOUNT_ID,
         operation: channelOperation,
         kind:
-          cause instanceof TelegramSidecarRequestError && cause.code === "not_connected"
+          cause instanceof TelegramSidecarRequestError &&
+          (cause.code === "not_connected" || cause.code === "sidecar_unavailable")
             ? "setup_required"
             : "transport_failed",
         message: `Telegram ${label} failed on this device.`,
@@ -95,6 +96,7 @@ function account(status: TelegramSidecarStatus) {
         })),
     completeness: status.connected ? ("provider_scoped" as const) : ("unknown" as const),
     statusDetail: status.detail,
+    ...(status.loginPending && status.qrUrl !== undefined ? { setupUrl: status.qrUrl } : {}),
   };
 }
 
@@ -127,12 +129,21 @@ export function makeTelegramProtocolSource(
     Effect.catch(() =>
       operation("history.read", "account status", () => client.status()).pipe(Effect.map(account)),
     ),
+    Effect.catchIf(
+      (error) => error.kind === "setup_required",
+      () => archiveFallback.discover,
+    ),
   );
   return {
     discover,
     configure: (enabled) =>
       enabled
-        ? operation("history.read", "account connection", () => client.startLogin()).pipe(
+        ? operation("history.read", "account status", () => client.status()).pipe(
+            Effect.flatMap((status) =>
+              status.configured
+                ? operation("history.read", "account connection", () => client.startLogin())
+                : Effect.succeed({ connected: true as const, status }),
+            ),
             Effect.map((result) =>
               result.connected
                 ? account(result.status)
@@ -179,7 +190,9 @@ export function makeTelegramProtocolSource(
       ).pipe(
         Effect.map((values) => values.map(normalizeMessage)),
         Effect.catchIf(
-          (error) => error.kind === "setup_required",
+          (error) =>
+            error.kind === "setup_required" &&
+            (conversationId.startsWith("username:") || conversationId.startsWith("title:")),
           () => archiveFallback.listMessages(conversationId, limit),
         ),
       ),

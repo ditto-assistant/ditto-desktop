@@ -190,8 +190,11 @@ function ChannelAccountGroup({
     ) {
       setConfiguredAccount(null);
       setSetupUrl(null);
+    } else if (account.service === "telegram" && account.state === "syncing") {
+      setConfiguredAccount(account);
+      if (account.setupUrl !== undefined) setSetupUrl(account.setupUrl);
     }
-  }, [account.state, account.transport]);
+  }, [account]);
 
   const enable = async () => {
     setConfiguring(true);
@@ -214,7 +217,7 @@ function ChannelAccountGroup({
   );
   const canConfigure =
     (displayedAccount.service === "discord" && !liveSendAvailable) ||
-    (displayedAccount.service === "telegram" && displayedAccount.state !== "ready");
+    (displayedAccount.service === "telegram" && displayedAccount.state === "setup_required");
 
   const openAccount = () => {
     setExpanded((value) => !value);

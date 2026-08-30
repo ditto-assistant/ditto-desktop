@@ -14,6 +14,8 @@ export interface TelegramSidecarStatus {
   readonly configured: boolean;
   readonly connected: boolean;
   readonly loginPending: boolean;
+  readonly qrUrl?: string;
+  readonly qrExpiresAt?: string;
   readonly detail: string;
   readonly user?: TelegramSidecarParticipant;
 }
@@ -145,6 +147,14 @@ export class TelegramSidecarClient {
       this.#pending.set(id, { resolve, reject, timer });
       child.stdin.write(
         `${JSON.stringify({ id, method, ...(params === undefined ? {} : { params }) })}\n`,
+        (cause) => {
+          if (cause == null) return;
+          const pending = this.#pending.get(id);
+          if (pending === undefined) return;
+          clearTimeout(pending.timer);
+          this.#pending.delete(id);
+          pending.reject(cause);
+        },
       );
     });
   }
@@ -152,7 +162,10 @@ export class TelegramSidecarClient {
   #ensureStarted(): NodeChildProcess.ChildProcessWithoutNullStreams {
     if (this.#child !== undefined && this.#child.exitCode === null) return this.#child;
     if (this.#path === undefined || this.#path.trim() === "") {
-      throw new Error("The Telegram protocol sidecar is not bundled in this build.");
+      throw new TelegramSidecarRequestError(
+        "sidecar_unavailable",
+        "The Telegram protocol sidecar is not bundled in this build.",
+      );
     }
     const child = NodeChildProcess.spawn(
       this.#path,

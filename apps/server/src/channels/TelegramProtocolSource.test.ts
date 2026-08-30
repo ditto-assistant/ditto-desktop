@@ -18,6 +18,13 @@ describe("TelegramProtocolSource", () => {
   it.effect("returns a QR setup URL and stores no Telegram credential in the renderer", () =>
     Effect.gen(function* () {
       const client = {
+        status: vi.fn().mockResolvedValue({
+          protocolVersion: 1,
+          configured: true,
+          connected: false,
+          loginPending: false,
+          detail: "Ready to connect.",
+        }),
         startLogin: vi.fn().mockResolvedValue({
           connected: false,
           qrUrl: "tg://login?token=opaque",
@@ -30,6 +37,26 @@ describe("TelegramProtocolSource", () => {
 
       expect(account.state).toBe("syncing");
       expect(account.setupUrl).toBe("tg://login?token=opaque");
+    }),
+  );
+
+  it.effect("returns setup state without starting login when credentials are unavailable", () =>
+    Effect.gen(function* () {
+      const client = {
+        status: vi.fn().mockResolvedValue({
+          protocolVersion: 1,
+          configured: false,
+          connected: false,
+          loginPending: false,
+          detail: "This build needs Telegram app credentials.",
+        }),
+        startLogin: vi.fn(),
+      } as unknown as TelegramSidecarClient;
+
+      const account = yield* makeTelegramProtocolSource(client, archiveFallback).configure!(true);
+
+      expect(account.state).toBe("setup_required");
+      expect(client.startLogin).not.toHaveBeenCalled();
     }),
   );
 
