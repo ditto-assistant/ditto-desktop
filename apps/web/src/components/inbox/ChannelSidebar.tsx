@@ -194,7 +194,7 @@ function ChannelAccountGroup({
       setConfiguredAccount(account);
       if (account.setupUrl !== undefined) setSetupUrl(account.setupUrl);
     }
-  }, [account]);
+  }, [account.state, account.service, account.transport, account.setupUrl]);
 
   const enable = async () => {
     setConfiguring(true);
