@@ -928,6 +928,12 @@ export const MAC_DISCORD_SIDECAR_EXTRA_RESOURCES = [
     to: "discord-sidecar",
   },
 ] as const;
+export const MAC_TELEGRAM_SIDECAR_EXTRA_RESOURCES = [
+  {
+    from: "apps/desktop/prod-resources/telegram-sidecar",
+    to: "telegram-sidecar",
+  },
+] as const;
 export const MAC_TELEGRAM_ACCESSIBILITY_EXTRA_RESOURCES = [
   {
     from: "apps/desktop/prod-resources/telegram-accessibility",
@@ -1045,7 +1051,11 @@ function normalizePasskeyRpDomain(value: string): string {
   try {
     parsed = new URL(`https://${normalized}`);
   } catch (cause) {
-    throw new InvalidMacPasskeyRpDomainError({ reason: "parse-failed", inputLength, cause });
+    throw new InvalidMacPasskeyRpDomainError({
+      reason: "parse-failed",
+      inputLength,
+      cause,
+    });
   }
 
   let reason: InvalidMacPasskeyRpDomainReason | undefined;
@@ -1593,9 +1603,10 @@ const hasNativeLoaderMarkers = Effect.fn("hasNativeLoaderMarkers")(function* (pa
     Effect.orElseSucceed(() => null),
   );
   if (manifest === null) return false;
-  return Object.keys({ ...manifest.dependencies, ...manifest.optionalDependencies }).some(
-    (dependency) => dependency.startsWith("node-gyp-build"),
-  );
+  return Object.keys({
+    ...manifest.dependencies,
+    ...manifest.optionalDependencies,
+  }).some((dependency) => dependency.startsWith("node-gyp-build"));
 });
 
 export const copyDirectoryPreservingSymlinks = Effect.fn("copyDirectoryPreservingSymlinks")(
@@ -1908,7 +1919,10 @@ export const stageDesktopDmgBackground = Effect.fn("stageDesktopDmgBackground")(
   const path = yield* Path.Path;
   const sourcePath = path.join(stageResourcesDir, "dmg", `dmg-background-${channel}.svg`);
   if (!(yield* fs.exists(sourcePath))) {
-    return yield* new DesktopDmgBackgroundSourceMissingError({ channel, sourcePath });
+    return yield* new DesktopDmgBackgroundSourceMissingError({
+      channel,
+      sourcePath,
+    });
   }
 
   for (const output of [
@@ -2175,6 +2189,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ...DESKTOP_EXTRA_RESOURCES,
       ...(platform === "mac" ? MAC_DISCORD_ACCESSIBILITY_EXTRA_RESOURCES : []),
       ...(platform === "mac" ? MAC_DISCORD_SIDECAR_EXTRA_RESOURCES : []),
+      ...(platform === "mac" ? MAC_TELEGRAM_SIDECAR_EXTRA_RESOURCES : []),
       ...(platform === "mac" ? MAC_TELEGRAM_ACCESSIBILITY_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
       ...(platform === "win" && wslRuntimeBundled ? WSL_RUNTIME_EXTRA_RESOURCES : []),
@@ -2369,7 +2384,10 @@ const stageWslNodePtyPrebuild = Effect.fn("stageWslNodePtyPrebuild")(function* (
   const prebuildDir = path.join(nodePtyDir, "prebuilds", `linux-${linuxArch}`);
   yield* fs.makeDirectory(prebuildDir, { recursive: true });
   yield* fs.copyFile(input.prebuildPath, path.join(prebuildDir, "pty.node"));
-  const markerJson = yield* encodeJsonString({ arch: linuxArch, nodePtyVersion });
+  const markerJson = yield* encodeJsonString({
+    arch: linuxArch,
+    nodePtyVersion,
+  });
   yield* fs.writeFileString(path.join(prebuildDir, "t3code-wsl-node-pty.json"), `${markerJson}\n`);
 
   yield* Effect.log(
@@ -2408,7 +2426,9 @@ export const stageWslRuntimeArchive = Effect.fn("stageWslRuntimeArchive")(functi
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  yield* fs.makeDirectory(path.dirname(input.archivePath), { recursive: true });
+  yield* fs.makeDirectory(path.dirname(input.archivePath), {
+    recursive: true,
+  });
   const tarTarget = wslRuntimeArchiveTarTarget(path.relative(input.sourceDir, input.archivePath));
   yield* runCommand(
     ChildProcess.make("tar", buildWslRuntimeArchiveArgs(tarTarget), {
@@ -2444,7 +2464,9 @@ export const packWindowsServerAsar = Effect.fn("packWindowsServerAsar")(function
       createPackageWithOptions(input.sourceDir, input.asarPath, {
         dot: true,
         unpack: WINDOWS_SERVER_ASAR_UNPACK_GLOB,
-        globOptions: { ignore: resolveWindowsServerAsarIgnoreGlobs(input.arch) },
+        globOptions: {
+          ignore: resolveWindowsServerAsarIgnoreGlobs(input.arch),
+        },
       }),
     catch: (cause) => new WindowsServerSidecarPackError({ asarPath: input.asarPath, cause }),
   });
@@ -2478,7 +2500,9 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
   const path = yield* Path.Path;
 
   const serverStageDir = path.join(input.stageRoot, "server");
-  yield* fs.makeDirectory(path.join(serverStageDir, "apps/server"), { recursive: true });
+  yield* fs.makeDirectory(path.join(serverStageDir, "apps/server"), {
+    recursive: true,
+  });
   yield* fs.copy(input.serverDistDir, path.join(serverStageDir, "apps/server/dist"));
 
   const sidecarDependencies = {
@@ -2540,7 +2564,12 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
   // Skip the archive entirely rather than shipping one the install script must
   // extract and reject on every launch. The desktop app treats a missing
   // archive as "no WSL-local runtime" and goes straight to the mounted tree.
-  if (bundlesWslRuntime({ arch: input.arch, prebuildPath: input.wslPrebuildPath })) {
+  if (
+    bundlesWslRuntime({
+      arch: input.arch,
+      prebuildPath: input.wslPrebuildPath,
+    })
+  ) {
     yield* stageWslRuntimeArchive({
       sourceDir: serverStageDir,
       archivePath: input.wslRuntimeArchivePath,
@@ -3092,9 +3121,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* Effect.log(`[desktop-artifact] Applied ${webAssetBrand} web client branding.`);
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
 
-  yield* fs.makeDirectory(path.join(stageAppDir, "apps/desktop"), { recursive: true });
+  yield* fs.makeDirectory(path.join(stageAppDir, "apps/desktop"), {
+    recursive: true,
+  });
   if (options.platform !== "win") {
-    yield* fs.makeDirectory(path.join(stageAppDir, "apps/server"), { recursive: true });
+    yield* fs.makeDirectory(path.join(stageAppDir, "apps/server"), {
+      recursive: true,
+    });
   }
 
   yield* Effect.log("[desktop-artifact] Staging release app...");
@@ -3125,7 +3158,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       "discord-sidecar",
       "ditto-discord-sidecar",
     );
-    yield* fs.makeDirectory(path.dirname(discordSidecarOutput), { recursive: true });
+    yield* fs.makeDirectory(path.dirname(discordSidecarOutput), {
+      recursive: true,
+    });
     yield* runCommand(
       ChildProcess.make(
         "node",
@@ -3154,6 +3189,36 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       path.join(discordSidecarSource, "THIRD_PARTY_LICENSES"),
       path.join(discordSidecarResources, "THIRD_PARTY_LICENSES"),
     );
+    const telegramSidecarOutput = path.join(
+      stageResourcesDir,
+      "telegram-sidecar",
+      "ditto-telegram-sidecar",
+    );
+    yield* fs.makeDirectory(path.dirname(telegramSidecarOutput), {
+      recursive: true,
+    });
+    yield* runCommand(
+      ChildProcess.make(
+        "node",
+        [
+          "apps/desktop/scripts/build-telegram-sidecar.mjs",
+          "--arch",
+          options.arch,
+          "--output",
+          telegramSidecarOutput,
+        ],
+        { cwd: repoRoot },
+      ),
+      { label: "build Telegram protocol sidecar", verbose: options.verbose },
+    );
+    yield* fs.copy(
+      path.join(repoRoot, "LICENSE"),
+      path.join(path.dirname(telegramSidecarOutput), "LICENSE"),
+    );
+    yield* fs.copy(
+      path.join(repoRoot, "native", "telegram-sidecar", "NOTICE.md"),
+      path.join(path.dirname(telegramSidecarOutput), "NOTICE.md"),
+    );
     const helperOutput = path.join(stageResourcesDir, "discord-accessibility", "ditto-discord-ax");
     yield* fs.makeDirectory(path.dirname(helperOutput), { recursive: true });
     yield* runCommand(
@@ -3175,7 +3240,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       "telegram-accessibility",
       "ditto-telegram-ax",
     );
-    yield* fs.makeDirectory(path.dirname(telegramHelperOutput), { recursive: true });
+    yield* fs.makeDirectory(path.dirname(telegramHelperOutput), {
+      recursive: true,
+    });
     yield* runCommand(
       ChildProcess.make(
         "node",
@@ -3188,7 +3255,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         ],
         { cwd: repoRoot },
       ),
-      { label: "build Telegram Accessibility helper", verbose: options.verbose },
+      {
+        label: "build Telegram Accessibility helper",
+        verbose: options.verbose,
+      },
     );
   }
 
@@ -3290,7 +3360,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
             provisioningProfilePath: macPasskeySigning.provisioningProfilePath,
           }
         : undefined,
-      bundlesWslRuntime({ arch: options.arch, prebuildPath: options.wslPrebuild }),
+      bundlesWslRuntime({
+        arch: options.arch,
+        prebuildPath: options.wslPrebuild,
+      }),
     ),
     dependencies: stageDependencies,
     devDependencies: {
@@ -3410,7 +3483,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     "--publish",
     "never",
   ];
-  const builderCommand = yield* resolveSpawnCommand("vp", builderArgs, { env: buildEnv });
+  const builderCommand = yield* resolveSpawnCommand("vp", builderArgs, {
+    env: buildEnv,
+  });
   yield* runCommand(
     ChildProcess.make(builderCommand.command, builderCommand.args, {
       cwd: repoRoot,

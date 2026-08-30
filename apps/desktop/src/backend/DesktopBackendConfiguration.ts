@@ -133,7 +133,10 @@ const logBackendObservabilitySettingsReadFailure = (
   settingsPath: string,
   cause: PlatformError.PlatformError,
 ) => {
-  const error = new DesktopBackendObservabilitySettingsReadError({ settingsPath, cause });
+  const error = new DesktopBackendObservabilitySettingsReadError({
+    settingsPath,
+    cause,
+  });
   return Effect.logWarning(error).pipe(
     Effect.annotateLogs({
       component: "desktop-backend-configuration",
@@ -164,6 +167,33 @@ const resolveDiscordSidecarPath = Effect.fn(
         ]
       : environment.resolveResourcePathCandidates(
           environment.path.join("discord-sidecar", "ditto-discord-sidecar"),
+        );
+  for (const candidate of candidates) {
+    if (yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false))) {
+      return Option.some(candidate);
+    }
+  }
+  return Option.none<string>();
+});
+
+const resolveTelegramSidecarPath = Effect.fn(
+  "desktop.backendConfiguration.resolveTelegramSidecarPath",
+)(function* () {
+  const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  const fileSystem = yield* FileSystem.FileSystem;
+  if (environment.platform !== "darwin") return Option.none<string>();
+  const candidates = environment.isDevelopment
+    ? [environment.path.join(environment.rootDir, "apps/desktop/.native/ditto-telegram-sidecar")]
+    : environment.isPackaged
+      ? [
+          environment.path.join(
+            environment.resourcesPath,
+            "telegram-sidecar",
+            "ditto-telegram-sidecar",
+          ),
+        ]
+      : environment.resolveResourcePathCandidates(
+          environment.path.join("telegram-sidecar", "ditto-telegram-sidecar"),
         );
   for (const candidate of candidates) {
     if (yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false))) {
@@ -353,7 +383,11 @@ const runWslPreflight = Effect.fn("desktop.backendConfiguration.wslPreflight")(f
   const resolveMountedAppRoot = Effect.gen(function* () {
     const serverTree = yield* wslServerTree.ensure;
     if (!serverTree.ok) {
-      return { ok: false, reason: serverTree.reason, fatal: serverTree.fatal } as const;
+      return {
+        ok: false,
+        reason: serverTree.reason,
+        fatal: serverTree.fatal,
+      } as const;
     }
     const windowsEntryPath = environment.path.join(serverTree.root, "apps/server/dist/bin.mjs");
     const entryExists = yield* fileSystem
@@ -373,7 +407,11 @@ const runWslPreflight = Effect.fn("desktop.backendConfiguration.wslPreflight")(f
           reason: `wslpath conversion failed for ${serverTree.root}`,
           fatal: false,
         } as const)
-      : ({ ok: true, windowsEntryPath, linuxAppRoot: mountedAppRoot.value } as const);
+      : ({
+          ok: true,
+          windowsEntryPath,
+          linuxAppRoot: mountedAppRoot.value,
+        } as const);
   });
 
   // Set once a staged runtime has been ruled out by the probe, and carried
@@ -414,7 +452,10 @@ const runWslPreflight = Effect.fn("desktop.backendConfiguration.wslPreflight")(f
         "The staged WSL runtime could not load node-pty; retrying from the mounted server tree.",
         { reason: stagedNodePty.reason },
       );
-      stagedFailure = { runtimeId: input.runtimeArchive.runtimeId, nodePty: stagedNodePty };
+      stagedFailure = {
+        runtimeId: input.runtimeArchive.runtimeId,
+        nodePty: stagedNodePty,
+      };
     } else {
       yield* Effect.logWarning(
         "Could not stage the WSL runtime; launching from the mounted server tree instead.",
@@ -427,7 +468,11 @@ const runWslPreflight = Effect.fn("desktop.backendConfiguration.wslPreflight")(f
   if (!mounted.ok) {
     return stagedFailure && mounted.fatal
       ? failedNodePty(stagedFailure.nodePty)
-      : ({ _tag: "Failed", reason: mounted.reason, fatal: mounted.fatal } as const);
+      : ({
+          _tag: "Failed",
+          reason: mounted.reason,
+          fatal: mounted.fatal,
+        } as const);
   }
 
   const nodePtyResult = yield* wslEnv.ensureNodePty(
@@ -499,6 +544,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
     input: SharedBootstrapInput & {
       readonly resourceMonitorPath: Option.Option<string>;
       readonly discordSidecarPath: Option.Option<string>;
+      readonly telegramSidecarPath: Option.Option<string>;
     },
   ): Effect.fn.Return<
     DesktopBackendManager.DesktopBackendStartConfig,
@@ -527,6 +573,10 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       ...Option.match(input.discordSidecarPath, {
         onNone: () => ({}),
         onSome: (discordSidecarPath) => ({ discordSidecarPath }),
+      }),
+      ...Option.match(input.telegramSidecarPath, {
+        onNone: () => ({}),
+        onSome: (telegramSidecarPath) => ({ telegramSidecarPath }),
       }),
       ...buildObservabilityFragment(input.observabilitySettings),
     };
@@ -826,7 +876,10 @@ export const make = Effect.gen(function* () {
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
     );
-    return { bootstrapToken, observabilitySettings } satisfies SharedBootstrapInput;
+    return {
+      bootstrapToken,
+      observabilitySettings,
+    } satisfies SharedBootstrapInput;
   });
 
   const buildWslPrimaryConfig = Effect.gen(function* () {
@@ -862,10 +915,15 @@ export const make = Effect.gen(function* () {
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
     );
+    const telegramSidecarPath = yield* resolveTelegramSidecarPath().pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
+    );
     return yield* resolvePrimaryStartConfig({
       ...shared,
       resourceMonitorPath,
       discordSidecarPath,
+      telegramSidecarPath,
     }).pipe(
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
       Effect.provideService(DesktopServerExposure.DesktopServerExposure, serverExposure),

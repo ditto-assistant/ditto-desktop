@@ -28,6 +28,8 @@ import { DiscordMediaCache } from "./DiscordMediaCache.ts";
 import { IMESSAGE_ACCOUNT_ID, makeIMessageAdapter } from "./IMessageAdapter.ts";
 import { makeTelegramAdapter, TELEGRAM_LOCAL_ACCOUNT_ID } from "./TelegramAdapter.ts";
 import { makeTelegramLocalSource } from "./TelegramLocalSource.ts";
+import { makeTelegramProtocolSource } from "./TelegramProtocolSource.ts";
+import { TelegramSidecarClient } from "./TelegramSidecarClient.ts";
 
 export interface ChannelRegistryShape {
   readonly listAccounts: Effect.Effect<
@@ -147,7 +149,9 @@ export const layer = Layer.effect(
       run,
     });
     const archive = makeDiscrawlAdapter(discrawl, {
-      mediaCache: new DiscordMediaCache({ attachmentsDir: config.attachmentsDir }),
+      mediaCache: new DiscordMediaCache({
+        attachmentsDir: config.attachmentsDir,
+      }),
     });
     const sidecar = yield* Effect.acquireRelease(
       Effect.sync(() => new DiscordSidecarClient(config.discordSidecarPath, config.stateDir)),
@@ -162,6 +166,11 @@ export const layer = Layer.effect(
       helperPath: environment.DITTO_TELEGRAM_HELPER_PATH,
       run,
     });
+    const telegramSidecar = yield* Effect.acquireRelease(
+      Effect.sync(() => new TelegramSidecarClient(config.telegramSidecarPath, config.stateDir)),
+      (client) => Effect.sync(() => client.close()),
+    );
+    const telegram = makeTelegramProtocolSource(telegramSidecar, telegramLocal);
     return makeChannelRegistry(
       new Map([
         [DISCORD_ACCOUNT_ID, discord],
@@ -174,7 +183,7 @@ export const layer = Layer.effect(
         ],
         [
           TELEGRAM_LOCAL_ACCOUNT_ID,
-          makeTelegramAdapter(() => ({ mode: "local", source: telegramLocal })),
+          makeTelegramAdapter(() => ({ mode: "local", source: telegram })),
         ],
       ]),
     );

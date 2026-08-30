@@ -15,13 +15,13 @@ export default defineConfig({
     tasks: {
       build: {
         command:
-          "node scripts/build-discord-sidecar.mjs && node scripts/build-discord-accessibility-helper.mjs && node scripts/build-telegram-accessibility-helper.mjs && node scripts/build-preview-annotation-css.mjs && vp pack",
+          "node scripts/build-discord-sidecar.mjs && node scripts/build-telegram-sidecar.mjs && node scripts/build-discord-accessibility-helper.mjs && node scripts/build-telegram-accessibility-helper.mjs && node scripts/build-preview-annotation-css.mjs && vp pack",
         dependsOn: ["t3#build"],
         cache: false,
       },
       dev: {
         command:
-          "node scripts/build-discord-sidecar.mjs && node scripts/build-discord-accessibility-helper.mjs && node scripts/build-telegram-accessibility-helper.mjs && node scripts/build-preview-annotation-css.mjs && cross-env T3CODE_DESKTOP_DEV=1 vp pack --watch",
+          "node scripts/build-discord-sidecar.mjs && node scripts/build-telegram-sidecar.mjs && node scripts/build-discord-accessibility-helper.mjs && node scripts/build-telegram-accessibility-helper.mjs && node scripts/build-preview-annotation-css.mjs && cross-env T3CODE_DESKTOP_DEV=1 vp pack --watch",
         dependsOn: ["t3#build"],
         cache: false,
       },

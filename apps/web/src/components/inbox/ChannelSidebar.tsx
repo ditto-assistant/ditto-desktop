@@ -184,7 +184,10 @@ function ChannelAccountGroup({
   });
 
   useEffect(() => {
-    if (account.state === "ready" && account.transport === "discord-local-user") {
+    if (
+      account.state === "ready" &&
+      (account.transport === "discord-local-user" || account.service === "telegram")
+    ) {
       setConfiguredAccount(null);
       setSetupUrl(null);
     }
@@ -211,7 +214,7 @@ function ChannelAccountGroup({
   );
   const canConfigure =
     (displayedAccount.service === "discord" && !liveSendAvailable) ||
-    (displayedAccount.service === "telegram" && displayedAccount.state === "permission_required");
+    (displayedAccount.service === "telegram" && displayedAccount.state !== "ready");
 
   const openAccount = () => {
     setExpanded((value) => !value);
@@ -284,7 +287,7 @@ function ChannelAccountGroup({
                 {configuring
                   ? "Connecting…"
                   : displayedAccount.service === "telegram"
-                    ? "Enable Telegram access"
+                    ? "Connect Telegram"
                     : "Connect live Discord"}
               </Button>
             </li>
@@ -312,10 +315,12 @@ function ChannelAccountGroup({
       >
         <DialogPopup className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Connect Discord</DialogTitle>
+            <DialogTitle>
+              Connect {displayedAccount.service === "telegram" ? "Telegram" : "Discord"}
+            </DialogTitle>
             <DialogDescription>
-              Scan this code in Discord on a device where you’re signed in, then approve the
-              connection.
+              Scan this code in {displayedAccount.service === "telegram" ? "Telegram" : "Discord"}{" "}
+              on a device where you’re signed in, then approve the connection.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -325,13 +330,14 @@ function ChannelAccountGroup({
                   level="M"
                   marginSize={2}
                   size={196}
-                  title="Discord connection code"
+                  title={`${displayedAccount.service === "telegram" ? "Telegram" : "Discord"} connection code`}
                   value={setupUrl}
                 />
               </div>
             ) : null}
             <p className="mt-3 text-center text-xs text-muted-foreground">
-              Your Discord credential stays in this Mac’s credential store.
+              Your {displayedAccount.service === "telegram" ? "Telegram" : "Discord"} credential
+              stays in this Mac’s credential store.
             </p>
           </DialogPanel>
         </DialogPopup>
