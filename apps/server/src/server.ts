@@ -111,6 +111,7 @@ import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinar
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import { DittoHarnessServiceLive } from "./dittoHarness/DittoHarnessService.ts";
+import * as ChannelRegistry from "./channels/ChannelRegistry.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
   clearPersistedServerRuntimeState,
@@ -424,9 +425,12 @@ const RuntimeCoreDependenciesBaseLive = ReactorLayerLive.pipe(
   ),
 );
 
-const RuntimeCoreDependenciesLive = DittoHarnessServiceLive.pipe(
-  Layer.provideMerge(RuntimeCoreDependenciesBaseLive),
-);
+const LocalChannelsLayerLive = ChannelRegistry.layer.pipe(Layer.provide(ProcessRunner.layer));
+
+const RuntimeCoreDependenciesLive = Layer.mergeAll(
+  DittoHarnessServiceLive,
+  LocalChannelsLayerLive,
+).pipe(Layer.provideMerge(RuntimeCoreDependenciesBaseLive));
 
 const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
   // Misc.

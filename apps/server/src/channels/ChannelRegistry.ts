@@ -1,0 +1,120 @@
+import {
+  ChannelAccountId,
+  ChannelOperationError,
+  type ChannelConversation,
+  type ChannelMessage,
+  type ChannelSendMessageInput,
+  type ChannelSendMessageResult,
+  type ConnectedChannelAccount,
+} from "@t3tools/contracts";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+
+import { ProcessRunner, type ProcessRunInput } from "../processRunner.ts";
+import type { ChannelAdapter, ChannelCommandRun } from "./ChannelAdapter.ts";
+import { DISCRAWL_ACCOUNT_ID, makeDiscrawlAdapter } from "./DiscrawlAdapter.ts";
+import { IMESSAGE_ACCOUNT_ID, makeIMessageAdapter } from "./IMessageAdapter.ts";
+
+export interface ChannelRegistryShape {
+  readonly listAccounts: Effect.Effect<
+    ReadonlyArray<ConnectedChannelAccount>,
+    ChannelOperationError
+  >;
+  readonly listConversations: (
+    accountId?: ChannelAccountId,
+  ) => Effect.Effect<ReadonlyArray<ChannelConversation>, ChannelOperationError>;
+  readonly listMessages: (
+    accountId: ChannelAccountId,
+    conversationId: string,
+    limit?: number,
+  ) => Effect.Effect<ReadonlyArray<ChannelMessage>, ChannelOperationError>;
+  readonly sendMessage: (
+    input: ChannelSendMessageInput,
+  ) => Effect.Effect<ChannelSendMessageResult, ChannelOperationError>;
+}
+
+export class ChannelRegistry extends Context.Service<ChannelRegistry, ChannelRegistryShape>()(
+  "t3/channels/ChannelRegistry",
+) {}
+
+function missingAccount(accountId: ChannelAccountId): ChannelOperationError {
+  return new ChannelOperationError({
+    accountId,
+    kind: "account_not_found",
+    message: `No local channel adapter is registered for ${accountId}.`,
+  });
+}
+
+export function makeChannelRegistry(
+  adapters: ReadonlyMap<ChannelAccountId, ChannelAdapter>,
+): ChannelRegistryShape {
+  const withAdapter = <A>(
+    accountId: ChannelAccountId,
+    use: (adapter: ChannelAdapter) => Effect.Effect<A, ChannelOperationError>,
+  ): Effect.Effect<A, ChannelOperationError> => {
+    const adapter = adapters.get(accountId);
+    return adapter === undefined ? Effect.fail(missingAccount(accountId)) : use(adapter);
+  };
+
+  return {
+    listAccounts: Effect.forEach(adapters.values(), (adapter) => adapter.discover, {
+      concurrency: "unbounded",
+    }).pipe(Effect.map((accounts) => [...accounts])),
+    listConversations: (accountId) => {
+      if (accountId !== undefined) {
+        return withAdapter(accountId, (adapter) => adapter.listConversations);
+      }
+      return Effect.forEach(adapters.values(), (adapter) => adapter.listConversations, {
+        concurrency: "unbounded",
+      }).pipe(Effect.map((groups) => groups.flat()));
+    },
+    listMessages: (accountId, conversationId, limit) =>
+      withAdapter(accountId, (adapter) => adapter.listMessages(conversationId, limit)),
+    sendMessage: (input) => withAdapter(input.accountId, (adapter) => adapter.sendMessage(input)),
+  };
+}
+
+export const layer = Layer.effect(
+  ChannelRegistry,
+  Effect.gen(function* () {
+    const processRunner = yield* ProcessRunner;
+    const platform = yield* HostProcessPlatform;
+    const environment = yield* HostProcessEnvironment;
+    const run: ChannelCommandRun = (input) => {
+      const processInput: ProcessRunInput = {
+        command: input.command,
+        args: input.args,
+        ...(input.timeout !== undefined ? { timeout: input.timeout } : {}),
+        ...(input.env !== undefined ? { env: input.env } : {}),
+      };
+      return processRunner.run(processInput).pipe(
+        Effect.map((output) => ({
+          stdout: output.stdout,
+          stderr: output.stderr,
+          code: output.code,
+        })),
+        Effect.mapError(
+          (cause) =>
+            new ChannelOperationError({
+              kind: "transport_failed",
+              message: cause.message,
+            }),
+        ),
+      );
+    };
+    return makeChannelRegistry(
+      new Map([
+        [DISCRAWL_ACCOUNT_ID, makeDiscrawlAdapter(run)],
+        [
+          IMESSAGE_ACCOUNT_ID,
+          makeIMessageAdapter(run, {
+            platform,
+            homeDirectory: environment.HOME ?? "",
+          }),
+        ],
+      ]),
+    );
+  }),
+);

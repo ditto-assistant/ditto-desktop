@@ -184,6 +184,33 @@ export const ChannelSendMessageResult = Schema.Struct({
 });
 export type ChannelSendMessageResult = typeof ChannelSendMessageResult.Type;
 
+export const ChannelListAccountsResult = Schema.Struct({
+  accounts: Schema.Array(ConnectedChannelAccount),
+});
+export type ChannelListAccountsResult = typeof ChannelListAccountsResult.Type;
+
+export const ChannelListConversationsInput = Schema.Struct({
+  accountId: Schema.optionalKey(ChannelAccountId),
+});
+export type ChannelListConversationsInput = typeof ChannelListConversationsInput.Type;
+
+export const ChannelListConversationsResult = Schema.Struct({
+  conversations: Schema.Array(ChannelConversation),
+});
+export type ChannelListConversationsResult = typeof ChannelListConversationsResult.Type;
+
+export const ChannelListMessagesInput = Schema.Struct({
+  accountId: ChannelAccountId,
+  conversationId: ChannelConversationId,
+  limit: Schema.optionalKey(Schema.Number),
+});
+export type ChannelListMessagesInput = typeof ChannelListMessagesInput.Type;
+
+export const ChannelListMessagesResult = Schema.Struct({
+  messages: Schema.Array(ChannelMessage),
+});
+export type ChannelListMessagesResult = typeof ChannelListMessagesResult.Type;
+
 export class ChannelOperationError extends Schema.TaggedErrorClass<ChannelOperationError>()(
   "ChannelOperationError",
   {

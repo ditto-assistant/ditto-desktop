@@ -26,6 +26,16 @@ import {
   DittoHarnessStatus,
 } from "./dittoHarness.ts";
 import {
+  ChannelListAccountsResult,
+  ChannelListConversationsInput,
+  ChannelListConversationsResult,
+  ChannelListMessagesInput,
+  ChannelListMessagesResult,
+  ChannelOperationError,
+  ChannelSendMessageInput,
+  ChannelSendMessageResult,
+} from "./channels.ts";
+import {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
   FilesystemBrowseError,
@@ -311,6 +321,12 @@ export const WS_METHODS = {
   dittoHarnessSearchSubjects: "dittoHarness.searchSubjects",
   dittoHarnessDream: "dittoHarness.dream",
 
+  // Local and hosted human-chat adapters
+  channelsListAccounts: "channels.listAccounts",
+  channelsListConversations: "channels.listConversations",
+  channelsListMessages: "channels.listMessages",
+  channelsSendMessage: "channels.sendMessage",
+
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
   cloudInstallRelayClient: "cloud.installRelayClient",
@@ -506,6 +522,30 @@ export const WsDittoHarnessDreamRpc = Rpc.make(WS_METHODS.dittoHarnessDream, {
   payload: DittoHarnessDreamInput,
   success: DittoHarnessDreamResult,
   error: Schema.Union([DittoHarnessError, EnvironmentAuthorizationError]),
+});
+
+export const WsChannelsListAccountsRpc = Rpc.make(WS_METHODS.channelsListAccounts, {
+  payload: Schema.Struct({}),
+  success: ChannelListAccountsResult,
+  error: Schema.Union([ChannelOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsChannelsListConversationsRpc = Rpc.make(WS_METHODS.channelsListConversations, {
+  payload: ChannelListConversationsInput,
+  success: ChannelListConversationsResult,
+  error: Schema.Union([ChannelOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsChannelsListMessagesRpc = Rpc.make(WS_METHODS.channelsListMessages, {
+  payload: ChannelListMessagesInput,
+  success: ChannelListMessagesResult,
+  error: Schema.Union([ChannelOperationError, EnvironmentAuthorizationError]),
+});
+
+export const WsChannelsSendMessageRpc = Rpc.make(WS_METHODS.channelsSendMessage, {
+  payload: ChannelSendMessageInput,
+  success: ChannelSendMessageResult,
+  error: Schema.Union([ChannelOperationError, EnvironmentAuthorizationError]),
 });
 
 export const WsCloudGetRelayClientStatusRpc = Rpc.make(WS_METHODS.cloudGetRelayClientStatus, {
@@ -1090,6 +1130,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsDittoHarnessSearchMemoriesRpc,
   WsDittoHarnessSearchSubjectsRpc,
   WsDittoHarnessDreamRpc,
+  WsChannelsListAccountsRpc,
+  WsChannelsListConversationsRpc,
+  WsChannelsListMessagesRpc,
+  WsChannelsSendMessageRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,

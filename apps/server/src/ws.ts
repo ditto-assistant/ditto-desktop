@@ -74,6 +74,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import { DittoHarnessService } from "./dittoHarness/DittoHarnessService.ts";
+import { ChannelRegistry } from "./channels/ChannelRegistry.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import {
@@ -553,6 +554,7 @@ const makeWsRpcLayer = (
       const usage = yield* UsageService.UsageService;
       const relayClient = yield* RelayClient.RelayClient;
       const dittoHarness = yield* DittoHarnessService;
+      const channels = yield* ChannelRegistry;
       const authorizationError = (requiredScope: AuthEnvironmentScope) =>
         new EnvironmentAuthorizationError({
           message: `The authenticated token is missing required scope: ${requiredScope}.`,
@@ -1799,6 +1801,32 @@ const makeWsRpcLayer = (
         [WS_METHODS.dittoHarnessDream]: (input) =>
           observeRpcEffect(WS_METHODS.dittoHarnessDream, dittoHarness.dream(input), {
             "rpc.aggregate": "ditto-harness",
+          }),
+        [WS_METHODS.channelsListAccounts]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.channelsListAccounts,
+            channels.listAccounts.pipe(Effect.map((accounts) => ({ accounts }))),
+            { "rpc.aggregate": "channels" },
+          ),
+        [WS_METHODS.channelsListConversations]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.channelsListConversations,
+            channels
+              .listConversations(input.accountId)
+              .pipe(Effect.map((conversations) => ({ conversations }))),
+            { "rpc.aggregate": "channels" },
+          ),
+        [WS_METHODS.channelsListMessages]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.channelsListMessages,
+            channels
+              .listMessages(input.accountId, input.conversationId, input.limit)
+              .pipe(Effect.map((messages) => ({ messages }))),
+            { "rpc.aggregate": "channels" },
+          ),
+        [WS_METHODS.channelsSendMessage]: (input) =>
+          observeRpcEffect(WS_METHODS.channelsSendMessage, channels.sendMessage(input), {
+            "rpc.aggregate": "channels",
           }),
         [WS_METHODS.serverReportClientActivity]: (input, metadata) =>
           Ref.update(rpcClientIds, (clientIds) => {
