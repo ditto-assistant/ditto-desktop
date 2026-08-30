@@ -350,6 +350,49 @@ describe("ServerSettingsPatch.providerInstances", () => {
   });
 });
 
+describe("Ditto settings", () => {
+  it("enables the memory harness and prompt context by default", () => {
+    expect(DEFAULT_SERVER_SETTINGS.dittoHarness.enabled).toBe(true);
+    expect(DEFAULT_SERVER_SETTINGS.dittoHarness.enablePromptContext).toBe(true);
+    expect(DEFAULT_SERVER_SETTINGS.dittoHarness.dreamEnabled).toBe(false);
+    expect(DEFAULT_SERVER_SETTINGS.providers.ditto.chatBaseUrl).toBe("");
+  });
+
+  it("decodes Ditto provider chat and action routing settings", () => {
+    const decoded = decodeServerSettings({
+      providers: {
+        ditto: {
+          chatProvider: "openrouter",
+          chatModel: "anthropic/claude-sonnet-4",
+          chatBaseUrl: "",
+          actionProvider: "vllm",
+          actionModel: "local-tool-model",
+          actionBaseUrl: " http://localhost:8000/v1 ",
+        },
+      },
+    });
+
+    expect(decoded.providers.ditto.chatProvider).toBe("openrouter");
+    expect(decoded.providers.ditto.actionProvider).toBe("vllm");
+    expect(decoded.providers.ditto.actionModel).toBe("local-tool-model");
+    expect(decoded.providers.ditto.actionBaseUrl).toBe("http://localhost:8000/v1");
+  });
+
+  it("decodes harness action routing patches", () => {
+    const patch = decodeServerSettingsPatch({
+      dittoHarness: {
+        actionProvider: "openrouter",
+        actionModel: "google/gemini-3.5-flash",
+        actionBaseUrl: " https://openrouter.ai/api/v1 ",
+      },
+    });
+
+    expect(patch.dittoHarness?.actionProvider).toBe("openrouter");
+    expect(patch.dittoHarness?.actionModel).toBe("google/gemini-3.5-flash");
+    expect(patch.dittoHarness?.actionBaseUrl).toBe("https://openrouter.ai/api/v1");
+  });
+});
+
 describe("ServerSettingsPatch string normalization", () => {
   it("trims string settings while decoding patches", () => {
     const patch = decodeServerSettingsPatch({

@@ -47,6 +47,7 @@ import {
 } from "../../serverSettings.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import { DittoHarnessService } from "../../dittoHarness/DittoHarnessService.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
@@ -312,6 +313,7 @@ const make = Effect.gen(function* () {
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
+  const dittoHarness = yield* Effect.serviceOption(DittoHarnessService);
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(Effect.map((uuid) => CommandId.make(`server:${tag}:${uuid}`)));
   const serverEventId = () => crypto.randomUUIDv4.pipe(Effect.map(EventId.make));
@@ -794,6 +796,17 @@ const make = Effect.gen(function* () {
     }
     const normalizedInput = toNonEmptyProviderInput(input.messageText);
     const normalizedAttachments = input.attachments ?? [];
+    const promptContext =
+      normalizedInput !== undefined && Option.isSome(dittoHarness)
+        ? yield* dittoHarness.value.buildPromptContext({
+            userInput: normalizedInput,
+            sessionId: input.threadId,
+          })
+        : null;
+    const providerInput =
+      normalizedInput !== undefined && promptContext !== null
+        ? `${promptContext}\n\nUser request:\n${normalizedInput}`
+        : normalizedInput;
     const activeSession = yield* providerService
       .listSessions()
       .pipe(
@@ -824,7 +837,7 @@ const make = Effect.gen(function* () {
 
     return {
       threadId: input.threadId,
-      ...(normalizedInput ? { input: normalizedInput } : {}),
+      ...(providerInput ? { input: providerInput } : {}),
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
