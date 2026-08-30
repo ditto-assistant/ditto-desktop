@@ -144,8 +144,8 @@ function nativeLoadCandidates(path: Path.Path): ReadonlyArray<string> {
   const currentDir = path.dirname(NodeURL.fileURLToPath(import.meta.url));
   return [
     "@ditto/harness-node",
-    path.resolve(process.cwd(), "../ditto-harness/rust/crates/node"),
-    path.resolve(currentDir, "../../../../../ditto-harness/rust/crates/node"),
+    path.resolve(process.cwd(), "../ditto-harness/crates/node"),
+    path.resolve(currentDir, "../../../../ditto-harness/crates/node"),
   ];
 }
 
@@ -170,7 +170,7 @@ export function loadDittoNativeModule(path: Path.Path): NativeHarnessModule {
   throw new Error(
     [
       "Ditto Harness native binding is unavailable.",
-      "Build ../ditto-harness/rust/crates/node or set DITTO_HARNESS_NODE_PATH.",
+      "Build ../ditto-harness/crates/node or set DITTO_HARNESS_NODE_PATH.",
       ...failures.map((failure) => `- ${failure}`),
     ].join("\n"),
   );

@@ -1,0 +1,213 @@
+import {
+  ChannelConversationId,
+  ChannelMessageId,
+  ChannelOperationError,
+  type ChannelCapability,
+  type ChannelMessage,
+  type ChannelOperation,
+} from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
+
+import { TELEGRAM_LOCAL_ACCOUNT_ID, type TelegramChannelSource } from "./TelegramAdapter.ts";
+import type {
+  TelegramSidecarClient,
+  TelegramSidecarMessage,
+  TelegramSidecarStatus,
+} from "./TelegramSidecarClient.ts";
+import { TelegramSidecarRequestError } from "./TelegramSidecarClient.ts";
+
+const capabilities: ReadonlyArray<ChannelCapability> = [
+  { operation: "history.read", availability: "available" },
+  {
+    operation: "events.live",
+    availability: "setup_required",
+    reason:
+      "The protocol source is live; push delivery into the inbox event stream is not wired yet.",
+  },
+  { operation: "message.send", availability: "available" },
+  { operation: "message.reply", availability: "unsupported" },
+  {
+    operation: "attachment.read",
+    availability: "unsupported",
+    reason: "Telegram media metadata is visible, but local byte download is not wired yet.",
+  },
+  { operation: "attachment.write", availability: "unsupported" },
+  ...(
+    [
+      "message.edit",
+      "message.delete",
+      "reaction.read",
+      "reaction.write",
+      "thread.read",
+      "thread.write",
+      "mention.write",
+      "typing.write",
+      "read_state.write",
+      "poll.read",
+      "poll.write",
+      "voice_note.read",
+      "voice_note.write",
+      "call.read",
+      "call.start",
+    ] as const
+  ).map((operation) => ({ operation, availability: "unsupported" as const })),
+];
+
+function operation<A>(
+  channelOperation: ChannelOperation,
+  label: string,
+  run: () => Promise<A>,
+): Effect.Effect<A, ChannelOperationError> {
+  return Effect.tryPromise({
+    try: run,
+    catch: (cause) =>
+      new ChannelOperationError({
+        accountId: TELEGRAM_LOCAL_ACCOUNT_ID,
+        operation: channelOperation,
+        kind:
+          cause instanceof TelegramSidecarRequestError &&
+          (cause.code === "not_connected" || cause.code === "sidecar_unavailable")
+            ? "setup_required"
+            : "transport_failed",
+        message: `Telegram ${label} failed on this device.`,
+      }),
+  });
+}
+
+function account(status: TelegramSidecarStatus) {
+  return {
+    accountId: TELEGRAM_LOCAL_ACCOUNT_ID,
+    service: "telegram" as const,
+    transport: "telegram-desktop-local" as const,
+    executionLocation: "device" as const,
+    identityMode: "user" as const,
+    label: status.user?.displayName ?? "Telegram on this device",
+    enabled: status.connected || status.loginPending,
+    state: status.connected
+      ? ("ready" as const)
+      : status.loginPending
+        ? ("syncing" as const)
+        : ("setup_required" as const),
+    capabilities: status.configured
+      ? capabilities
+      : capabilities.map((value) => ({
+          ...value,
+          availability: "setup_required" as const,
+        })),
+    completeness: status.connected ? ("provider_scoped" as const) : ("unknown" as const),
+    statusDetail: status.detail,
+    ...(status.loginPending && status.qrUrl !== undefined ? { setupUrl: status.qrUrl } : {}),
+  };
+}
+
+function normalizeMessage(value: TelegramSidecarMessage): ChannelMessage {
+  return {
+    accountId: TELEGRAM_LOCAL_ACCOUNT_ID,
+    conversationId: ChannelConversationId.make(value.channelId),
+    messageId: ChannelMessageId.make(value.id),
+    service: "telegram",
+    sender: value.author,
+    text: value.content,
+    sentAt: value.timestamp,
+    ...(value.replyToId !== undefined
+      ? { replyToMessageId: ChannelMessageId.make(value.replyToId) }
+      : {}),
+    attachments: value.attachments.map((attachment) => ({
+      id: attachment.id,
+      ...(attachment.filename !== undefined ? { filename: attachment.filename } : {}),
+      ...(attachment.size !== undefined ? { byteSize: attachment.size } : {}),
+    })),
+  };
+}
+
+export function makeTelegramProtocolSource(
+  client: TelegramSidecarClient,
+  archiveFallback: TelegramChannelSource,
+): TelegramChannelSource {
+  const discover = operation("history.read", "account discovery", () => client.restore()).pipe(
+    Effect.map(account),
+    Effect.catch(() =>
+      operation("history.read", "account status", () => client.status()).pipe(Effect.map(account)),
+    ),
+    Effect.catchIf(
+      (error) => error.kind === "setup_required",
+      () => archiveFallback.discover,
+    ),
+  );
+  return {
+    discover,
+    configure: (enabled) =>
+      enabled
+        ? operation("history.read", "account status", () => client.status()).pipe(
+            Effect.flatMap((status) =>
+              status.configured
+                ? operation("history.read", "account connection", () => client.startLogin())
+                : Effect.succeed({ connected: true as const, status }),
+            ),
+            Effect.map((result) =>
+              result.connected
+                ? account(result.status)
+                : {
+                    ...account({
+                      protocolVersion: 1,
+                      configured: true,
+                      connected: false,
+                      loginPending: true,
+                      detail: "Approve this one-time Telegram sign-in from another device.",
+                    }),
+                    setupUrl: result.qrUrl,
+                  },
+            ),
+          )
+        : operation("history.read", "account disconnection", () => client.logout()).pipe(
+            Effect.andThen(discover),
+          ),
+    listConversations: operation("history.read", "conversation listing", () =>
+      client.listConversations(),
+    ).pipe(
+      Effect.map((values) =>
+        values.map((value) => ({
+          accountId: TELEGRAM_LOCAL_ACCOUNT_ID,
+          conversationId: ChannelConversationId.make(value.id),
+          service: "telegram" as const,
+          title: value.title,
+          kind: value.kind,
+          participants: [...value.participants],
+          ...(value.latestMessageAt !== undefined
+            ? { latestMessageAt: value.latestMessageAt }
+            : {}),
+          completeness: "provider_scoped" as const,
+        })),
+      ),
+      Effect.catchIf(
+        (error) => error.kind === "setup_required",
+        () => archiveFallback.listConversations,
+      ),
+    ),
+    listMessages: (conversationId, limit = 100) =>
+      operation("history.read", "message history", () =>
+        client.listMessages(conversationId, limit),
+      ).pipe(
+        Effect.map((values) => values.map(normalizeMessage)),
+        Effect.catchIf(
+          (error) =>
+            error.kind === "setup_required" &&
+            (conversationId.startsWith("username:") || conversationId.startsWith("title:")),
+          () => archiveFallback.listMessages(conversationId, limit),
+        ),
+      ),
+    sendMessage: (input) =>
+      operation("message.send", "message send", () =>
+        client.sendMessage({
+          channelId: input.conversationId,
+          content: input.text,
+          idempotencyKey: input.idempotencyKey,
+        }),
+      ).pipe(
+        Effect.map((value) => ({
+          message: normalizeMessage(value),
+          transport: "telegram-desktop-local" as const,
+        })),
+      ),
+  };
+}

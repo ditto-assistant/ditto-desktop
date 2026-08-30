@@ -589,15 +589,15 @@ export const DittoSettings = makeProviderSettingsSchema(
       }),
     ),
     embedder: DittoHarnessEmbedder.pipe(
-      Schema.withDecodingDefault(Effect.succeed("ollama")),
+      Schema.withDecodingDefault(Effect.succeed("hash")),
       Schema.annotateKey({
         title: "Embedder",
-        description: "Use Ollama locally, or hash for deterministic offline smoke tests.",
+        description: "The built-in embedder works offline. Ollama is an optional override.",
         providerSettingsForm: {
           control: "select",
           options: [
+            { value: "hash", label: "Built-in (offline)" },
             { value: "ollama", label: "Ollama" },
-            { value: "hash", label: "Hash" },
           ],
           clearWhenEmpty: "omit",
         },
@@ -714,7 +714,7 @@ export const DittoHarnessSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   userId: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("local"))),
   databasePath: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
-  embedder: DittoHarnessEmbedder.pipe(Schema.withDecodingDefault(Effect.succeed("ollama"))),
+  embedder: DittoHarnessEmbedder.pipe(Schema.withDecodingDefault(Effect.succeed("hash"))),
   ollamaBaseUrl: TrimmedString.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_DITTO_LOCAL_BASE_URL)),
   ),

@@ -376,6 +376,8 @@ export function deriveComposerSendState(options: {
    * contexts do: a prompt of just element chips is still a valid send.
    */
   elementContextCount?: number;
+  /** Private chat packets are valid task context even when no prompt text remains. */
+  knowledgePacketCount?: number;
 }): {
   trimmedPrompt: string;
   sendableTerminalContexts: TerminalContextDraft[];
@@ -387,6 +389,7 @@ export function deriveComposerSendState(options: {
   const expiredTerminalContextCount =
     options.terminalContexts.length - sendableTerminalContexts.length;
   const elementContextCount = options.elementContextCount ?? 0;
+  const knowledgePacketCount = options.knowledgePacketCount ?? 0;
   return {
     trimmedPrompt,
     sendableTerminalContexts,
@@ -395,7 +398,8 @@ export function deriveComposerSendState(options: {
       trimmedPrompt.length > 0 ||
       options.imageCount > 0 ||
       sendableTerminalContexts.length > 0 ||
-      elementContextCount > 0,
+      elementContextCount > 0 ||
+      knowledgePacketCount > 0,
   };
 }
 

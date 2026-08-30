@@ -294,6 +294,7 @@ export function filterCommandPaletteGroups(input: {
   isInSubmenu: boolean;
   projectSearchItems: ReadonlyArray<CommandPaletteActionItem>;
   threadSearchItems: ReadonlyArray<CommandPaletteActionItem>;
+  additionalSearchGroups?: ReadonlyArray<CommandPaletteGroup>;
 }): CommandPaletteGroup[] {
   const isActionsFilter = input.query.startsWith(">");
   const searchQuery = isActionsFilter ? input.query.slice(1) : input.query;
@@ -329,6 +330,7 @@ export function filterCommandPaletteGroups(input: {
         items: input.threadSearchItems,
       });
     }
+    searchableGroups.push(...(input.additionalSearchGroups ?? []));
   }
 
   return searchableGroups.flatMap((group) => {

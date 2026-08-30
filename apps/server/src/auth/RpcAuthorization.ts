@@ -53,6 +53,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.dittoHarnessSearchSubjects]: AuthOrchestrationReadScope,
   [WS_METHODS.dittoHarnessDream]: AuthOrchestrationOperateScope,
   [WS_METHODS.channelsListAccounts]: AuthOrchestrationReadScope,
+  [WS_METHODS.channelsConfigureAccount]: AuthOrchestrationOperateScope,
   [WS_METHODS.channelsListConversations]: AuthOrchestrationReadScope,
   [WS_METHODS.channelsListMessages]: AuthOrchestrationReadScope,
   [WS_METHODS.channelsSendMessage]: AuthOrchestrationOperateScope,

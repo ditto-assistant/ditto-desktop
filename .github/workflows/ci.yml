@@ -183,6 +183,34 @@ jobs:
       - name: Test resource monitor
         run: cargo test --locked --manifest-path native/resource-monitor/Cargo.toml
 
+  discord_sidecar:
+    name: Discord sidecar
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            native/discord-sidecar
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: native/discord-sidecar/go.mod
+          cache-dependency-path: native/discord-sidecar/go.sum
+
+      - name: Check formatting
+        working-directory: native/discord-sidecar
+        run: test -z "$(gofmt -l .)"
+
+      - name: Test and vet
+        working-directory: native/discord-sidecar
+        run: |
+          go test -mod=readonly ./...
+          go vet -mod=readonly ./...
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -mod=readonly -trimpath -o /tmp/ditto-discord-sidecar .
+
   # The static analysis below needs a macOS runner, which bills ~6.7x a Linux
   # minute, so gate it on the native sources it actually lints instead of paying
   # for it on every push. Detection is API-only (no checkout) and fails open: if

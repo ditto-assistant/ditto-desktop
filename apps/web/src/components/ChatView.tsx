@@ -181,6 +181,7 @@ import {
   CheckCircle2Icon,
   ChevronDownIcon,
   GitBranchIcon,
+  MessageSquareTextIcon,
   Minimize2Icon,
   PaperclipIcon,
   WifiOffIcon,
@@ -399,9 +400,17 @@ import {
   serverUpdateGuidance,
 } from "../versionSkew";
 import { useAssetUrls } from "../assets/assetUrls";
+import {
+  knowledgePacketBootstrap,
+  knowledgePacketTargetKey,
+  useKnowledgePacketStore,
+} from "../knowledgePacketStore";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
+const KNOWLEDGE_PACKET_ONLY_BOOTSTRAP_PROMPT =
+  "Review the attached private chat knowledge packet and use it as context for this task.";
+const EMPTY_KNOWLEDGE_PACKETS = [] as const;
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
@@ -1325,6 +1334,19 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const composerDraftTarget: ScopedThreadRef | DraftId =
     routeKind === "server" ? routeThreadRef : props.draftId;
+  const knowledgePacketTarget = useMemo(
+    () => knowledgePacketTargetKey(environmentId, composerDraftTarget),
+    [composerDraftTarget, environmentId],
+  );
+  const pendingKnowledgePackets = useKnowledgePacketStore(
+    (state) => state.pendingByTarget[knowledgePacketTarget] ?? EMPTY_KNOWLEDGE_PACKETS,
+  );
+  const detachKnowledgePacket = useKnowledgePacketStore((state) => state.detach);
+  const clearPendingKnowledgePackets = useKnowledgePacketStore((state) => state.clear);
+  const setActiveKnowledgePacketTarget = useKnowledgePacketStore((state) => state.setActiveTarget);
+  useEffect(() => {
+    setActiveKnowledgePacketTarget(environmentId, knowledgePacketTarget);
+  }, [environmentId, knowledgePacketTarget, setActiveKnowledgePacketTarget]);
   const draftThread = useComposerDraftStore((store) =>
     routeKind === "server"
       ? store.getDraftSessionByRef(routeThreadRef)
@@ -4919,6 +4941,20 @@ function ChatViewContent(props: ChatViewProps) {
     }
     void handleSwitchCheckoutToThread();
   }, [gitStatusQuery.data?.hasWorkingTreeChanges, handleSwitchCheckoutToThread]);
+  const knowledgePacketBannerItems = useMemo<ComposerBannerStackItem[]>(
+    () =>
+      pendingKnowledgePackets.map((packet) => ({
+        id: `knowledge-packet:${packet.accountId}:${packet.conversationId}`,
+        variant: "info",
+        icon: <MessageSquareTextIcon />,
+        title: `Chat attached: ${packet.label}`,
+        description: `The latest ${packet.messageLimit} messages and available attachments will be copied into a private, Git-ignored knowledge packet when you send.`,
+        dismissLabel: `Remove ${packet.label}`,
+        onDismiss: () =>
+          detachKnowledgePacket(knowledgePacketTarget, packet.accountId, packet.conversationId),
+      })),
+    [detachKnowledgePacket, knowledgePacketTarget, pendingKnowledgePackets],
+  );
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const isUrgentSystemItem = (item: ComposerBannerStackItem) =>
       item.urgent === true || item.variant === "error" || item.variant === "warning";
@@ -4937,6 +4973,7 @@ function ChatViewContent(props: ChatViewProps) {
         ...calmSystemItems,
         ...resumeCompactionItems,
         ...wokeThreadItems,
+        ...knowledgePacketBannerItems,
         ...parkedThreadItems,
       ];
     }
@@ -4946,6 +4983,7 @@ function ChatViewContent(props: ChatViewProps) {
       ...calmSystemItems,
       ...resumeCompactionItems,
       ...wokeThreadItems,
+      ...knowledgePacketBannerItems,
       {
         id: `branch-mismatch:${activeBranchMismatchKey}`,
         variant: "info",
@@ -4992,6 +5030,7 @@ function ChatViewContent(props: ChatViewProps) {
     backgroundLivenessBannerItem,
     handleRestoreThreadBranch,
     isRestoringThreadBranch,
+    knowledgePacketBannerItems,
     localCheckoutBranchMismatch,
     parkedThreadBannerItem,
     resumeCompactionBannerItem,
@@ -5452,6 +5491,7 @@ function ChatViewContent(props: ChatViewProps) {
         composerElementContexts.length +
         composerPreviewAnnotations.length +
         composerReviewComments.length,
+      knowledgePacketCount: pendingKnowledgePackets.length,
     });
     const feedbackCommand =
       ctxSelectedProvider === "codex" &&
@@ -5637,6 +5677,7 @@ function ChatViewContent(props: ChatViewProps) {
     const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
     const composerReviewCommentsSnapshot: ReviewCommentContext[] = [...composerReviewComments];
+    const knowledgePacketSnapshot = pendingKnowledgePackets;
     const messageTextWithContexts = appendElementContextsToPrompt(
       appendTerminalContextsToPrompt(promptForSend, composerTerminalContextsSnapshot),
       composerElementContextsSnapshot,
@@ -5654,7 +5695,11 @@ function ChatViewContent(props: ChatViewProps) {
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
+      text:
+        messageTextForSend ||
+        (knowledgePacketSnapshot.length > 0
+          ? KNOWLEDGE_PACKET_ONLY_BOOTSTRAP_PROMPT
+          : IMAGE_ONLY_BOOTSTRAP_PROMPT),
     });
     if (composerRef.current?.validateProviderInput(outgoingMessageText) === false) {
       return;
@@ -5795,6 +5840,8 @@ function ChatViewContent(props: ChatViewProps) {
         titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
       } else if (composerElementContextsSnapshot.length > 0) {
         titleSeed = formatElementContextLabel(composerElementContextsSnapshot[0]!);
+      } else if (knowledgePacketSnapshot.length > 0) {
+        titleSeed = `Chat: ${knowledgePacketSnapshot[0]!.label}`;
       } else {
         titleSeed = "New thread";
       }
@@ -5845,7 +5892,7 @@ function ChatViewContent(props: ChatViewProps) {
     let turnStartSucceeded = false;
     if (failure === null && turnAttachmentsResult._tag === "Success") {
       const bootstrap =
-        isLocalDraftThread || baseBranchForWorktree
+        isLocalDraftThread || baseBranchForWorktree || knowledgePacketSnapshot.length > 0
           ? {
               ...(isLocalDraftThread
                 ? {
@@ -5871,6 +5918,12 @@ function ChatViewContent(props: ChatViewProps) {
                     },
                     runSetupScript: true,
                   }
+                : {}),
+              ...(knowledgePacketSnapshot.length > 0
+                ? knowledgePacketBootstrap(
+                    knowledgePacketSnapshot,
+                    activeThread.worktreePath ?? activeProject.workspaceRoot,
+                  )
                 : {}),
             }
           : undefined;
@@ -5907,6 +5960,7 @@ function ChatViewContent(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
+        if (knowledgePacketSnapshot.length > 0) clearPendingKnowledgePackets(knowledgePacketTarget);
         if (supportsAttachmentUploads) {
           releaseAttachmentUploads(composerImagesSnapshot);
         }

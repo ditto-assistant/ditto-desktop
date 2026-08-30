@@ -24,6 +24,41 @@ const isRemoteEditorUrl = (url: URL) =>
   url.pathname.startsWith("/ssh-remote+") &&
   url.pathname.length > "/ssh-remote+".length;
 
+const DISCORD_ID = /^\d+$/;
+
+const isDiscordConversationUrl = (url: URL) => {
+  if (
+    url.protocol !== "discord:" ||
+    url.username.length > 0 ||
+    url.password.length > 0 ||
+    url.host !== "-" ||
+    url.search.length > 0 ||
+    url.hash.length > 0
+  ) {
+    return false;
+  }
+
+  const parts = url.pathname.split("/").filter(Boolean);
+  return (
+    parts.length === 3 &&
+    parts[0] === "channels" &&
+    (parts[1] === "@me" || DISCORD_ID.test(parts[1] ?? "")) &&
+    DISCORD_ID.test(parts[2] ?? "")
+  );
+};
+
+const TELEGRAM_USERNAME = /^[A-Za-z0-9_]{5,32}$/;
+
+const isTelegramConversationUrl = (url: URL) =>
+  url.protocol === "tg:" &&
+  url.username.length === 0 &&
+  url.password.length === 0 &&
+  url.host === "resolve" &&
+  (url.pathname === "" || url.pathname === "/") &&
+  url.hash.length === 0 &&
+  [...url.searchParams.keys()].every((key) => key === "domain") &&
+  TELEGRAM_USERNAME.test(url.searchParams.get("domain") ?? "");
+
 export function parseSafeExternalUrl(rawUrl: unknown): Option.Option<string> {
   if (typeof rawUrl !== "string") {
     return Option.none();
@@ -31,7 +66,10 @@ export function parseSafeExternalUrl(rawUrl: unknown): Option.Option<string> {
 
   try {
     const url = new URL(rawUrl);
-    return SAFE_WEB_PROTOCOLS.has(url.protocol) || isRemoteEditorUrl(url)
+    return SAFE_WEB_PROTOCOLS.has(url.protocol) ||
+      isRemoteEditorUrl(url) ||
+      isDiscordConversationUrl(url) ||
+      isTelegramConversationUrl(url)
       ? Option.some(url.href)
       : Option.none();
   } catch {

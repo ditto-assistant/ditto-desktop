@@ -12,8 +12,10 @@ export type ChatService = typeof ChatService.Type;
 
 export const ChannelTransportKind = Schema.Literals([
   "discord-discrawl",
+  "discord-local-user",
   "discord-bot",
   "imessage-macos",
+  "telegram-desktop-local",
   "telegram-bot",
   "telegram-user",
   "slack-app",
@@ -103,13 +105,26 @@ export const ConnectedChannelAccount = Schema.Struct({
   executionLocation: ChannelExecutionLocation,
   identityMode: ChannelIdentityMode,
   label: Schema.String,
+  enabled: Schema.Boolean,
   state: ChannelConnectionState,
   capabilities: Schema.Array(ChannelCapability),
   completeness: ChannelDataCompleteness,
   lastObservedAt: Schema.optionalKey(Schema.String),
   statusDetail: Schema.optionalKey(Schema.String),
+  setupUrl: Schema.optionalKey(Schema.String),
 });
 export type ConnectedChannelAccount = typeof ConnectedChannelAccount.Type;
+
+export const ChannelConfigureAccountInput = Schema.Struct({
+  accountId: ChannelAccountId,
+  enabled: Schema.Boolean,
+});
+export type ChannelConfigureAccountInput = typeof ChannelConfigureAccountInput.Type;
+
+export const ChannelConfigureAccountResult = Schema.Struct({
+  account: ConnectedChannelAccount,
+});
+export type ChannelConfigureAccountResult = typeof ChannelConfigureAccountResult.Type;
 
 export const ChannelParticipant = Schema.Struct({
   id: Schema.String,
@@ -128,8 +143,18 @@ export const ChannelAttachment = Schema.Struct({
   byteSize: Schema.optionalKey(Schema.Number),
   remoteUrl: Schema.optionalKey(Schema.String),
   localPath: Schema.optionalKey(Schema.String),
+  /** Opaque id for bytes held by the local server's signed asset route. */
+  cachedAttachmentId: Schema.optionalKey(Schema.String),
+  cacheState: Schema.optionalKey(Schema.Literals(["cached", "expired", "unavailable"])),
 });
 export type ChannelAttachment = typeof ChannelAttachment.Type;
+
+export const ChannelResolvedMention = Schema.Struct({
+  id: Schema.String,
+  kind: Schema.Literals(["user", "channel", "role"]),
+  displayName: Schema.String,
+});
+export type ChannelResolvedMention = typeof ChannelResolvedMention.Type;
 
 export const ChannelConversation = Schema.Struct({
   accountId: ChannelAccountId,
@@ -138,6 +163,10 @@ export const ChannelConversation = Schema.Struct({
   title: Schema.String,
   kind: Schema.Literals(["direct", "group", "channel", "thread"]),
   participants: Schema.Array(ChannelParticipant),
+  containerId: Schema.optionalKey(Schema.String),
+  containerTitle: Schema.optionalKey(Schema.String),
+  containerAvatarUrl: Schema.optionalKey(Schema.String),
+  position: Schema.optionalKey(Schema.Number),
   latestMessageAt: Schema.optionalKey(Schema.String),
   unreadCount: Schema.optionalKey(Schema.Number),
   completeness: ChannelDataCompleteness,
@@ -157,6 +186,7 @@ export const ChannelMessage = Schema.Struct({
   replyToMessageId: Schema.optionalKey(ChannelMessageId),
   threadId: Schema.optionalKey(Schema.String),
   attachments: Schema.Array(ChannelAttachment),
+  resolvedMentions: Schema.optionalKey(Schema.Array(ChannelResolvedMention)),
   rawPermalink: Schema.optionalKey(Schema.String),
 });
 export type ChannelMessage = typeof ChannelMessage.Type;
@@ -184,6 +214,117 @@ export const ChannelSendMessageResult = Schema.Struct({
 });
 export type ChannelSendMessageResult = typeof ChannelSendMessageResult.Type;
 
+/**
+ * A concrete user command routed to the companion Mac. `remote_user_action`
+ * is reserved for a signed-in phone/web action and never means autonomous
+ * delivery; every action still carries its own stable id and requested time.
+ */
+export const DiscordAccessibilityActionOrigin = Schema.Literals([
+  "local_desktop",
+  "remote_user_action",
+]);
+export type DiscordAccessibilityActionOrigin = typeof DiscordAccessibilityActionOrigin.Type;
+
+export const DiscordAccessibilityReplyMode = Schema.Literals(["prepare", "send"]);
+export type DiscordAccessibilityReplyMode = typeof DiscordAccessibilityReplyMode.Type;
+
+export const DiscordAccessibilityReplyInput = Schema.Struct({
+  actionId: Schema.String.check(Schema.isMinLength(8), Schema.isMaxLength(128)),
+  origin: DiscordAccessibilityActionOrigin,
+  requestedAt: Schema.String,
+  accountId: ChannelAccountId,
+  conversationId: ChannelConversationId,
+  containerId: Schema.optionalKey(Schema.String),
+  conversationTitle: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+  text: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4_000)),
+  mode: DiscordAccessibilityReplyMode,
+});
+export type DiscordAccessibilityReplyInput = typeof DiscordAccessibilityReplyInput.Type;
+
+export const DiscordAccessibilityPermissionState = Schema.Literals([
+  "granted",
+  "not_granted",
+  "unavailable",
+]);
+export type DiscordAccessibilityPermissionState = typeof DiscordAccessibilityPermissionState.Type;
+
+export const DiscordAccessibilityReplyOutcome = Schema.Literals([
+  "sent",
+  "draft_prepared",
+  "permission_required",
+  "discord_unavailable",
+  "target_not_verified",
+  "composer_not_found",
+  "send_not_confirmed",
+  "cancelled",
+  "timed_out",
+  "unsupported",
+  "failed",
+]);
+export type DiscordAccessibilityReplyOutcome = typeof DiscordAccessibilityReplyOutcome.Type;
+
+export const DiscordAccessibilityReplyResult = Schema.Struct({
+  actionId: Schema.String,
+  origin: DiscordAccessibilityActionOrigin,
+  mode: DiscordAccessibilityReplyMode,
+  outcome: DiscordAccessibilityReplyOutcome,
+  permission: DiscordAccessibilityPermissionState,
+  startedAt: Schema.String,
+  completedAt: Schema.String,
+  detail: Schema.String,
+  sent: Schema.Boolean,
+  draftPrepared: Schema.Boolean,
+  duplicate: Schema.Boolean,
+});
+export type DiscordAccessibilityReplyResult = typeof DiscordAccessibilityReplyResult.Type;
+
+export const DiscordAccessibilityStatus = Schema.Struct({
+  available: Schema.Boolean,
+  permission: DiscordAccessibilityPermissionState,
+  detail: Schema.String,
+});
+export type DiscordAccessibilityStatus = typeof DiscordAccessibilityStatus.Type;
+
+export const DiscordAccessibilitySnapshotInput = Schema.Struct({
+  accountId: ChannelAccountId,
+  conversationId: ChannelConversationId,
+  conversationTitle: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+  maxMessages: Schema.optionalKey(
+    Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 200 })),
+  ),
+});
+export type DiscordAccessibilitySnapshotInput = typeof DiscordAccessibilitySnapshotInput.Type;
+
+export const DiscordAccessibilitySnapshotAttachment = Schema.Struct({
+  indicator: Schema.String,
+  url: Schema.optionalKey(Schema.String),
+});
+export type DiscordAccessibilitySnapshotAttachment =
+  typeof DiscordAccessibilitySnapshotAttachment.Type;
+
+export const DiscordAccessibilitySnapshotMessage = Schema.Struct({
+  id: Schema.String,
+  author: Schema.String,
+  timestamp: Schema.optionalKey(Schema.String),
+  sentAt: Schema.optionalKey(Schema.String),
+  content: Schema.String,
+  attachments: Schema.Array(DiscordAccessibilitySnapshotAttachment),
+  provenance: Schema.Literal("discord_accessibility_live"),
+});
+export type DiscordAccessibilitySnapshotMessage = typeof DiscordAccessibilitySnapshotMessage.Type;
+
+export const DiscordAccessibilitySnapshotResult = Schema.Struct({
+  accountId: ChannelAccountId,
+  conversationId: ChannelConversationId,
+  permission: DiscordAccessibilityPermissionState,
+  observedAt: Schema.String,
+  targetVerified: Schema.Boolean,
+  truncated: Schema.Boolean,
+  detail: Schema.String,
+  messages: Schema.Array(DiscordAccessibilitySnapshotMessage),
+});
+export type DiscordAccessibilitySnapshotResult = typeof DiscordAccessibilitySnapshotResult.Type;
+
 export const ChannelListAccountsResult = Schema.Struct({
   accounts: Schema.Array(ConnectedChannelAccount),
 });
@@ -210,6 +351,14 @@ export const ChannelListMessagesResult = Schema.Struct({
   messages: Schema.Array(ChannelMessage),
 });
 export type ChannelListMessagesResult = typeof ChannelListMessagesResult.Type;
+
+/** A bounded private chat snapshot to materialize inside an agent worktree. */
+export const ChannelKnowledgePacketRequest = Schema.Struct({
+  accountId: ChannelAccountId,
+  conversationId: ChannelConversationId,
+  messageLimit: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(200)),
+});
+export type ChannelKnowledgePacketRequest = typeof ChannelKnowledgePacketRequest.Type;
 
 export class ChannelOperationError extends Schema.TaggedErrorClass<ChannelOperationError>()(
   "ChannelOperationError",

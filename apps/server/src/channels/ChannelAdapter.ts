@@ -28,6 +28,9 @@ export type ChannelCommandRun = (
 ) => Effect.Effect<ChannelCommandOutput, ChannelOperationError>;
 
 export interface ChannelAdapter {
+  readonly configure?: (
+    enabled: boolean,
+  ) => Effect.Effect<ConnectedChannelAccount, ChannelOperationError>;
   readonly discover: Effect.Effect<ConnectedChannelAccount, ChannelOperationError>;
   readonly listConversations: Effect.Effect<
     ReadonlyArray<ChannelConversation>,

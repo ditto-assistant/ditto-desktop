@@ -115,6 +115,16 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ...(position === undefined ? {} : { position }),
     }),
   openExternal: (url: string) => ipcRenderer.invoke(IpcChannels.OPEN_EXTERNAL_CHANNEL, url),
+  discordAccessibility: {
+    status: (prompt = false) =>
+      ipcRenderer.invoke(IpcChannels.DISCORD_ACCESSIBILITY_STATUS_CHANNEL, prompt),
+    snapshot: (input) =>
+      ipcRenderer.invoke(IpcChannels.DISCORD_ACCESSIBILITY_SNAPSHOT_CHANNEL, input),
+    execute: (input) =>
+      ipcRenderer.invoke(IpcChannels.DISCORD_ACCESSIBILITY_EXECUTE_CHANNEL, input),
+    cancel: (actionId) =>
+      ipcRenderer.invoke(IpcChannels.DISCORD_ACCESSIBILITY_CANCEL_CHANNEL, actionId),
+  },
   probeRemoteEditors: () => ipcRenderer.invoke(IpcChannels.PROBE_REMOTE_EDITORS_CHANNEL, undefined),
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {

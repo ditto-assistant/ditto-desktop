@@ -440,6 +440,17 @@ describe("deriveComposerSendState", () => {
       }).hasSendableContent,
     ).toBe(false);
   });
+
+  it("treats a pending chat knowledge packet as sendable without extra prose", () => {
+    expect(
+      deriveComposerSendState({
+        prompt: "",
+        imageCount: 0,
+        terminalContexts: [],
+        knowledgePacketCount: 1,
+      }).hasSendableContent,
+    ).toBe(true);
+  });
 });
 
 describe("buildExpiredTerminalContextToastCopy", () => {

@@ -31,6 +31,9 @@ function createBrowserLocalApi(): LocalApi {
         window.open(url, "_blank", "noopener,noreferrer");
       },
     },
+    ...(window.desktopBridge?.discordAccessibility
+      ? { discordAccessibility: window.desktopBridge.discordAccessibility }
+      : {}),
     contextMenu: {
       show: async <T extends string>(
         items: readonly ContextMenuItem<T>[],
