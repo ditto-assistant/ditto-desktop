@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1.7 -1.5 76 76" role="img" aria-labelledby="title desc">
+  <title id="title">Ditto face</title>
+  <desc id="desc">The Ditto D rotated into a smiling face.</desc>
+  <g transform="rotate(90 36.3 36.3)">
+    <rect x="0" y="19.045" width="12.712" height="12.712" fill="#111111"/>
+    <rect x="0" y="40.572" width="12.712" height="12.712" fill="#111111"/>
+    <path d="M17.85 6.49H36.11a30 30 0 0 1 0 60.05H17.85" fill="none" stroke="#111111" stroke-linecap="butt" stroke-width="13"/>
+  </g>
+</svg>

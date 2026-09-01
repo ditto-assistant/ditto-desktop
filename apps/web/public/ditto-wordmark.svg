@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 226 76" role="img" aria-labelledby="title">
+  <title id="title">Ditto</title>
+  <g fill="#111111" stroke="#111111">
+    <rect x="0" y="19.045" width="12.712" height="12.712" stroke="none"/>
+    <rect x="0" y="40.572" width="12.712" height="12.712" stroke="none"/>
+    <path d="M17.85 6.49H36.11a30 30 0 0 1 0 60.05H17.85" fill="none" stroke-linecap="butt" stroke-width="13"/>
+    <path d="M85.92 34.19v38.96M114.17 10.55v62.48M98.08 27.72h32.45M153.39 10.55v62.48M137.3 27.72h32.45" fill="none" stroke-linecap="butt" stroke-width="12.71"/>
+    <rect x="120" y="60.31" width="10.53" height="12.72" stroke="none"/>
+    <rect x="159.22" y="60.31" width="10.53" height="12.72" stroke="none"/>
+    <circle cx="199.255" cy="49.788" r="19.02" fill="none" stroke-linecap="butt" stroke-width="13.88"/>
+  </g>
+</svg>
