@@ -64,9 +64,17 @@ function makeFakeBrowserWindow() {
   const windowListeners = new Map<string, (...args: readonly unknown[]) => void>();
   const webContentsListeners = new Map<string, (...args: readonly unknown[]) => void>();
   let zoomLevel = 0;
+  const session = {
+    getUserAgent: vi.fn(
+      () =>
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ditto/0.0.36 Chrome/146.0.0.0 Electron/41.5.0 Safari/537.36",
+    ),
+    setUserAgent: vi.fn(),
+  };
   const webContents = {
     copyImageAt: vi.fn(),
     getURL: vi.fn(() => "t3code-dev://app/"),
+    session,
     getZoomLevel: vi.fn(() => zoomLevel),
     setZoomLevel: vi.fn((level: number) => {
       zoomLevel = level;
@@ -127,6 +135,8 @@ function makeFakeBrowserWindow() {
     setZoomLevel: webContents.setZoomLevel,
     setBackgroundThrottling: webContents.setBackgroundThrottling,
     setAutoHideCursor: window.setAutoHideCursor,
+    setUserAgent: session.setUserAgent,
+    setWindowOpenHandler: webContents.setWindowOpenHandler,
     webContentsListeners,
     windowListeners,
   };
@@ -461,6 +471,46 @@ describe("DesktopWindow", () => {
         assert.deepEqual(fakeWindow.setAutoHideCursor.mock.calls, [[false]]);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["t3code-dev://app/"]);
         assert.equal(fakeWindow.openDevTools.mock.calls.length, 1);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  // DITTO: Sign in with Ditto opens Firebase's Google sign-in handler as a
+  // child window and needs a stock Chrome user agent on the renderer session.
+  it.effect("allows only Firebase auth popups and presents a stock Chrome user agent", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        createdWindowOptions,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.activate;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        assert.deepEqual(fakeWindow.setUserAgent.mock.calls, [
+          [
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+          ],
+        ]);
+
+        const openHandler = fakeWindow.setWindowOpenHandler.mock.calls[0]?.[0] as
+          | ((details: { url: string }) => { action: string })
+          | undefined;
+        assert.isDefined(openHandler);
+        const allowed = openHandler!({
+          url: "https://ditto-app-dev.firebaseapp.com/__/auth/handler?authType=signInViaPopup",
+        });
+        assert.equal(allowed.action, "allow");
+        assert.equal(openHandler!({ url: "https://example.com/" }).action, "deny");
+        assert.equal(openHandler!({ url: "https://accounts.google.com/" }).action, "deny");
       }).pipe(Effect.provide(layer));
     }),
   );

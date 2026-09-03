@@ -8,6 +8,7 @@ export type SettingsPath =
   | "/settings/integrations"
   | "/settings/source-control"
   | "/settings/connections"
+  | "/settings/ditto-account"
   | "/settings/archived";
 
 export interface SettingsSearchItem {
@@ -32,6 +33,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/integrations": "Integrations",
   "/settings/source-control": "Source Control",
   "/settings/connections": "Connections",
+  "/settings/ditto-account": "Ditto Account",
   "/settings/archived": "Archive",
 };
 
@@ -252,6 +254,16 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "remote-environments",
     title: "Remote environments",
     to: "/settings/connections",
+  },
+  {
+    id: "ditto-account",
+    title: "Sign in with Ditto",
+    to: "/settings/ditto-account",
+  },
+  {
+    id: "ditto-backend",
+    title: "Ditto backend",
+    to: "/settings/ditto-account",
   },
   {
     id: "archive",
