@@ -126,6 +126,11 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.invoke(IpcChannels.DISCORD_ACCESSIBILITY_CANCEL_CHANNEL, actionId),
   },
   probeRemoteEditors: () => ipcRenderer.invoke(IpcChannels.PROBE_REMOTE_EDITORS_CHANNEL, undefined),
+  googleMessages: {
+    signIn: () => ipcRenderer.invoke(IpcChannels.GOOGLE_MESSAGES_SIGN_IN_CHANNEL, undefined),
+    cancelSignIn: () =>
+      ipcRenderer.invoke(IpcChannels.GOOGLE_MESSAGES_CANCEL_SIGN_IN_CHANNEL, undefined),
+  },
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
       if (typeof action !== "string") return;

@@ -266,6 +266,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/ditto-account",
   },
   {
+    id: "google-messages",
+    title: "Google Messages",
+    to: "/settings/ditto-account",
+  },
+  {
     id: "archive",
     title: "Archived threads",
     to: "/settings/archived",

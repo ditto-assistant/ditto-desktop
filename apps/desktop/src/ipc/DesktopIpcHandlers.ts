@@ -52,6 +52,7 @@ import {
   discordAccessibilityStatus,
 } from "./methods/discordAccessibility.ts";
 import { getWslState, setWslBackendEnabled, setWslDistro, setWslOnly } from "./methods/wsl.ts";
+import { googleMessagesCancelSignIn, googleMessagesSignIn } from "./methods/googleMessages.ts";
 
 export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers")(function* () {
   const ipc = yield* DesktopIpc.DesktopIpc;
@@ -104,6 +105,8 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(downloadUpdate);
   yield* ipc.handle(installUpdate);
   yield* ipc.handle(checkForUpdate);
+  yield* ipc.handle(googleMessagesSignIn);
+  yield* ipc.handle(googleMessagesCancelSignIn);
   for (const previewMethod of PreviewIpc.methods) {
     yield* ipc.handle(previewMethod);
   }
