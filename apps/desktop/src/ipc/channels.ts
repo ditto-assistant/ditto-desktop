@@ -87,3 +87,6 @@ export const PREVIEW_RECORDING_SAVE_CHANNEL = "desktop:preview-recording-save";
 export const PREVIEW_RECORDING_FRAME_CHANNEL = "desktop:preview-recording-frame";
 export const PREVIEW_STATE_CHANGE_CHANNEL = "desktop:preview-state-change";
 export const PREVIEW_POINTER_EVENT_CHANNEL = "desktop:preview-pointer-event";
+// DITTO: Google Messages pairing (Settings -> Ditto Account).
+export const GOOGLE_MESSAGES_SIGN_IN_CHANNEL = "desktop:google-messages-sign-in";
+export const GOOGLE_MESSAGES_CANCEL_SIGN_IN_CHANNEL = "desktop:google-messages-cancel-sign-in";

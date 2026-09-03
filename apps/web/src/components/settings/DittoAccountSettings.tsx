@@ -8,7 +8,7 @@
  *
  * @module DittoAccountSettings
  */
-import { CloudIcon, LogOutIcon } from "lucide-react";
+import { CloudIcon, LogOutIcon, MessageSquareIcon } from "lucide-react";
 import { useCallback, useState, type FormEvent } from "react";
 
 import { DITTO_API_BASE_OPTIONS, getDittoApiBaseUrl, setDittoApiBaseUrl } from "~/ditto/apiBase";
@@ -22,6 +22,7 @@ import {
 import { useDittoUser } from "~/ditto/useDittoUser";
 
 import { Button } from "../ui/button";
+import { GoogleMessagesConnectionRow } from "./GoogleMessagesConnection";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
@@ -219,6 +220,16 @@ function BackendRow() {
   );
 }
 
+function ConnectionsSection() {
+  const { ready, user } = useDittoUser();
+  if (!ready || user === null) return null;
+  return (
+    <SettingsSection title="Connections" icon={<MessageSquareIcon className="size-4" />}>
+      <GoogleMessagesConnectionRow user={user} />
+    </SettingsSection>
+  );
+}
+
 export function DittoAccountSettingsPanel() {
   const configured = isDittoCloudConfigured();
   return (
@@ -233,6 +244,7 @@ export function DittoAccountSettingsPanel() {
           <UnconfiguredNotice />
         )}
       </SettingsSection>
+      {configured ? <ConnectionsSection /> : null}
     </SettingsPageContainer>
   );
 }

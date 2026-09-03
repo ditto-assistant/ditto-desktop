@@ -511,6 +511,28 @@ export const DesktopWslStateSchema = Schema.Struct({
   preflightError: Schema.NullOr(Schema.String),
 });
 
+// DITTO: outcome of the Google Messages sign-in window. Cookies are the Google
+// auth cookies the Ditto backend needs to start Google Account pairing; they
+// exist in the renderer only long enough to be posted.
+export const DesktopGoogleMessagesSignInOutcomeSchema = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("cookies"),
+    cookies: Schema.Record(Schema.String, Schema.String),
+  }),
+  Schema.Struct({
+    status: Schema.Literal("cancelled"),
+    reason: Schema.Literals(["closed", "timeout", "superseded"]),
+  }),
+]);
+export type DesktopGoogleMessagesSignInOutcome =
+  typeof DesktopGoogleMessagesSignInOutcomeSchema.Type;
+
+export interface DesktopGoogleMessagesBridge {
+  /** Opens the isolated Google sign-in window; resolves when sign-in completes or it closes. */
+  signIn: () => Promise<DesktopGoogleMessagesSignInOutcome>;
+  cancelSignIn: () => Promise<void>;
+}
+
 /**
  * Renderer-facing snapshot of a desktop preview tab. Mirrors the main-process
  * PreviewTabState shape but uses serialisable primitives only.
@@ -1154,6 +1176,8 @@ export interface DesktopBridge {
    * builds lack it; callers fall back to VS Code only.
    */
   probeRemoteEditors?: () => Promise<readonly EditorId[]>;
+  /** Optional: only desktop builds with Google Messages pairing expose it. */
+  googleMessages?: DesktopGoogleMessagesBridge;
   onMenuAction: (listener: (action: string) => void) => () => void;
   /**
    * Hold-to-quit hint pushes: "down" when the quit shortcut is first pressed,
