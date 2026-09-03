@@ -16,6 +16,7 @@ import { makeComponentLogger } from "../app/DesktopObservability.ts";
 import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import { getDesktopUrl } from "../electron/ElectronProtocol.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
+import { isFirebaseAuthPopupUrl, stripEmbeddedBrowserTokens } from "./authPopup.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
@@ -375,6 +376,20 @@ export const make = Effect.gen(function* () {
     if (environment.platform === "darwin") {
       window.setAutoHideCursor(false);
     }
+    // DITTO: present a stock Chrome user agent from the renderer's session so
+    // Google sign-in (which refuses recognizable embedded browsers) works in
+    // the Firebase auth popup, which shares this session. Best effort: a
+    // session that can't be adjusted keeps Electron's default.
+    yield* Effect.try(() => {
+      const rendererSession = window.webContents.session;
+      rendererSession.setUserAgent(stripEmbeddedBrowserTokens(rendererSession.getUserAgent()));
+    }).pipe(
+      Effect.catch((error) =>
+        logWindowWarning("failed to normalize the renderer user agent", {
+          message: String(error.cause),
+        }),
+      ),
+    );
     let boundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let pendingBoundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let boundsPersistenceEnabled = persistedBounds === null || restoredPersistedBounds;
@@ -526,6 +541,25 @@ export const make = Effect.gen(function* () {
     });
 
     window.webContents.setWindowOpenHandler(({ url }) => {
+      // DITTO: Sign in with Ditto (Firebase) drives Google sign-in through a
+      // popup that must stay a child of this window so `window.opener` works.
+      // Only Firebase-hosted auth handlers qualify; see authPopup.ts.
+      if (isFirebaseAuthPopupUrl(url)) {
+        return {
+          action: "allow",
+          overrideBrowserWindowOptions: {
+            width: 520,
+            height: 680,
+            autoHideMenuBar: true,
+            title: "Sign in",
+            webPreferences: {
+              contextIsolation: true,
+              nodeIntegration: false,
+              sandbox: true,
+            },
+          },
+        };
+      }
       if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
         void runPromise(electronShell.openExternal(url));
       }

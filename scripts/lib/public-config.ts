@@ -15,6 +15,14 @@ export interface T3CodePublicConfig {
   readonly relayClientOtlpTracesUrl: string | undefined;
   readonly relayClientOtlpTracesDataset: string | undefined;
   readonly relayClientOtlpTracesToken: string | undefined;
+  // DITTO: public Firebase web config + API base for the Ditto cloud account
+  // features (Settings → Ditto Account). Same values ditto-app ships; none are
+  // secrets, but they are per-project so they come from the env, not source.
+  readonly dittoFirebaseApiKey: string | undefined;
+  readonly dittoFirebaseAuthDomain: string | undefined;
+  readonly dittoFirebaseProjectId: string | undefined;
+  readonly dittoFirebaseAppId: string | undefined;
+  readonly dittoApiBaseUrl: string | undefined;
 }
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -100,6 +108,37 @@ export function loadRepoEnv({
           VITE_RELAY_OTLP_TRACES_TOKEN: config.relayClientOtlpTracesToken,
         }
       : {}),
+    // DITTO: project the Ditto cloud config into the web bundle.
+    ...(config.dittoFirebaseApiKey
+      ? {
+          DITTO_FIREBASE_API_KEY: config.dittoFirebaseApiKey,
+          VITE_DITTO_FIREBASE_API_KEY: config.dittoFirebaseApiKey,
+        }
+      : {}),
+    ...(config.dittoFirebaseAuthDomain
+      ? {
+          DITTO_FIREBASE_AUTH_DOMAIN: config.dittoFirebaseAuthDomain,
+          VITE_DITTO_FIREBASE_AUTH_DOMAIN: config.dittoFirebaseAuthDomain,
+        }
+      : {}),
+    ...(config.dittoFirebaseProjectId
+      ? {
+          DITTO_FIREBASE_PROJECT_ID: config.dittoFirebaseProjectId,
+          VITE_DITTO_FIREBASE_PROJECT_ID: config.dittoFirebaseProjectId,
+        }
+      : {}),
+    ...(config.dittoFirebaseAppId
+      ? {
+          DITTO_FIREBASE_APP_ID: config.dittoFirebaseAppId,
+          VITE_DITTO_FIREBASE_APP_ID: config.dittoFirebaseAppId,
+        }
+      : {}),
+    ...(config.dittoApiBaseUrl
+      ? {
+          DITTO_API_BASE_URL: config.dittoApiBaseUrl,
+          VITE_DITTO_API_BASE_URL: config.dittoApiBaseUrl,
+        }
+      : {}),
   };
 }
 
@@ -153,6 +192,27 @@ export function resolvePublicConfig(...sources: readonly Environment[]): T3CodeP
       "T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN",
       "VITE_RELAY_OTLP_TRACES_TOKEN",
     ),
+    dittoFirebaseApiKey: firstNonEmpty(
+      sources,
+      "DITTO_FIREBASE_API_KEY",
+      "VITE_DITTO_FIREBASE_API_KEY",
+    ),
+    dittoFirebaseAuthDomain: firstNonEmpty(
+      sources,
+      "DITTO_FIREBASE_AUTH_DOMAIN",
+      "VITE_DITTO_FIREBASE_AUTH_DOMAIN",
+    ),
+    dittoFirebaseProjectId: firstNonEmpty(
+      sources,
+      "DITTO_FIREBASE_PROJECT_ID",
+      "VITE_DITTO_FIREBASE_PROJECT_ID",
+    ),
+    dittoFirebaseAppId: firstNonEmpty(
+      sources,
+      "DITTO_FIREBASE_APP_ID",
+      "VITE_DITTO_FIREBASE_APP_ID",
+    ),
+    dittoApiBaseUrl: firstNonEmpty(sources, "DITTO_API_BASE_URL", "VITE_DITTO_API_BASE_URL"),
   };
 }
 
