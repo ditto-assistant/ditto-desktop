@@ -2,6 +2,7 @@ import { StackActions, useNavigation } from "@react-navigation/native";
 import { useCallback, useMemo, useSyncExternalStore, type PropsWithChildren } from "react";
 
 import { T3KeyboardCommands } from "../../native/T3KeyboardCommands";
+import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import {
   dispatchHardwareKeyboardCommand,
   getHardwareKeyboardCommandRegistrationVersion,
@@ -24,6 +25,7 @@ export function HardwareKeyboardCommandProvider({
   const enabledCommands = useMemo(() => {
     const commands = new Set<HardwareKeyboardCommand>(getRegisteredHardwareKeyboardCommands());
     commands.add("newTask");
+    if (hasCloudPublicConfig()) commands.add("account");
     if (pathname !== "/" || navigation.canGoBack()) commands.add("back");
     if (parseActiveThreadPath(pathname)) {
       commands.add("files");
@@ -39,6 +41,10 @@ export function HardwareKeyboardCommandProvider({
 
       if (command === "newTask") {
         navigation.navigate("NewTaskSheet", { screen: "NewTask" });
+        return;
+      }
+      if (command === "account") {
+        navigation.navigate("SettingsSheet", { screen: "SettingsAuth" });
         return;
       }
       if (command === "back") {

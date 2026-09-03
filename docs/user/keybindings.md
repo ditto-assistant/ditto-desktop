@@ -78,6 +78,11 @@ Background submission from a new thread is the exception. `mod+enter` starts tha
 another new thread with the same workspace mode and base branch. **New worktree** remains selected,
 but the new thread does not reuse the worktree created for the thread that just started.
 
+## Mobile hardware keyboards
+
+On iPhone and iPad, `Command+Shift+A` opens the T3 Connect account screen without navigating
+through Settings. The shortcut is available only in builds configured for T3 Connect.
+
 ## `when` Conditions
 
 A `when` expression is evaluated against context keys describing the current UI state. The keys
