@@ -35,6 +35,9 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce Ditto fork workflow policy
+        run: node .github/scripts/check-fork-policy.mjs
+
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:

@@ -1,0 +1,148 @@
+name: Curated upstream sync
+
+on:
+  schedule:
+    - cron: "17 10 * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [upstream-t3code-updated]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: curated-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'ditto-assistant/ditto-desktop'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENCODE_MODEL: ${{ vars.FORK_SYNC_MODEL || 'openrouter/z-ai/glm-5.3-flash' }}
+    steps:
+      - name: Require automation credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -z "$GH_TOKEN"; then
+            echo "FORK_SYNC_TOKEN is required so the resulting PR runs normal fork CI." >&2
+            exit 1
+          fi
+          if test -z "$OPENROUTER_API_KEY"; then
+            echo "OPENROUTER_API_KEY is required for curated upstream review." >&2
+            exit 1
+          fi
+
+      - name: Checkout fork
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.FORK_SYNC_TOKEN }}
+
+      - name: Inspect upstream range
+        id: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --no-tags upstream main
+
+          reviewed_head="$(tr -d '[:space:]' < .github/upstream-sync-base)"
+          upstream_head="$(git rev-parse upstream/main)"
+          git merge-base --is-ancestor "$reviewed_head" "$upstream_head"
+
+          if test "$reviewed_head" = "$upstream_head"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          existing="$(gh pr list --state open --label upstream-sync --json number --jq 'length')"
+          if test "$existing" != "0"; then
+            echo "An upstream-sync PR is already open; leaving it for review." >&2
+            exit 1
+          fi
+
+          branch="automation/upstream-sync-$(date -u +%Y%m%d)-${upstream_head:0:8}"
+          git switch -c "$branch"
+          {
+            echo "changed=true"
+            echo "reviewed_head=$reviewed_head"
+            echo "upstream_head=$upstream_head"
+            echo "branch=$branch"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install OpenCode
+        if: steps.upstream.outputs.changed == 'true'
+        shell: bash
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Curate upstream changes
+        if: steps.upstream.outputs.changed == 'true'
+        shell: bash
+        env:
+          REVIEWED_HEAD: ${{ steps.upstream.outputs.reviewed_head }}
+          UPSTREAM_HEAD: ${{ steps.upstream.outputs.upstream_head }}
+        run: |
+          set -euo pipefail
+          prompt_file="$RUNNER_TEMP/upstream-sync-prompt.md"
+          cat > "$prompt_file" <<EOF
+          You are curating changes from pingdotgg/t3code into the Ditto Desktop fork.
+
+          Candidate range: ${REVIEWED_HEAD}..${UPSTREAM_HEAD}
+
+          Inspect every candidate commit and port only changes that improve or maintain the desktop app, shared packages, or server functionality used by Ditto Desktop. Do not merge upstream/main wholesale. Preserve Ditto's local chat adapters, Discord and Telegram sidecars, knowledge packets, provider integration, and local-first privacy boundaries.
+
+          Never restore web hosting, relay deployment, mobile deployment, or the upstream release workflow. The fork intentionally has no web deployment because Ditto already has a separate web application. Follow .github/scripts/check-fork-policy.mjs.
+
+          Cherry-pick with --no-commit or port changes manually, resolving conflicts in favor of both compatible feature sets. Run focused validation for selected changes. Do not commit, push, or open a pull request.
+
+          Write .tmp/upstream-sync-report.md with a short summary, a Selected section listing each adopted commit and why, a Skipped section listing each rejected commit and why, and the validation performed. The report is required even if no code changes are selected.
+          EOF
+          "$HOME/.opencode/bin/opencode" run --model "$OPENCODE_MODEL" --auto "$(< "$prompt_file")"
+
+      - name: Validate and record review cursor
+        if: steps.upstream.outputs.changed == 'true'
+        shell: bash
+        env:
+          UPSTREAM_HEAD: ${{ steps.upstream.outputs.upstream_head }}
+        run: |
+          set -euo pipefail
+          test -s .tmp/upstream-sync-report.md
+          node .github/scripts/check-fork-policy.mjs
+          printf '%s\n' "$UPSTREAM_HEAD" > .github/upstream-sync-base
+
+      - name: Commit curated result
+        if: steps.upstream.outputs.changed == 'true'
+        shell: bash
+        env:
+          BRANCH: ${{ steps.upstream.outputs.branch }}
+          REVIEWED_HEAD: ${{ steps.upstream.outputs.reviewed_head }}
+          UPSTREAM_HEAD: ${{ steps.upstream.outputs.upstream_head }}
+        run: |
+          set -euo pipefail
+          git config user.name "ditto-upstream-sync"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git ls-files --others --exclude-standard -z | xargs -0 -r git add --
+          git commit -m "Curate T3 Code upstream through ${UPSTREAM_HEAD:0:8}"
+          git push --set-upstream origin "$BRANCH"
+
+          body_file="$RUNNER_TEMP/upstream-sync-pr.md"
+          {
+            printf "Curated upstream range: \`%s..%s\`\n\n" "$REVIEWED_HEAD" "$UPSTREAM_HEAD"
+            cat .tmp/upstream-sync-report.md
+            printf '\n\nThis PR is intentionally reviewed and merged manually.\n'
+          } > "$body_file"
+
+          gh label create upstream-sync --color 1D76DB --description "Curated changes from pingdotgg/t3code" --force
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Curate upstream T3 Code through ${UPSTREAM_HEAD:0:8}" \
+            --body-file "$body_file" \
+            --label upstream-sync \
+            --draft
