@@ -33,7 +33,12 @@ describe("reduceTeleportDialog", () => {
       type: "event",
       event: { type: "progress", stage: "uploading", bytesUploaded: 10, bytesTotal: 100 },
     });
-    expect(state).toMatchObject({ status: "running", stage: "uploading", bytesUploaded: 10, bytesTotal: 100 });
+    expect(state).toMatchObject({
+      status: "running",
+      stage: "uploading",
+      bytesUploaded: 10,
+      bytesTotal: 100,
+    });
     // A later frame without totals keeps the known total so the bar does not jump.
     state = reduceTeleportDialog(state, {
       type: "event",

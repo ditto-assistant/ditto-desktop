@@ -704,7 +704,10 @@ export const make = Effect.gen(function* () {
         Option.isSome(previous) &&
         previous.value.capsuleId === capsule.id &&
         previous.value.generation === parentGeneration;
-      if (!thinBasisValid && repoManifests.some((repo) => repo.packs.some((p) => p.kind === "thin"))) {
+      if (
+        !thinBasisValid &&
+        repoManifests.some((repo) => repo.packs.some((p) => p.kind === "thin"))
+      ) {
         return yield* fail(
           "This capsule was pushed from another machine since your last teleport. Teleport again to send a full snapshot.",
         );
@@ -793,7 +796,8 @@ export const make = Effect.gen(function* () {
         generation: committed.generation.generation,
         bytes: bytesTotal,
         chunks: chunks.length,
-        dedupedChunks: chunks.length - missing.filter((m) => m.sha256 !== encodedManifest.sha256).length,
+        dedupedChunks:
+          chunks.length - missing.filter((m) => m.sha256 !== encodedManifest.sha256).length,
         harness,
         harnessSessionId: sessionId,
       } satisfies TeleportCapsuleSummary;

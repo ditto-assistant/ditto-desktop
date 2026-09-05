@@ -4,7 +4,10 @@
  * server), and shows the linked state with a disconnect action. The key never
  * touches renderer storage.
  */
-import { isAtomCommandInterrupted, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import type { DittoAccountStatus } from "@t3tools/contracts";
 import { Link2Icon, Link2OffIcon } from "lucide-react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
@@ -98,7 +101,9 @@ export function DeviceLinkRow() {
     const deadline = Date.now() + challenge.expiresInSeconds * 1000;
     let slowDowns = 0;
     while (stillActive()) {
-      await new Promise((resolve) => setTimeout(resolve, devicePollIntervalMs(challenge, slowDowns)));
+      await new Promise((resolve) =>
+        setTimeout(resolve, devicePollIntervalMs(challenge, slowDowns)),
+      );
       if (!stillActive()) return;
       if (Date.now() > deadline) {
         dispatch({ type: "expired" });

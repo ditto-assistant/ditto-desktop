@@ -22,7 +22,11 @@ export interface DeviceCodeChallenge {
 export type DeviceLinkState =
   | { readonly phase: "idle" }
   | { readonly phase: "requesting" }
-  | { readonly phase: "waiting"; readonly challenge: DeviceCodeChallenge; readonly slowDowns: number }
+  | {
+      readonly phase: "waiting";
+      readonly challenge: DeviceCodeChallenge;
+      readonly slowDowns: number;
+    }
   | { readonly phase: "linking"; readonly challenge: DeviceCodeChallenge }
   | { readonly phase: "linked"; readonly keyHint: string }
   | { readonly phase: "failed"; readonly message: string };

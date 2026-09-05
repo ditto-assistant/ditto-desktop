@@ -141,7 +141,11 @@ export interface TeleportManifest {
     readonly chunks: ReadonlyArray<TeleportManifestChunk>;
   };
   readonly excludes: ReadonlyArray<string>;
-  readonly totals: { readonly chunks: number; readonly bytes: number; readonly dedupedBytes: number };
+  readonly totals: {
+    readonly chunks: number;
+    readonly bytes: number;
+    readonly dedupedBytes: number;
+  };
 }
 
 /**

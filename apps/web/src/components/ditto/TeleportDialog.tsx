@@ -2,7 +2,10 @@
  * Progress and result dialog for Teleport. Mounted once at the root; driven by
  * the module store in `ditto/teleportDialog` so any entry point can open it.
  */
-import { isAtomCommandInterrupted, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import { CheckIcon, RocketIcon, TriangleAlertIcon } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
 
@@ -124,7 +127,9 @@ export function TeleportDialog() {
                   {step?.label ?? "Working"}
                 </p>
                 <p className="shrink-0 tabular-nums text-muted-foreground">
-                  {view.stage === "uploading" && view.bytesTotal !== null && view.bytesUploaded !== null
+                  {view.stage === "uploading" &&
+                  view.bytesTotal !== null &&
+                  view.bytesUploaded !== null
                     ? `${formatTeleportBytes(view.bytesUploaded)} of ${formatTeleportBytes(view.bytesTotal)}`
                     : `${stepIndex + 1} of ${TELEPORT_STAGES.length}`}
                 </p>
@@ -144,7 +149,9 @@ export function TeleportDialog() {
                 }
               />
               {view.detail ? (
-                <p className="truncate text-xs leading-relaxed text-muted-foreground">{view.detail}</p>
+                <p className="truncate text-xs leading-relaxed text-muted-foreground">
+                  {view.detail}
+                </p>
               ) : null}
             </div>
           ) : view.status === "complete" ? (

@@ -106,7 +106,9 @@ export const make = Effect.gen(function* () {
     function* (input) {
       const apiKey = input.apiKey.trim();
       if (!apiKey.startsWith("ditto_mcp_")) {
-        return yield* fail("That is not a Ditto key. Finish the device-code sign-in and try again.");
+        return yield* fail(
+          "That is not a Ditto key. Finish the device-code sign-in and try again.",
+        );
       }
       const apiBaseUrl = normalizeDittoApiBaseUrl(input.apiBaseUrl);
       if (apiBaseUrl === null) {

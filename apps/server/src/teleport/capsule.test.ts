@@ -34,7 +34,13 @@ describe("isTeleportExcludedPath", () => {
   });
 
   it("keeps ordinary source and config", () => {
-    for (const path of ["src/index.ts", "README.md", ".env.example", "config/env.ts", "envs/dev.yaml"]) {
+    for (const path of [
+      "src/index.ts",
+      "README.md",
+      ".env.example",
+      "config/env.ts",
+      "envs/dev.yaml",
+    ]) {
       expect(isTeleportExcludedPath(path), path).toBe(false);
     }
   });
@@ -118,7 +124,9 @@ describe("commit envelope", () => {
     ) as { manifest: TeleportManifest; manifestSha256: string; committedBy: string };
     expect(body.manifest).toEqual(manifest);
     expect(body.committedBy).toBe("desktop");
-    expect(body.manifestSha256).toBe(sha256Hex(new TextEncoder().encode(JSON.stringify(body.manifest))));
+    expect(body.manifestSha256).toBe(
+      sha256Hex(new TextEncoder().encode(JSON.stringify(body.manifest))),
+    );
   });
 
   it("batches negotiate requests", () => {
