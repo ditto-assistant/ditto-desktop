@@ -42,15 +42,21 @@ import { expandHomePath } from "../pathExpansion.ts";
 import { ProviderSessionRuntimeRepository } from "../persistence/ProviderSessionRuntime.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
+  batched,
   capsuleNameFor,
   chunkBytes,
   claudeProjectSlug,
+  commitEnvelope,
+  encodeManifest,
   filterWorktreeEntries,
   parseBranchTips,
   parseRemotes,
   TELEPORT_EXCLUDED_NAMES,
+  TELEPORT_MANIFEST_VERSION,
+  TELEPORT_NEGOTIATE_BATCH,
   type TeleportChunk,
   type TeleportManifest,
+  type TeleportManifestChunk,
   type TeleportRepoManifest,
 } from "./capsule.ts";
 import { DittoAccountService, type DittoAccountCredentials } from "./DittoAccount.ts";
@@ -93,20 +99,39 @@ type ThreadCapsuleState = typeof ThreadCapsuleState.Type;
 const decodeState = Schema.decodeUnknownEffect(Schema.fromJsonString(ThreadCapsuleState));
 const encodeState = Schema.encodeEffect(Schema.fromJsonString(ThreadCapsuleState));
 
-/** Ditto API response shapes. Extra fields are ignored so the API can grow. */
+/**
+ * Ditto API shapes (backend `pkg/api/v5/teleport.go`, camelCase). Extra fields
+ * are ignored so the API can grow.
+ */
 const CapsuleRecord = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
-  headGeneration: Schema.optional(Schema.Number),
+  rootKind: Schema.String,
+  headGeneration: Schema.Number,
+  harnessKind: Schema.optional(Schema.String),
+  harnessSessionId: Schema.optional(Schema.String),
 });
 type CapsuleRecord = typeof CapsuleRecord.Type;
+const MissingChunk = Schema.Struct({
+  sha256: Schema.String,
+  size: Schema.Number,
+  putUrl: Schema.String,
+  expiresAt: Schema.String,
+});
+type MissingChunk = typeof MissingChunk.Type;
 const NegotiateResponse = Schema.Struct({
-  missing: Schema.Array(Schema.Struct({ sha256: Schema.String, putUrl: Schema.String })),
+  missing: Schema.Array(MissingChunk),
+  uploadedCount: Schema.Number,
+});
+const CommitResponse = Schema.Struct({
+  capsule: CapsuleRecord,
+  generation: Schema.Struct({ generation: Schema.Number, bytes: Schema.Number }),
 });
 const CloudSessionRecord = Schema.Struct({
   jobId: Schema.String,
-  threadId: Schema.String,
+  sessionId: Schema.String,
   agentId: Schema.String,
+  threadId: Schema.String,
 });
 const ApiErrorBody = Schema.Struct({
   error: Schema.optional(Schema.String),
@@ -119,10 +144,29 @@ interface Artifact {
   readonly bytes: Uint8Array;
 }
 
-type ManifestChunk = { readonly sha256: string; readonly size: number };
 type RepoPack = TeleportRepoManifest["packs"][number];
 
 const fail = (message: string) => new TeleportError({ message });
+
+/** Turns the backend's status codes into sentences the dialog can show. */
+export function describeApiFailure(status: number, route: string, message: string): string {
+  const detail = message.trim();
+  switch (status) {
+    case 401:
+    case 403:
+      return "Ditto rejected the linked key. Disconnect and link this computer again.";
+    case 402:
+      return detail || "Your Ditto plan's teleport storage is full.";
+    case 409:
+      return detail
+        ? `${detail} (another machine pushed this capsule since your last teleport).`
+        : "Another machine pushed this capsule since your last teleport. Try again.";
+    case 412:
+      return detail || "Ditto is missing part of the upload. Try again.";
+    default:
+      return `Ditto returned ${status} for ${route}${detail ? `: ${detail}` : "."}`;
+  }
+}
 
 const describe = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
@@ -151,7 +195,7 @@ const concat = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
   return out;
 };
 
-const toManifestChunks = (bytes: Uint8Array): ReadonlyArray<ManifestChunk> =>
+const toManifestChunks = (bytes: Uint8Array): ReadonlyArray<TeleportManifestChunk> =>
   chunkBytes(bytes).map(({ sha256, size }) => ({ sha256, size }));
 
 export const make = Effect.gen(function* () {
@@ -311,7 +355,7 @@ export const make = Effect.gen(function* () {
           onNone: () => text,
           onSome: (body) => body.error ?? body.message ?? text,
         });
-        return yield* fail(`Ditto returned ${response.status} for ${route}: ${message}`);
+        return yield* fail(describeApiFailure(response.status, route, message));
       }
       return yield* HttpClientResponse.schemaBodyJson(schema)(response).pipe(
         Effect.mapError((cause) =>
@@ -334,6 +378,22 @@ export const make = Effect.gen(function* () {
         fail(`Could not encode the request for ${route}: ${describe(cause)}`),
       ),
       Effect.flatMap((request) => apiRequest(creds, request, route, schema)),
+    );
+
+  /** POST with a pre-serialised JSON body (the commit embeds the manifest verbatim). */
+  const apiPostText = <A>(
+    creds: DittoAccountCredentials,
+    route: string,
+    body: string,
+    schema: Schema.Decoder<A>,
+  ) =>
+    apiRequest(
+      creds,
+      HttpClientRequest.post(`${creds.apiBaseUrl}${route}`).pipe(
+        HttpClientRequest.bodyText(body, "application/json"),
+      ),
+      route,
+      schema,
     );
 
   const uploadChunk = (putUrl: string, chunk: TeleportChunk) =>
@@ -523,8 +583,13 @@ export const make = Effect.gen(function* () {
     const manifest: TeleportRepoManifest = {
       relPath,
       remotes,
-      head: { sha: headSha, branch: branchName, upstream },
-      refs: { branches: tips.map((tip) => tip.name), tags: tags.map((tag) => tag.name) },
+      head: {
+        sha: headSha,
+        ...(branchName ? { branch: branchName } : {}),
+        ...(upstream ? { upstream } : {}),
+      },
+      branches: tips.map((tip) => tip.name),
+      tags: tags.map((tag) => tag.name),
       packs,
       worktree,
     };
@@ -599,7 +664,8 @@ export const make = Effect.gen(function* () {
       const bytesTotal = chunks.reduce((sum, chunk) => sum + chunk.size, 0);
 
       // Capsule identity: reuse the one this thread pushed before when the
-      // API still knows it; otherwise create a fresh capsule.
+      // API still knows it; otherwise create a fresh capsule. The server's
+      // head generation is the parent of what we commit.
       yield* onProgress({ stage: "negotiating", bytesTotal });
       const capsuleName =
         input.capsuleName?.trim() ||
@@ -623,33 +689,65 @@ export const make = Effect.gen(function* () {
             name: capsuleName,
             rootKind,
             machine: machineInfo(),
-            harness: { kind: harness, sessionId },
+            ...(harness === null ? {} : { harnessKind: harness }),
+            ...(sessionId === null ? {} : { harnessSessionId: sessionId }),
           },
           CapsuleRecord,
         );
       }
-      const parentGeneration =
-        Option.isSome(previous) && previous.value.capsuleId === capsule.id
-          ? previous.value.generation
-          : null;
-      const generation = (parentGeneration ?? capsule.headGeneration ?? 0) + 1;
+      const parentGeneration = capsule.headGeneration;
+      const generation = parentGeneration + 1;
 
-      const negotiated = yield* apiPost(
-        creds,
-        `/api/v5/teleport/capsules/${encodeURIComponent(capsule.id)}/negotiate`,
-        {
-          generation,
-          parentGeneration,
-          chunks: chunks.map(({ sha256, size }) => ({ sha256, size })),
+      // Thin packs only make sense against a generation this machine pushed
+      // and the server still has as head; otherwise ship full bundles.
+      const thinBasisValid =
+        Option.isSome(previous) &&
+        previous.value.capsuleId === capsule.id &&
+        previous.value.generation === parentGeneration;
+      if (!thinBasisValid && repoManifests.some((repo) => repo.packs.some((p) => p.kind === "thin"))) {
+        return yield* fail(
+          "This capsule was pushed from another machine since your last teleport. Teleport again to send a full snapshot.",
+        );
+      }
+
+      const now = yield* DateTime.now;
+      const manifest: TeleportManifest = {
+        v: TELEPORT_MANIFEST_VERSION,
+        capsuleId: capsule.id,
+        generation,
+        parentGeneration,
+        createdAt: DateTime.formatIso(now),
+        machine: machineInfo(),
+        root: { kind: rootKind, name: capsuleName },
+        repos: repoManifests,
+        harness: {
+          kind: harness ?? "none",
+          ...(sessionId === null ? {} : { sessionId }),
+          cwd: root,
+          chunks: harnessBytes ? toManifestChunks(harnessBytes) : [],
         },
-        NegotiateResponse,
-      );
+        excludes: [".env*", ...TELEPORT_EXCLUDED_NAMES],
+        totals: { chunks: chunks.length, bytes: bytesTotal, dedupedBytes: 0 },
+      };
+      const encodedManifest = encodeManifest(manifest);
+      chunkIndex.set(encodedManifest.sha256, {
+        sha256: encodedManifest.sha256,
+        size: encodedManifest.bytes.byteLength,
+        bytes: encodedManifest.bytes,
+      });
 
-      const missing = negotiated.missing;
-      const bytesMissing = missing.reduce(
-        (sum, entry) => sum + (chunkIndex.get(entry.sha256)?.size ?? 0),
-        0,
-      );
+      const missing: MissingChunk[] = [];
+      for (const batch of batched([...chunkIndex.values()], TELEPORT_NEGOTIATE_BATCH)) {
+        const negotiated = yield* apiPost(
+          creds,
+          `/api/v5/teleport/capsules/${encodeURIComponent(capsule.id)}/negotiate`,
+          { chunks: batch.map(({ sha256, size }) => ({ sha256, size })) },
+          NegotiateResponse,
+        );
+        missing.push(...negotiated.missing);
+      }
+
+      const bytesMissing = missing.reduce((sum, entry) => sum + entry.size, 0);
       let uploaded = 0;
       yield* onProgress({ stage: "uploading", bytesUploaded: 0, bytesTotal: bytesMissing });
       yield* Effect.forEach(
@@ -670,51 +768,32 @@ export const make = Effect.gen(function* () {
       );
 
       yield* onProgress({ stage: "committing", detail: `generation ${generation}` });
-      const now = yield* DateTime.now;
-      const manifest: TeleportManifest = {
-        version: 1,
-        capsuleId: capsule.id,
-        generation,
-        parentGeneration,
-        createdAt: DateTime.formatIso(now),
-        machine: machineInfo(),
-        root: { kind: rootKind, name: capsuleName },
-        repos: repoManifests,
-        harness: {
-          kind: harness ?? "none",
-          sessionId,
-          cwd: root,
-          chunks: harnessBytes ? toManifestChunks(harnessBytes) : [],
-        },
-        excludes: [".env*", ...TELEPORT_EXCLUDED_NAMES],
-        totals: {
-          chunks: chunks.length,
-          bytes: bytesTotal,
-          dedupedBytes: bytesTotal - bytesMissing,
-        },
-      };
-      yield* apiPost(
+      const committed = yield* apiPostText(
         creds,
         `/api/v5/teleport/capsules/${encodeURIComponent(capsule.id)}/commit`,
-        { generation, manifest },
-        Schema.Unknown,
+        commitEnvelope({
+          rawManifest: encodedManifest.raw,
+          manifestSha256: encodedManifest.sha256,
+          committedBy: "desktop",
+        }),
+        CommitResponse,
       );
 
-      const finalName = capsule.name || capsuleName;
+      const finalName = committed.capsule.name || capsuleName;
       yield* writeState(input.threadId, {
-        capsuleId: capsule.id,
+        capsuleId: committed.capsule.id,
         capsuleName: finalName,
-        generation,
+        generation: committed.generation.generation,
         basis: basisTips,
       });
 
       return {
-        capsuleId: capsule.id,
+        capsuleId: committed.capsule.id,
         capsuleName: finalName,
-        generation,
+        generation: committed.generation.generation,
         bytes: bytesTotal,
         chunks: chunks.length,
-        dedupedChunks: chunks.length - missing.length,
+        dedupedChunks: chunks.length - missing.filter((m) => m.sha256 !== encodedManifest.sha256).length,
         harness,
         harnessSessionId: sessionId,
       } satisfies TeleportCapsuleSummary;
@@ -726,12 +805,15 @@ export const make = Effect.gen(function* () {
     const creds = yield* requireCredentials;
     const session = yield* apiPost(
       creds,
-      `/api/v5/teleport/capsules/${encodeURIComponent(input.capsuleId)}/cloud-sessions`,
-      { harness: input.harness },
+      `/api/v5/teleport/capsules/${encodeURIComponent(input.capsuleId)}/cloud-session`,
+      { prompt: input.prompt, harness: input.harness },
       CloudSessionRecord,
     );
     return {
-      ...session,
+      jobId: session.jobId,
+      sessionId: session.sessionId,
+      agentId: session.agentId,
+      threadId: session.threadId,
       url: `${dittoAppUrlFor(creds.apiBaseUrl)}/chat/${encodeURIComponent(session.threadId)}`,
     } satisfies TeleportCloudSession;
   });

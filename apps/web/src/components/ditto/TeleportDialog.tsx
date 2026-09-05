@@ -29,6 +29,10 @@ import {
 } from "../ui/dialog";
 import { Spinner } from "../ui/spinner";
 
+/** First turn for a cloud session started from the dialog; the transcript carries the rest. */
+const TELEPORT_CLOUD_SESSION_PROMPT =
+  "Continue this session where it left off. Summarize the current state of the work first.";
+
 export function TeleportDialog() {
   const state = useSyncExternalStore(
     subscribeTeleportDialog,
@@ -53,7 +57,11 @@ export function TeleportDialog() {
     setLaunchError(null);
     const result = await launchCloudSession({
       environmentId: view.target.environmentId,
-      input: { capsuleId: view.capsule.capsuleId, harness: view.capsule.harness },
+      input: {
+        capsuleId: view.capsule.capsuleId,
+        harness: view.capsule.harness,
+        prompt: TELEPORT_CLOUD_SESSION_PROMPT,
+      },
     });
     setLaunching(false);
     if (result._tag === "Failure") {

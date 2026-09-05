@@ -95,11 +95,14 @@ export class TeleportError extends Schema.TaggedErrorClass<TeleportError>()("Tel
 export const TeleportLaunchCloudSessionInput = Schema.Struct({
   capsuleId: Schema.String,
   harness: TeleportHarness,
+  /** The first turn the cloud agent runs after restoring the capsule. */
+  prompt: Schema.String.check(Schema.isMinLength(1)),
 });
 export type TeleportLaunchCloudSessionInput = typeof TeleportLaunchCloudSessionInput.Type;
 
 export const TeleportCloudSession = Schema.Struct({
   jobId: Schema.String,
+  sessionId: Schema.String,
   threadId: Schema.String,
   agentId: Schema.String,
   /** Where to follow the session in the Ditto app. */

@@ -27,6 +27,8 @@ saved session is complete. A dialog shows progress while the desktop:
 Teleporting the same thread again is fast: unchanged history and files are not uploaded twice.
 
 When the upload finishes, **Open in Ditto Code** starts a cloud session from the capsule and opens it
-in your browser. On another computer, `heyditto teleport pull` restores the same capsule.
+in your browser. Cloud sessions run on one of your Ditto inference endpoints, so create an endpoint
+in the Ditto app first if you have none. If another computer teleported the same thread since your
+last push, teleport again to send a full snapshot. On another computer, `heyditto teleport pull` restores the same capsule.
 
 Threads from other providers and threads without a working directory do not offer Teleport.

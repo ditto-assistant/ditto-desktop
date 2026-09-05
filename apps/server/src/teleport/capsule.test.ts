@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  batched,
   capsuleNameFor,
   chunkBytes,
+  commitEnvelope,
+  encodeManifest,
   claudeProjectSlug,
   filterWorktreeEntries,
   isTeleportExcludedPath,
   parseBranchTips,
   parseRemotes,
   sha256Hex,
+  TELEPORT_MANIFEST_VERSION,
+  type TeleportManifest,
 } from "./capsule.ts";
 
 describe("isTeleportExcludedPath", () => {
@@ -84,6 +89,41 @@ describe("git output parsers", () => {
       "docs/b.md",
       "src/a.ts",
     ]);
+  });
+});
+
+describe("commit envelope", () => {
+  const manifest: TeleportManifest = {
+    v: TELEPORT_MANIFEST_VERSION,
+    capsuleId: "cap-1",
+    generation: 2,
+    parentGeneration: 1,
+    createdAt: "2026-09-05T10:00:00.000Z",
+    machine: { hostname: "mac", os: "darwin", arch: "arm64", client: "ditto-desktop" },
+    root: { kind: "repo", name: "backend" },
+    repos: [],
+    harness: { kind: "claude-code", sessionId: "s-1", cwd: "/code/backend", chunks: [] },
+    excludes: [],
+    totals: { chunks: 1, bytes: 10, dedupedBytes: 0 },
+  };
+
+  it("embeds the manifest verbatim so the server's hash matches", () => {
+    const encoded = encodeManifest(manifest);
+    const body = JSON.parse(
+      commitEnvelope({
+        rawManifest: encoded.raw,
+        manifestSha256: encoded.sha256,
+        committedBy: "desktop",
+      }),
+    ) as { manifest: TeleportManifest; manifestSha256: string; committedBy: string };
+    expect(body.manifest).toEqual(manifest);
+    expect(body.committedBy).toBe("desktop");
+    expect(body.manifestSha256).toBe(sha256Hex(new TextEncoder().encode(JSON.stringify(body.manifest))));
+  });
+
+  it("batches negotiate requests", () => {
+    expect(batched([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+    expect(batched([], 200)).toEqual([]);
   });
 });
 

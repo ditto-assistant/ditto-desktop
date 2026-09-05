@@ -11,6 +11,12 @@ import type { TeleportHarness } from "@t3tools/contracts";
 /** Chunks stay under the Ditto storage layer's 25 MiB single-object cap. */
 export const TELEPORT_CHUNK_BYTES = 24 * 1024 * 1024;
 
+/** The Ditto API accepts at most this many chunks per negotiate call. */
+export const TELEPORT_NEGOTIATE_BATCH = 200;
+
+/** Manifest schema version the Ditto API validates (`v`). */
+export const TELEPORT_MANIFEST_VERSION = 1;
+
 /**
  * Paths that never travel inside a capsule. Secrets are excluded by
  * construction (`.env*`, key material) and package caches are re-derivable.
@@ -86,49 +92,93 @@ export function claudeProjectSlug(cwd: string): string {
   return cwd.replace(/[\\/:.]/g, "-");
 }
 
+export interface TeleportManifestChunk {
+  readonly sha256: string;
+  readonly size: number;
+}
+
+/**
+ * One repository inside the capsule root. Field names follow the Ditto
+ * backend's `teleport.Repo` (pkg/services/teleport/manifest.go).
+ */
 export interface TeleportRepoManifest {
   readonly relPath: string;
   readonly remotes: ReadonlyArray<{ readonly name: string; readonly url: string }>;
   readonly head: {
     readonly sha: string;
-    readonly branch: string | null;
-    readonly upstream: string | null;
+    readonly branch?: string;
+    readonly upstream?: string;
   };
-  readonly refs: { readonly branches: ReadonlyArray<string>; readonly tags: ReadonlyArray<string> };
+  readonly branches: ReadonlyArray<string>;
+  readonly tags: ReadonlyArray<string>;
   readonly packs: ReadonlyArray<{
     readonly kind: "full" | "thin";
     readonly basisGeneration?: number;
-    readonly chunks: ReadonlyArray<{ readonly sha256: string; readonly size: number }>;
+    readonly chunks: ReadonlyArray<TeleportManifestChunk>;
   }>;
   readonly worktree: {
-    readonly chunks: ReadonlyArray<{ readonly sha256: string; readonly size: number }>;
+    readonly chunks: ReadonlyArray<TeleportManifestChunk>;
     readonly entries: number;
     readonly bytes: number;
   };
 }
 
+/** One generation of a capsule, as the Ditto backend's `teleport.Manifest` decodes it. */
 export interface TeleportManifest {
-  readonly version: 1;
+  readonly v: typeof TELEPORT_MANIFEST_VERSION;
   readonly capsuleId: string;
   readonly generation: number;
-  readonly parentGeneration: number | null;
+  /** Always `generation - 1`; the server rejects a commit whose parent is not its head. */
+  readonly parentGeneration: number;
   readonly createdAt: string;
-  readonly machine: {
-    readonly hostname: string;
-    readonly os: string;
-    readonly arch: string;
-    readonly client: string;
-  };
+  readonly machine: Readonly<Record<string, string>>;
   readonly root: { readonly kind: "repo" | "folder"; readonly name: string };
   readonly repos: ReadonlyArray<TeleportRepoManifest>;
   readonly harness: {
     readonly kind: TeleportHarness | "none";
-    readonly sessionId: string | null;
+    readonly sessionId?: string;
     readonly cwd: string;
-    readonly chunks: ReadonlyArray<{ readonly sha256: string; readonly size: number }>;
+    readonly chunks: ReadonlyArray<TeleportManifestChunk>;
   };
   readonly excludes: ReadonlyArray<string>;
   readonly totals: { readonly chunks: number; readonly bytes: number; readonly dedupedBytes: number };
+}
+
+/**
+ * Serialises a manifest for upload. The same bytes are uploaded as a chunk and
+ * embedded verbatim in the commit body, because the server hashes the raw
+ * manifest it receives and requires that hash to name an uploaded chunk.
+ */
+export function encodeManifest(manifest: TeleportManifest): {
+  readonly raw: string;
+  readonly bytes: Uint8Array;
+  readonly sha256: string;
+} {
+  const raw = JSON.stringify(manifest);
+  const bytes = new TextEncoder().encode(raw);
+  return { raw, bytes, sha256: sha256Hex(bytes) };
+}
+
+/**
+ * The commit request body with the manifest embedded byte-for-byte, so
+ * `manifestSha256` matches what the server recomputes from `manifest`.
+ */
+export function commitEnvelope(input: {
+  readonly rawManifest: string;
+  readonly manifestSha256: string;
+  readonly committedBy: string;
+}): string {
+  return `{"manifest":${input.rawManifest},"manifestSha256":${JSON.stringify(input.manifestSha256)},"committedBy":${JSON.stringify(input.committedBy)}}`;
+}
+
+/** Splits a list into consecutive batches of at most `size`. */
+export function batched<T>(items: ReadonlyArray<T>, size: number): ReadonlyArray<ReadonlyArray<T>> {
+  if (size <= 0) throw new Error("batch size must be positive");
+  const out: Array<ReadonlyArray<T>> = [];
+  for (let offset = 0; offset < items.length; offset += size) {
+    out.push(items.slice(offset, offset + size));
+  }
+  return out;
 }
 
 /** The refs a thin bundle is built against: one sha per branch from the last generation. */
