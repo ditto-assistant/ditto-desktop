@@ -76,6 +76,8 @@ import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
 import { vi } from "vite-plus/test";
 import { DittoHarnessServiceDisabled } from "./dittoHarness/DittoHarnessService.ts";
+import { DittoAccountService } from "./teleport/DittoAccount.ts";
+import { TeleportService } from "./teleport/TeleportService.ts";
 import { ChannelRegistry, makeChannelRegistry } from "./channels/ChannelRegistry.ts";
 
 const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
@@ -681,6 +683,16 @@ const buildAppUnderTest = (options?: {
             ...options?.layers?.serverSettings,
           }),
           DittoHarnessServiceDisabled,
+          Layer.mock(DittoAccountService)({
+            status: Effect.succeed({ linked: false }),
+            link: () => Effect.succeed({ linked: false }),
+            unlink: Effect.succeed({ linked: false }),
+            credentials: Effect.succeed(Option.none()),
+          }),
+          Layer.mock(TeleportService)({
+            teleportThread: () => Effect.die("unused teleport"),
+            launchCloudSession: () => Effect.die("unused teleport"),
+          }),
           Layer.succeed(ChannelRegistry, makeChannelRegistry(new Map())),
         ),
       ),

@@ -55,6 +55,10 @@ so add one in **Settings** → **Keybindings** if you want to use it.
 `thread.settle` settles the active thread or restores it when it is already settled. Its default
 shortcut is `mod+shift+s`, and it does not run while the terminal has focus.
 
+`thread.teleport` saves the active thread to Ditto Cloud (see
+[Teleport](./teleport.md)). It has no default shortcut, only runs for Claude Code and Codex threads,
+and waits until the current turn has finished.
+
 `thread.pin` pins the active thread to the pinned section of the sidebar, or unpins it when it is
 already pinned. Its default shortcut is `mod+shift+p`, and it does not run while the terminal has
 focus. See [Organizing threads](./thread-sidebar.md) for how pinned threads are ordered.

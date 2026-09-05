@@ -4,7 +4,8 @@
  *
  * A Ditto account is optional: the desktop works locally without one. Signing
  * in unlocks the features that live in Ditto's cloud, starting with Google
- * Messages pairing through the hosted bridge.
+ * Messages pairing through the hosted bridge. Linking the computer (device
+ * code) gives the desktop server its own Ditto key for Teleport and Ditto Code.
  *
  * @module DittoAccountSettings
  */
@@ -22,6 +23,7 @@ import {
 import { useDittoUser } from "~/ditto/useDittoUser";
 
 import { Button } from "../ui/button";
+import { DeviceLinkRow } from "./DittoDeviceLink";
 import { GoogleMessagesConnectionRow } from "./GoogleMessagesConnection";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -239,6 +241,7 @@ export function DittoAccountSettingsPanel() {
           <>
             <AccountRow />
             <BackendRow />
+            <DeviceLinkRow />
           </>
         ) : (
           <UnconfiguredNotice />
