@@ -10,6 +10,26 @@ computer**. Ditto shows a short code, opens the approval page in your browser, a
 finishes linking once you approve it. The desktop server keeps its own key; the key never leaves
 that machine, and **Disconnect** removes it. You can also revoke it from the Ditto app.
 
+Linking does not need a Ditto sign-in: it works in builds without the `DITTO_FIREBASE_*` values,
+where the Ditto Account page shows only the backend picker and **Link this computer**.
+
+## Point the desktop at a preview backend
+
+Teleport talks to whichever Ditto backend **Settings → Ditto Account → Backend** selects:
+production by default, or a staging slot. To test a backend branch that is deployed as an ephemeral
+preview (a ditto-app pull request whose title carries `[backend:<branch>]` gets
+`https://pr-<number>-api.heyditto.ai`), set the per-machine override from the renderer's developer
+console and reload:
+
+```js
+localStorage.setItem("ditto.apiBaseUrl", "https://pr-2547-api.heyditto.ai");
+```
+
+The picker then shows **Preview pr-2547**, and the console logs the active override on every visit to
+the settings page so it is never a surprise. Link this computer again after switching backends: the
+key is issued by the backend it was linked against. Pick **Production** in the picker (or remove the
+`ditto.apiBaseUrl` key) to reset.
+
 ## Teleport a thread
 
 Right-click a Claude Code or Codex thread in the sidebar, or open the menu from the chat header, and
