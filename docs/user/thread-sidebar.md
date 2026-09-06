@@ -13,6 +13,10 @@ request merges if **Auto-settle merged threads** is enabled.
 When you un-settle a thread, it returns to the top of the active list so you can find it right
 away. Its timestamps do not change. Other threads keep their positions.
 
+Right-click a Claude Code or Codex thread and choose **Teleport to Ditto Cloud** to save its
+repositories, working tree, and agent session so you can resume it in Ditto Code or on another
+computer. See [Teleport](./teleport.md).
+
 Right-click a pull request link in a thread and choose **Link to thread** to show that pull request
 in the sidebar. The thread settles when the linked pull request merges if **Auto-settle merged
 threads** is enabled. Right-click the same link and choose **Unlink from thread** to remove it.

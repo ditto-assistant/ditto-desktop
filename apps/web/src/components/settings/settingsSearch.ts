@@ -266,6 +266,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/ditto-account",
   },
   {
+    id: "ditto-device-link",
+    title: "Link this computer",
+    to: "/settings/ditto-account",
+  },
+  {
     id: "google-messages",
     title: "Google Messages",
     to: "/settings/ditto-account",

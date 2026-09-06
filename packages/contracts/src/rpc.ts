@@ -26,6 +26,16 @@ import {
   DittoHarnessStatus,
 } from "./dittoHarness.ts";
 import {
+  DittoAccountError,
+  DittoAccountLinkInput,
+  DittoAccountStatus,
+  TeleportCloudSession,
+  TeleportError,
+  TeleportLaunchCloudSessionInput,
+  TeleportProgressEvent,
+  TeleportThreadInput,
+} from "./teleport.ts";
+import {
   ChannelConfigureAccountInput,
   ChannelConfigureAccountResult,
   ChannelListAccountsResult,
@@ -323,6 +333,13 @@ export const WS_METHODS = {
   dittoHarnessSearchSubjects: "dittoHarness.searchSubjects",
   dittoHarnessDream: "dittoHarness.dream",
 
+  // Ditto account (device-code linked ditto_mcp_ key) and Teleport
+  dittoAccountGetStatus: "ditto.account.getStatus",
+  dittoAccountLink: "ditto.account.link",
+  dittoAccountUnlink: "ditto.account.unlink",
+  teleportThread: "teleport.thread",
+  teleportLaunchCloudSession: "teleport.launchCloudSession",
+
   // Local and hosted human-chat adapters
   channelsListAccounts: "channels.listAccounts",
   channelsConfigureAccount: "channels.configureAccount",
@@ -495,6 +512,37 @@ export const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess,
   payload: ServerSignalProcessInput,
   success: ServerSignalProcessResult,
   error: EnvironmentAuthorizationError,
+});
+
+export const WsDittoAccountGetStatusRpc = Rpc.make(WS_METHODS.dittoAccountGetStatus, {
+  payload: Schema.Struct({}),
+  success: DittoAccountStatus,
+  error: Schema.Union([DittoAccountError, EnvironmentAuthorizationError]),
+});
+
+export const WsDittoAccountLinkRpc = Rpc.make(WS_METHODS.dittoAccountLink, {
+  payload: DittoAccountLinkInput,
+  success: DittoAccountStatus,
+  error: Schema.Union([DittoAccountError, EnvironmentAuthorizationError]),
+});
+
+export const WsDittoAccountUnlinkRpc = Rpc.make(WS_METHODS.dittoAccountUnlink, {
+  payload: Schema.Struct({}),
+  success: DittoAccountStatus,
+  error: Schema.Union([DittoAccountError, EnvironmentAuthorizationError]),
+});
+
+export const WsTeleportThreadRpc = Rpc.make(WS_METHODS.teleportThread, {
+  payload: TeleportThreadInput,
+  success: TeleportProgressEvent,
+  error: Schema.Union([TeleportError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+export const WsTeleportLaunchCloudSessionRpc = Rpc.make(WS_METHODS.teleportLaunchCloudSession, {
+  payload: TeleportLaunchCloudSessionInput,
+  success: TeleportCloudSession,
+  error: Schema.Union([TeleportError, EnvironmentAuthorizationError]),
 });
 
 export const WsDittoHarnessStatusRpc = Rpc.make(WS_METHODS.dittoHarnessStatus, {
@@ -1143,6 +1191,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRetryResourceTelemetryRpc,
   WsServerGetUsageSummaryRpc,
   WsServerSignalProcessRpc,
+  WsDittoAccountGetStatusRpc,
+  WsDittoAccountLinkRpc,
+  WsDittoAccountUnlinkRpc,
+  WsTeleportThreadRpc,
+  WsTeleportLaunchCloudSessionRpc,
   WsDittoHarnessStatusRpc,
   WsDittoHarnessSaveMemoryRpc,
   WsDittoHarnessSearchMemoriesRpc,

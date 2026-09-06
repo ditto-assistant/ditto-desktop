@@ -32,7 +32,33 @@ export const DITTO_API_BASE_OPTIONS: readonly DittoApiBaseOption[] = [
 
 export const DITTO_API_BASE_STORAGE_KEY = "ditto.apiBaseUrl";
 
-/** Normalizes a candidate base URL: https only, no trailing slash, known host. */
+/**
+ * Ephemeral backend previews: a ditto-app pull request that names a backend
+ * branch in its title gets `https://pr-<number>-api.heyditto.ai`. They are not
+ * listed in the picker (they come and go with the PR) but are valid overrides.
+ */
+const DITTO_PREVIEW_API_HOST = /^pr-\d+-api\.heyditto\.ai$/;
+
+export function isDittoPreviewApiBaseUrl(url: string): boolean {
+  try {
+    return DITTO_PREVIEW_API_HOST.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Human label for a base URL: a picker option's label, or "Preview pr-N" for an ephemeral slot. */
+export function describeDittoApiBaseUrl(url: string): string {
+  const option = DITTO_API_BASE_OPTIONS.find((candidate) => candidate.url === url);
+  if (option !== undefined) return option.label;
+  if (isDittoPreviewApiBaseUrl(url)) {
+    const slot = new URL(url).hostname.match(/^pr-(\d+)-api/)?.[1];
+    return slot === undefined ? "Preview" : `Preview pr-${slot}`;
+  }
+  return url;
+}
+
+/** Normalizes a candidate base URL: https only, no trailing slash, a known host or a preview slot. */
 export function normalizeDittoApiBaseUrl(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   if (!trimmed) return null;
@@ -44,7 +70,8 @@ export function normalizeDittoApiBaseUrl(value: string | null | undefined): stri
   }
   if (url.protocol !== "https:") return null;
   const normalized = url.origin;
-  return DITTO_API_BASE_OPTIONS.some((option) => option.url === normalized) ? normalized : null;
+  if (DITTO_API_BASE_OPTIONS.some((option) => option.url === normalized)) return normalized;
+  return DITTO_PREVIEW_API_HOST.test(url.hostname) ? normalized : null;
 }
 
 /**
@@ -60,6 +87,11 @@ export function resolveDittoApiBaseUrl(input: {
     normalizeDittoApiBaseUrl(input.configured) ??
     DITTO_PRODUCTION_API_BASE_URL
   );
+}
+
+/** The raw per-machine override, if any (unvalidated; see `normalizeDittoApiBaseUrl`). */
+export function getStoredDittoApiBaseUrl(): string | null {
+  return readStoredApiBaseUrl();
 }
 
 function readStoredApiBaseUrl(): string | null {

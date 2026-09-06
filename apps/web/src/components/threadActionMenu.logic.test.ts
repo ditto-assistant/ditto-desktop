@@ -10,7 +10,13 @@ const baseState: ThreadActionMenuState = {
   canSnoozeNow: true,
   isRegeneratingTitle: false,
   isRunning: false,
-  supports: { settlement: true, snooze: true, pinning: true, titleRegeneration: true },
+  supports: {
+    settlement: true,
+    snooze: true,
+    pinning: true,
+    titleRegeneration: true,
+    teleport: false,
+  },
   snoozePresets: [
     { id: "hour", label: "In 1 hour", whenLabel: "3:00 PM", snoozedUntil: "2026-08-07T15:00:00Z" },
   ],
@@ -31,7 +37,13 @@ describe("buildThreadActionMenuItems", () => {
     expect(
       ids({
         ...baseState,
-        supports: { settlement: false, snooze: false, pinning: false, titleRegeneration: false },
+        supports: {
+          settlement: false,
+          snooze: false,
+          pinning: false,
+          titleRegeneration: false,
+          teleport: false,
+        },
       }),
     ).toEqual(["rename", "mark-unread", "copy", "archive", "delete"]);
   });
@@ -66,6 +78,19 @@ describe("buildThreadActionMenuItems", () => {
     expect(item).toMatchObject({ label: "Regenerating…", disabled: true });
   });
 
+  it("offers teleport only for resumable harness threads and never mid-turn", () => {
+    expect(ids(baseState)).not.toContain("teleport");
+    const supported = { ...baseState, supports: { ...baseState.supports, teleport: true } };
+    const item = buildThreadActionMenuItems(supported).find(
+      (candidate) => candidate.id === "teleport",
+    );
+    expect(item).toMatchObject({ label: "Teleport to Ditto Cloud", disabled: false });
+    const running = buildThreadActionMenuItems({ ...supported, isRunning: true }).find(
+      (candidate) => candidate.id === "teleport",
+    );
+    expect(running?.disabled).toBe(true);
+  });
+
   it("marks delete as destructive and keeps it last", () => {
     const items = buildThreadActionMenuItems({ ...baseState, branch: "main" });
     expect(items.at(-1)).toMatchObject({ id: "delete", destructive: true });
@@ -84,7 +109,13 @@ describe("buildThreadActionMenuItems", () => {
     expect(
       ids({
         ...baseState,
-        supports: { settlement: false, snooze: false, pinning: false, titleRegeneration: false },
+        supports: {
+          settlement: false,
+          snooze: false,
+          pinning: false,
+          titleRegeneration: false,
+          teleport: false,
+        },
       }),
     ).toContain("archive");
   });

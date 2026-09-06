@@ -112,6 +112,8 @@ import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinar
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import { DittoHarnessServiceLive } from "./dittoHarness/DittoHarnessService.ts";
+import * as DittoAccount from "./teleport/DittoAccount.ts";
+import * as TeleportServiceLayer from "./teleport/TeleportService.ts";
 import * as ChannelRegistry from "./channels/ChannelRegistry.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
@@ -430,9 +432,19 @@ const RuntimeCoreDependenciesBaseLive = ReactorLayerLive.pipe(
 
 const LocalChannelsLayerLive = ChannelRegistry.layer.pipe(Layer.provide(ProcessRunner.layer));
 
+// Ditto account (device-code linked key) and Teleport capture. The account
+// layer is shared so the teleport service and the ws handlers read one store.
+const DittoAccountLayerLive = DittoAccount.layer.pipe(Layer.provide(ServerSecretStore.layer));
+const TeleportLayerLive = TeleportServiceLayer.layer.pipe(
+  Layer.provide(DittoAccountLayerLive),
+  Layer.provide(ProviderSessionRuntime.layer),
+);
+
 const RuntimeCoreDependenciesLive = Layer.mergeAll(
   DittoHarnessServiceLive,
   LocalChannelsLayerLive,
+  DittoAccountLayerLive,
+  TeleportLayerLive,
 ).pipe(Layer.provideMerge(RuntimeCoreDependenciesBaseLive));
 
 const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(

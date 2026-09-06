@@ -220,6 +220,7 @@ import {
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useThreadActions } from "../hooks/useThreadActions";
+import { threadSupportsTeleport, useTeleportThread } from "../hooks/useTeleportThread";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
 import { confirmTerminalClose, isTerminalCloseConfirmPending } from "../lib/terminalCloseConfirm";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
@@ -1302,6 +1303,7 @@ function ChatViewContent(props: ChatViewProps) {
   const threadDetailLoading = threadSyncPhase === "loading";
   const handleNewThread = useNewThreadHandler();
   const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
+  const teleportThread = useTeleportThread();
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
@@ -5335,6 +5337,21 @@ function ChatViewContent(props: ChatViewProps) {
       });
       if (!command) return;
 
+      if (command === "thread.teleport") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!isServerThread || !activeThreadRef || !activeThreadShell) return;
+        if (!threadSupportsTeleport(activeThreadShell)) return;
+        if (
+          activeThreadShell.session?.status === "running" &&
+          activeThreadShell.session.activeTurnId != null
+        ) {
+          return;
+        }
+        void teleportThread(activeThreadRef, activeThreadShell, activeWorkspaceRoot ?? null);
+        return;
+      }
+
       if (command === "thread.settle") {
         event.preventDefault();
         event.stopPropagation();
@@ -5503,6 +5520,9 @@ function ChatViewContent(props: ChatViewProps) {
     settleThread,
     supportsPinning,
     supportsSettlement,
+    activeThreadShell,
+    activeWorkspaceRoot,
+    teleportThread,
     confirmAndUnpinThread,
     toggleRightPanel,
     toggleRightPanelMaximized,

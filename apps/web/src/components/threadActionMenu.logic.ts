@@ -18,6 +18,8 @@ export type ThreadActionMenuId =
   | "rename"
   | "regenerate-title"
   | "mark-unread"
+  | "teleport"
+  | "teleport"
   | "copy"
   | "copy-path"
   | "copy-branch"
@@ -39,6 +41,8 @@ export interface ThreadActionMenuState {
     readonly snooze: boolean;
     readonly pinning: boolean;
     readonly titleRegeneration: boolean;
+    /** Claude Code and Codex threads whose session can be resumed elsewhere. */
+    readonly teleport: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
 }
@@ -106,6 +110,34 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
+    // Teleport snapshots the thread's repos, working tree, and agent session
+    // to Ditto Cloud. Capturing mid-turn would ship a half-written transcript,
+    // so it waits for the turn like Archive does.
+    ...(state.supports.teleport
+      ? [
+          {
+            id: "teleport" as const,
+            label: "Teleport to Ditto Cloud",
+            icon: "rocket",
+            disabled: state.isRunning,
+            separatorBefore: true,
+          },
+        ]
+      : []),
+    // Teleport snapshots the thread's repos, working tree, and agent session
+    // to Ditto Cloud. Capturing mid-turn would ship a half-written transcript,
+    // so it waits for the turn like Archive does.
+    ...(state.supports.teleport
+      ? [
+          {
+            id: "teleport" as const,
+            label: "Teleport to Ditto Cloud",
+            icon: "rocket",
+            disabled: state.isRunning,
+            separatorBefore: true,
+          },
+        ]
+      : []),
     {
       id: "copy",
       label: "Copy",
