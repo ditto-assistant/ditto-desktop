@@ -22,9 +22,10 @@ import {
   requestDeviceCode,
   verificationUrlWithCode,
 } from "~/ditto/deviceCode";
-import { readPrimaryEnvironmentDescriptor } from "~/environments/primary";
+import { pickDeviceLinkEnvironmentId } from "~/ditto/deviceLinkEnvironment";
 
 import { readLocalApi } from "../../localApi";
+import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
@@ -35,12 +36,20 @@ function describeError(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.length > 0 ? error.message : fallback;
 }
 
-export function DeviceLinkRow() {
-  const environmentId = readPrimaryEnvironmentDescriptor()?.environmentId ?? null;
+export function DeviceLinkRow(props: {
+  /** Seed the linked state (tests, prerender); the row still refreshes from the server. */
+  readonly initialStatus?: DittoAccountStatus;
+}) {
+  // Follow the environment registry, not the bootstrap-time primary
+  // descriptor: in the native app that descriptor is filled lazily, and a
+  // relay-only session has no primary at all.
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const { environments } = useEnvironments();
+  const environmentId = pickDeviceLinkEnvironmentId(primaryEnvironmentId, environments);
   const getStatus = useAtomCommand(dittoAccountCommands.getStatus, { reportFailure: false });
   const link = useAtomCommand(dittoAccountCommands.link, { reportFailure: false });
   const unlink = useAtomCommand(dittoAccountCommands.unlink, { reportFailure: false });
-  const [status, setStatus] = useState<DittoAccountStatus | null>(null);
+  const [status, setStatus] = useState<DittoAccountStatus | null>(props.initialStatus ?? null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [flow, dispatch] = useReducer(reduceDeviceLink, INITIAL_DEVICE_LINK_STATE);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -192,7 +201,7 @@ export function DeviceLinkRow() {
     return (
       <SettingsRow
         {...searchableSetting("ditto-device-link")}
-        description="Connect to a desktop server to link it with your Ditto account."
+        description="Waiting for a desktop server. Linking happens on the server that runs your threads; open a project or connect a relay first."
       />
     );
   }

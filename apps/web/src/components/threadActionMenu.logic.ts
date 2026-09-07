@@ -124,20 +124,6 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
-    // Teleport snapshots the thread's repos, working tree, and agent session
-    // to Ditto Cloud. Capturing mid-turn would ship a half-written transcript,
-    // so it waits for the turn like Archive does.
-    ...(state.supports.teleport
-      ? [
-          {
-            id: "teleport" as const,
-            label: "Teleport to Ditto Cloud",
-            icon: "rocket",
-            disabled: state.isRunning,
-            separatorBefore: true,
-          },
-        ]
-      : []),
     {
       id: "copy",
       label: "Copy",

@@ -85,6 +85,7 @@ describe("buildThreadActionMenuItems", () => {
       (candidate) => candidate.id === "teleport",
     );
     expect(item).toMatchObject({ label: "Teleport to Ditto Cloud", disabled: false });
+    expect(ids(supported).filter((id) => id === "teleport")).toHaveLength(1);
     const running = buildThreadActionMenuItems({ ...supported, isRunning: true }).find(
       (candidate) => candidate.id === "teleport",
     );
