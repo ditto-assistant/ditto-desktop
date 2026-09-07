@@ -123,3 +123,43 @@ export function teleportHarnessForProvider(
       return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Device-code linking, driven by the server. The renderer only opens the
+// verification page and shows state; the server talks to the Ditto API (no
+// browser origin, so no CORS) and stores the resulting key itself. The device
+// code never reaches the client: polls address the attempt by `linkId`.
+// ---------------------------------------------------------------------------
+
+export const DittoDeviceLinkStartInput = Schema.Struct({
+  apiBaseUrl: Schema.String.check(Schema.isMinLength(8)),
+});
+export type DittoDeviceLinkStartInput = typeof DittoDeviceLinkStartInput.Type;
+
+export const DittoDeviceLinkChallenge = Schema.Struct({
+  /** Server-side handle for this attempt; pass it to every poll. */
+  linkId: Schema.String,
+  /** The code the user confirms on the verification page. */
+  userCode: Schema.String,
+  verificationUrl: Schema.String,
+  /** ISO timestamp after which the code is dead. */
+  expiresAt: Schema.String,
+  /** Poll cadence the Ditto API asked for. */
+  intervalSeconds: Schema.Number,
+});
+export type DittoDeviceLinkChallenge = typeof DittoDeviceLinkChallenge.Type;
+
+export const DittoDeviceLinkPollInput = Schema.Struct({
+  linkId: Schema.String.check(Schema.isMinLength(1)),
+});
+export type DittoDeviceLinkPollInput = typeof DittoDeviceLinkPollInput.Type;
+
+export const DittoDeviceLinkPoll = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("pending") }),
+  Schema.Struct({ kind: Schema.Literal("slow-down") }),
+  Schema.Struct({ kind: Schema.Literal("expired") }),
+  Schema.Struct({ kind: Schema.Literal("denied") }),
+  /** The account approved the code; the server stored the key. */
+  Schema.Struct({ kind: Schema.Literal("linked"), status: DittoAccountStatus }),
+]);
+export type DittoDeviceLinkPoll = typeof DittoDeviceLinkPoll.Type;

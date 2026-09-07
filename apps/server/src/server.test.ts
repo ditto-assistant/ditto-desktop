@@ -688,6 +688,8 @@ const buildAppUnderTest = (options?: {
             link: () => Effect.succeed({ linked: false }),
             unlink: Effect.succeed({ linked: false }),
             credentials: Effect.succeed(Option.none()),
+            startDeviceLink: () => Effect.die("unused device link"),
+            pollDeviceLink: () => Effect.die("unused device link"),
           }),
           Layer.mock(TeleportService)({
             teleportThread: () => Effect.die("unused teleport"),

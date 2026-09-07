@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  deviceLinkDeadlineMs,
   devicePollIntervalMs,
   INITIAL_DEVICE_LINK_STATE,
-  interpretDeviceTokenResponse,
   reduceDeviceLink,
   verificationUrlWithCode,
   type DeviceCodeChallenge,
@@ -11,41 +11,48 @@ import {
 } from "./deviceCode";
 
 const challenge: DeviceCodeChallenge = {
-  deviceCode: "dev-1",
+  linkId: "link-1",
   userCode: "ABCD-1234",
   verificationUrl: "https://heyditto.ai/device",
-  expiresInSeconds: 600,
+  expiresAt: "2030-01-01T00:10:00.000Z",
   intervalSeconds: 5,
 };
 
+function run(events: Parameters<typeof reduceDeviceLink>[1][]): DeviceLinkState {
+  return events.reduce(reduceDeviceLink, INITIAL_DEVICE_LINK_STATE);
+}
+
 describe("reduceDeviceLink", () => {
   it("walks request → waiting → approved → linked", () => {
-    let state: DeviceLinkState = INITIAL_DEVICE_LINK_STATE;
-    state = reduceDeviceLink(state, { type: "start" });
-    expect(state.phase).toBe("requesting");
-    state = reduceDeviceLink(state, { type: "challenge", challenge });
-    expect(state).toEqual({ phase: "waiting", challenge, slowDowns: 0 });
-    state = reduceDeviceLink(state, { type: "pending" });
-    expect(state.phase).toBe("waiting");
-    state = reduceDeviceLink(state, { type: "slow-down" });
-    expect(state).toEqual({ phase: "waiting", challenge, slowDowns: 1 });
-    state = reduceDeviceLink(state, { type: "approved" });
-    expect(state).toEqual({ phase: "linking", challenge });
-    state = reduceDeviceLink(state, { type: "linked", keyHint: "208c" });
-    expect(state).toEqual({ phase: "linked", keyHint: "208c" });
+    expect(run([{ type: "start" }])).toEqual({ phase: "requesting" });
+    expect(run([{ type: "start" }, { type: "challenge", challenge }])).toEqual({
+      phase: "waiting",
+      challenge,
+      slowDowns: 0,
+    });
+    expect(
+      run([{ type: "start" }, { type: "challenge", challenge }, { type: "slow-down" }]),
+    ).toMatchObject({ phase: "waiting", slowDowns: 1 });
+    expect(
+      run([{ type: "start" }, { type: "challenge", challenge }, { type: "approved" }]),
+    ).toEqual({ phase: "linking", challenge });
+    expect(run([{ type: "linked", keyHint: "9f3a" }])).toEqual({
+      phase: "linked",
+      keyHint: "9f3a",
+    });
   });
 
   it("fails on expiry and denial and resets to idle", () => {
-    const waiting = reduceDeviceLink(INITIAL_DEVICE_LINK_STATE, { type: "challenge", challenge });
-    expect(reduceDeviceLink(waiting, { type: "expired" }).phase).toBe("failed");
-    expect(reduceDeviceLink(waiting, { type: "denied" }).phase).toBe("failed");
-    expect(reduceDeviceLink(waiting, { type: "reset" })).toEqual(INITIAL_DEVICE_LINK_STATE);
+    expect(run([{ type: "start" }, { type: "expired" }]).phase).toBe("failed");
+    expect(run([{ type: "start" }, { type: "denied" }]).phase).toBe("failed");
+    expect(run([{ type: "start" }, { type: "denied" }, { type: "reset" }])).toEqual(
+      INITIAL_DEVICE_LINK_STATE,
+    );
   });
 
   it("ignores approvals that arrive outside the waiting phase", () => {
-    expect(reduceDeviceLink(INITIAL_DEVICE_LINK_STATE, { type: "approved" })).toEqual(
-      INITIAL_DEVICE_LINK_STATE,
-    );
+    expect(run([{ type: "approved" }])).toEqual(INITIAL_DEVICE_LINK_STATE);
+    expect(run([{ type: "start" }, { type: "approved" }])).toEqual({ phase: "requesting" });
   });
 });
 
@@ -60,15 +67,10 @@ describe("device-code helpers", () => {
     expect(verificationUrlWithCode(challenge)).toBe("https://heyditto.ai/device?code=ABCD-1234");
   });
 
-  it("interprets every token endpoint outcome", () => {
-    expect(interpretDeviceTokenResponse({ access_token: "ditto_mcp_x" })).toEqual({
-      kind: "approved",
-      accessToken: "ditto_mcp_x",
-    });
-    expect(interpretDeviceTokenResponse({ error: "authorization_pending" }).kind).toBe("pending");
-    expect(interpretDeviceTokenResponse({ error: "slow_down" }).kind).toBe("slow-down");
-    expect(interpretDeviceTokenResponse({ error: "expired_token" }).kind).toBe("expired");
-    expect(interpretDeviceTokenResponse({ error: "access_denied" }).kind).toBe("denied");
-    expect(interpretDeviceTokenResponse(null).kind).toBe("error");
+  it("derives the polling deadline from the server's expiry", () => {
+    expect(deviceLinkDeadlineMs(challenge)).toBe(Date.parse("2030-01-01T00:10:00.000Z"));
+    expect(deviceLinkDeadlineMs({ ...challenge, expiresAt: "garbage" })).toBeGreaterThan(
+      Date.now(),
+    );
   });
 });

@@ -1,23 +1,18 @@
 /**
  * "Link this computer" with Ditto through the OAuth device-code flow.
  *
- * The desktop asks the Ditto API for a device code, sends the user to the
- * verification page (the code is pre-filled), and polls until the account
- * approves it. The result is a long-lived `ditto_mcp_` key which the server
- * stores in its secret store; the renderer only keeps the pure state machine
- * below so the transitions are unit-testable without React or network.
+ * The desktop server owns the transport: it asks the Ditto API for a device
+ * code, polls the token endpoint, and stores the resulting long-lived
+ * `ditto_mcp_` key in its secret store. Server-side fetches carry no browser
+ * origin, so the flow works from any renderer origin without CORS. The
+ * renderer keeps only this pure state machine plus the timing helpers, so the
+ * transitions are unit-testable without React or network.
  *
  * @module ditto/deviceCode
  */
-import { getDittoApiBaseUrl } from "./apiBase";
+import type { DittoDeviceLinkChallenge } from "@t3tools/contracts";
 
-export interface DeviceCodeChallenge {
-  readonly deviceCode: string;
-  readonly userCode: string;
-  readonly verificationUrl: string;
-  readonly expiresInSeconds: number;
-  readonly intervalSeconds: number;
-}
+export type DeviceCodeChallenge = DittoDeviceLinkChallenge;
 
 export type DeviceLinkState =
   | { readonly phase: "idle" }
@@ -44,9 +39,6 @@ export type DeviceLinkEvent =
   | { readonly type: "reset" };
 
 export const INITIAL_DEVICE_LINK_STATE: DeviceLinkState = { phase: "idle" };
-
-/** RFC 8628 grant type the Ditto token endpoint expects. */
-export const DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
 export function reduceDeviceLink(state: DeviceLinkState, event: DeviceLinkEvent): DeviceLinkState {
   switch (event.type) {
@@ -82,6 +74,12 @@ export function devicePollIntervalMs(challenge: DeviceCodeChallenge, slowDowns: 
   return base + slowDowns * 5000;
 }
 
+/** Epoch millis after which the renderer stops polling; the server enforces the real expiry. */
+export function deviceLinkDeadlineMs(challenge: DeviceCodeChallenge): number {
+  const parsed = Date.parse(challenge.expiresAt);
+  return Number.isFinite(parsed) ? parsed : Date.now() + 600_000;
+}
+
 /** The verification page with the user code pre-filled, e.g. `https://heyditto.ai/device?code=ABCD-1234`. */
 export function verificationUrlWithCode(challenge: DeviceCodeChallenge): string {
   try {
@@ -91,91 +89,4 @@ export function verificationUrlWithCode(challenge: DeviceCodeChallenge): string 
   } catch {
     return challenge.verificationUrl;
   }
-}
-
-export type DeviceTokenPoll =
-  | { readonly kind: "approved"; readonly accessToken: string }
-  | { readonly kind: "pending" }
-  | { readonly kind: "slow-down" }
-  | { readonly kind: "expired" }
-  | { readonly kind: "denied" }
-  | { readonly kind: "error"; readonly message: string };
-
-/** Interprets one token-endpoint response body. */
-export function interpretDeviceTokenResponse(body: unknown): DeviceTokenPoll {
-  if (typeof body !== "object" || body === null) {
-    return { kind: "error", message: "Ditto returned an unexpected response." };
-  }
-  const record = body as Record<string, unknown>;
-  if (typeof record.access_token === "string" && record.access_token.length > 0) {
-    return { kind: "approved", accessToken: record.access_token };
-  }
-  switch (record.error) {
-    case "authorization_pending":
-      return { kind: "pending" };
-    case "slow_down":
-      return { kind: "slow-down" };
-    case "expired_token":
-      return { kind: "expired" };
-    case "access_denied":
-      return { kind: "denied" };
-    default:
-      return {
-        kind: "error",
-        message:
-          typeof record.error_description === "string"
-            ? record.error_description
-            : typeof record.error === "string"
-              ? `Ditto returned ${record.error}.`
-              : "Ditto returned an unexpected response.",
-      };
-  }
-}
-
-/** Unauthenticated JSON POST against the selected Ditto backend. */
-export async function dittoFetchAnonymous<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${getDittoApiBaseUrl()}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Platform": "desktop" },
-    body: JSON.stringify(body),
-  });
-  const text = await response.text();
-  let parsed: unknown = null;
-  try {
-    parsed = text.length > 0 ? JSON.parse(text) : null;
-  } catch {
-    parsed = null;
-  }
-  if (!response.ok && !(typeof parsed === "object" && parsed !== null && "error" in parsed)) {
-    throw new Error(`Ditto API responded with ${response.status}.`);
-  }
-  return parsed as T;
-}
-
-export async function requestDeviceCode(): Promise<DeviceCodeChallenge> {
-  const body = await dittoFetchAnonymous<{
-    device_code?: string;
-    user_code?: string;
-    verification_url?: string;
-    expires_in?: number;
-    interval?: number;
-  }>("/api/v2/mcp/device-code", {});
-  if (!body?.device_code || !body.user_code || !body.verification_url) {
-    throw new Error("Ditto did not return a device code.");
-  }
-  return {
-    deviceCode: body.device_code,
-    userCode: body.user_code,
-    verificationUrl: body.verification_url,
-    expiresInSeconds: typeof body.expires_in === "number" ? body.expires_in : 600,
-    intervalSeconds: typeof body.interval === "number" ? body.interval : 5,
-  };
-}
-
-export async function pollDeviceToken(challenge: DeviceCodeChallenge): Promise<DeviceTokenPoll> {
-  const body = await dittoFetchAnonymous<unknown>("/api/v2/mcp/device-token", {
-    device_code: challenge.deviceCode,
-    grant_type: DEVICE_CODE_GRANT_TYPE,
-  });
-  return interpretDeviceTokenResponse(body);
 }

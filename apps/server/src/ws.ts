@@ -1885,6 +1885,18 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.dittoAccountUnlink, dittoAccount.unlink, {
             "rpc.aggregate": "ditto-account",
           }),
+        [WS_METHODS.dittoAccountStartDeviceLink]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.dittoAccountStartDeviceLink,
+            dittoAccount.startDeviceLink(input),
+            { "rpc.aggregate": "ditto-account" },
+          ),
+        [WS_METHODS.dittoAccountPollDeviceLink]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.dittoAccountPollDeviceLink,
+            dittoAccount.pollDeviceLink(input),
+            { "rpc.aggregate": "ditto-account" },
+          ),
         [WS_METHODS.teleportThread]: (input) =>
           observeRpcStream(
             WS_METHODS.teleportThread,

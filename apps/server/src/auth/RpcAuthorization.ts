@@ -55,6 +55,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.dittoAccountGetStatus]: AuthOrchestrationReadScope,
   [WS_METHODS.dittoAccountLink]: AuthOrchestrationOperateScope,
   [WS_METHODS.dittoAccountUnlink]: AuthOrchestrationOperateScope,
+  [WS_METHODS.dittoAccountStartDeviceLink]: AuthOrchestrationOperateScope,
+  [WS_METHODS.dittoAccountPollDeviceLink]: AuthOrchestrationOperateScope,
   [WS_METHODS.teleportThread]: AuthOrchestrationOperateScope,
   [WS_METHODS.teleportLaunchCloudSession]: AuthOrchestrationOperateScope,
   [WS_METHODS.channelsListAccounts]: AuthOrchestrationReadScope,

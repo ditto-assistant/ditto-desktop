@@ -29,6 +29,10 @@ import {
   DittoAccountError,
   DittoAccountLinkInput,
   DittoAccountStatus,
+  DittoDeviceLinkChallenge,
+  DittoDeviceLinkPoll,
+  DittoDeviceLinkPollInput,
+  DittoDeviceLinkStartInput,
   TeleportCloudSession,
   TeleportError,
   TeleportLaunchCloudSessionInput,
@@ -337,6 +341,8 @@ export const WS_METHODS = {
   dittoAccountGetStatus: "ditto.account.getStatus",
   dittoAccountLink: "ditto.account.link",
   dittoAccountUnlink: "ditto.account.unlink",
+  dittoAccountStartDeviceLink: "ditto.account.startDeviceLink",
+  dittoAccountPollDeviceLink: "ditto.account.pollDeviceLink",
   teleportThread: "teleport.thread",
   teleportLaunchCloudSession: "teleport.launchCloudSession",
 
@@ -529,6 +535,18 @@ export const WsDittoAccountLinkRpc = Rpc.make(WS_METHODS.dittoAccountLink, {
 export const WsDittoAccountUnlinkRpc = Rpc.make(WS_METHODS.dittoAccountUnlink, {
   payload: Schema.Struct({}),
   success: DittoAccountStatus,
+  error: Schema.Union([DittoAccountError, EnvironmentAuthorizationError]),
+});
+
+export const WsDittoAccountStartDeviceLinkRpc = Rpc.make(WS_METHODS.dittoAccountStartDeviceLink, {
+  payload: DittoDeviceLinkStartInput,
+  success: DittoDeviceLinkChallenge,
+  error: Schema.Union([DittoAccountError, EnvironmentAuthorizationError]),
+});
+
+export const WsDittoAccountPollDeviceLinkRpc = Rpc.make(WS_METHODS.dittoAccountPollDeviceLink, {
+  payload: DittoDeviceLinkPollInput,
+  success: DittoDeviceLinkPoll,
   error: Schema.Union([DittoAccountError, EnvironmentAuthorizationError]),
 });
 
@@ -1194,6 +1212,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsDittoAccountGetStatusRpc,
   WsDittoAccountLinkRpc,
   WsDittoAccountUnlinkRpc,
+  WsDittoAccountStartDeviceLinkRpc,
+  WsDittoAccountPollDeviceLinkRpc,
   WsTeleportThreadRpc,
   WsTeleportLaunchCloudSessionRpc,
   WsDittoHarnessStatusRpc,

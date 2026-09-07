@@ -15,11 +15,10 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { getDittoApiBaseUrl } from "~/ditto/apiBase";
 import { dittoAccountCommands } from "~/ditto/account";
 import {
+  deviceLinkDeadlineMs,
   devicePollIntervalMs,
   INITIAL_DEVICE_LINK_STATE,
-  pollDeviceToken,
   reduceDeviceLink,
-  requestDeviceCode,
   verificationUrlWithCode,
 } from "~/ditto/deviceCode";
 import { pickDeviceLinkEnvironmentId } from "~/ditto/deviceLinkEnvironment";
@@ -47,7 +46,12 @@ export function DeviceLinkRow(props: {
   const { environments } = useEnvironments();
   const environmentId = pickDeviceLinkEnvironmentId(primaryEnvironmentId, environments);
   const getStatus = useAtomCommand(dittoAccountCommands.getStatus, { reportFailure: false });
-  const link = useAtomCommand(dittoAccountCommands.link, { reportFailure: false });
+  const startDeviceLink = useAtomCommand(dittoAccountCommands.startDeviceLink, {
+    reportFailure: false,
+  });
+  const pollDeviceLink = useAtomCommand(dittoAccountCommands.pollDeviceLink, {
+    reportFailure: false,
+  });
   const unlink = useAtomCommand(dittoAccountCommands.unlink, { reportFailure: false });
   const [status, setStatus] = useState<DittoAccountStatus | null>(props.initialStatus ?? null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -87,19 +91,21 @@ export function DeviceLinkRow(props: {
     const flowId = ++activeFlowRef.current;
     const stillActive = () => activeFlowRef.current === flowId;
     dispatch({ type: "start" });
-    let challenge;
-    try {
-      challenge = await requestDeviceCode();
-    } catch (error) {
-      if (stillActive()) {
-        dispatch({
-          type: "error",
-          message: describeError(error, "Could not start linking with Ditto."),
-        });
-      }
+    const started = await startDeviceLink({
+      environmentId,
+      input: { apiBaseUrl: getDittoApiBaseUrl() },
+    });
+    if (!stillActive()) return;
+    if (started._tag === "Failure") {
+      dispatch({
+        type: "error",
+        message: isAtomCommandInterrupted(started)
+          ? "Linking was interrupted."
+          : describeError(squashAtomCommandFailure(started), "Could not start linking with Ditto."),
+      });
       return;
     }
-    if (!stillActive()) return;
+    const challenge = started.value;
     dispatch({ type: "challenge", challenge });
     void readLocalApi()
       ?.shell.openExternal(verificationUrlWithCode(challenge))
@@ -107,7 +113,7 @@ export function DeviceLinkRow(props: {
         // The code stays visible in the row; the user can open the page by hand.
       });
 
-    const deadline = Date.now() + challenge.expiresInSeconds * 1000;
+    const deadline = deviceLinkDeadlineMs(challenge);
     let slowDowns = 0;
     while (stillActive()) {
       await new Promise((resolve) =>
@@ -118,17 +124,21 @@ export function DeviceLinkRow(props: {
         dispatch({ type: "expired" });
         return;
       }
-      let poll;
-      try {
-        poll = await pollDeviceToken(challenge);
-      } catch (error) {
-        if (stillActive()) {
-          dispatch({ type: "error", message: describeError(error, "Lost contact with Ditto.") });
-        }
+      const polled = await pollDeviceLink({
+        environmentId,
+        input: { linkId: challenge.linkId },
+      });
+      if (!stillActive()) return;
+      if (polled._tag === "Failure") {
+        dispatch({
+          type: "error",
+          message: isAtomCommandInterrupted(polled)
+            ? "Linking was interrupted."
+            : describeError(squashAtomCommandFailure(polled), "Lost contact with Ditto."),
+        });
         return;
       }
-      if (!stillActive()) return;
-      switch (poll.kind) {
+      switch (polled.value.kind) {
         case "pending":
           dispatch({ type: "pending" });
           continue;
@@ -142,35 +152,14 @@ export function DeviceLinkRow(props: {
         case "denied":
           dispatch({ type: "denied" });
           return;
-        case "error":
-          dispatch({ type: "error", message: poll.message });
-          return;
-        case "approved": {
+        case "linked":
           dispatch({ type: "approved" });
-          const linked = await link({
-            environmentId,
-            input: { apiKey: poll.accessToken, apiBaseUrl: getDittoApiBaseUrl() },
-          });
-          if (!stillActive()) return;
-          if (linked._tag === "Failure") {
-            dispatch({
-              type: "error",
-              message: isAtomCommandInterrupted(linked)
-                ? "Linking was interrupted."
-                : describeError(
-                    squashAtomCommandFailure(linked),
-                    "The desktop server refused the key.",
-                  ),
-            });
-            return;
-          }
-          dispatch({ type: "linked", keyHint: linked.value.keyHint ?? "" });
-          setStatus(linked.value);
+          dispatch({ type: "linked", keyHint: polled.value.status.keyHint ?? "" });
+          setStatus(polled.value.status);
           return;
-        }
       }
     }
-  }, [environmentId, link]);
+  }, [environmentId, pollDeviceLink, startDeviceLink]);
 
   const cancelLinking = useCallback(() => {
     activeFlowRef.current += 1;
