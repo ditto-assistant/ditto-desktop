@@ -110,18 +110,25 @@ export const TeleportCloudSession = Schema.Struct({
 });
 export type TeleportCloudSession = typeof TeleportCloudSession.Type;
 
-/** Maps a desktop provider name onto the harness a capsule can resume. */
+/**
+ * Maps a provider driver kind (`ProviderSession.provider`, surfaced to clients
+ * as `providerName`) onto the harness a capsule can resume. Keyed by driver
+ * kind rather than instance id so custom instances of the same CLI
+ * (`claudeAgent-work`, …) teleport too. Cursor, Grok, OpenCode and Ditto have no
+ * resumable harness in the cloud runner.
+ */
+export const TELEPORT_HARNESS_BY_PROVIDER: Readonly<Record<string, TeleportHarness>> = {
+  claudeAgent: "claude-code",
+  codex: "codex",
+  // Legacy spelling from before the driver/instance split; harmless to keep.
+  claude: "claude-code",
+};
+
 export function teleportHarnessForProvider(
   providerName: string | null | undefined,
 ): TeleportHarness | null {
-  switch (providerName) {
-    case "claude":
-      return "claude-code";
-    case "codex":
-      return "codex";
-    default:
-      return null;
-  }
+  if (!providerName) return null;
+  return TELEPORT_HARNESS_BY_PROVIDER[providerName] ?? null;
 }
 
 // ---------------------------------------------------------------------------

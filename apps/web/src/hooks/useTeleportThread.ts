@@ -24,11 +24,7 @@ import {
 } from "../ditto/teleportDialog";
 import { useAtomCommand } from "../state/use-atom-command";
 
-/** Teleport needs a coding harness whose session can be resumed elsewhere. */
-export function threadSupportsTeleport(thread: Pick<EnvironmentThreadShell, "session">): boolean {
-  const provider = thread.session?.providerName ?? null;
-  return provider === "claude" || provider === "codex";
-}
+export { threadSupportsTeleport } from "../ditto/teleportSupport";
 
 export function useTeleportThread() {
   const navigate = useNavigate();
