@@ -19,6 +19,7 @@ export type SettingsPath =
   | "/settings/source-control"
   | "/settings/connections"
   | "/settings/ditto-account"
+  | "/settings/devices" // DITTO: paired devices + host identity
   | "/settings/archived";
 
 /**
@@ -81,6 +82,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/source-control": "Source Control",
   "/settings/connections": "Connections",
   "/settings/ditto-account": "Ditto Account",
+  "/settings/devices": "Devices",
   "/settings/archived": "Archive",
 };
 
@@ -729,6 +731,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/ditto-account",
   },
   {
+    id: "ditto-this-device",
+    title: "This device",
+    to: "/settings/devices",
+    searchTerms: ["devices hosts host id device link presence sessions remote control"],
+  },
+  {
+    id: "ditto-pair-device",
+    title: "Pair another device",
+    to: "/settings/devices",
+    searchTerms: ["pairing code link laptop phone remote control codex desktop"],
+  },
+  {
     id: "archive",
     title: "Archived threads",
     to: "/settings/archived",
@@ -753,6 +767,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/source-control": "environment-defaults",
   "/settings/connections": "connections",
   "/settings/ditto-account": null, // DITTO: account page is scope-independent
+  "/settings/devices": null,
   "/settings/archived": "project-defaults",
 };
 

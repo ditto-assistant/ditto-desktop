@@ -13,16 +13,17 @@ import {
   ArchiveIcon,
   BlocksIcon,
   BotIcon,
-  createLucideIcon,
   CloudIcon,
   GitBranchIcon,
-  PanelsTopLeftIcon,
   KeyboardIcon,
   Link2Icon,
+  MonitorSmartphoneIcon,
   PaletteIcon,
+  PanelsTopLeftIcon,
   SearchIcon,
   Settings2Icon,
   XIcon,
+  createLucideIcon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useCompactSidebarEnabled } from "../../hooks/useSettings";
@@ -87,6 +88,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/source-control": GitBranchIcon,
   "/settings/connections": Link2Icon,
   "/settings/ditto-account": CloudIcon,
+  "/settings/devices": MonitorSmartphoneIcon, // DITTO
   "/settings/archived": ArchiveIcon,
 };
 
