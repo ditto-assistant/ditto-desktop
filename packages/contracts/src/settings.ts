@@ -880,7 +880,7 @@ export const UsageLimitSourceConfig = Schema.Struct({
 });
 export type UsageLimitSourceConfig = typeof UsageLimitSourceConfig.Type;
 export const DEFAULT_DITTO_CHAT_MODEL = "qwen3:4b";
-export const DEFAULT_DITTO_LOCAL_BASE_URL = "http://127.0.0.1:11434";
+const DEFAULT_DITTO_LOCAL_BASE_URL = "http://127.0.0.1:11434";
 
 const DITTO_CHAT_PROVIDER_FORM_OPTIONS = [
   { value: "ollama", label: "Ollama" },
@@ -1326,13 +1326,14 @@ export const ServerSettings = Schema.Struct({
   // owns its config in its own package, this struct shrinks to nothing and
   // is removed entirely.
   providers: Schema.Struct({
-    ditto: DittoSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     codex: CodexSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     antigravity: AntigravitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    // DITTO: listed last so upstream's fallback precedence (codex → claudeAgent → …) holds.
+    ditto: DittoSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // New driver-agnostic instance map. Keyed by `ProviderInstanceId`; values
   // are `ProviderInstanceConfig` envelopes. The driver-specific config blob

@@ -43,7 +43,7 @@ function getDittoFirebaseApp(): FirebaseApp {
 }
 
 /** The Ditto Firebase Auth instance; throws when the build is unconfigured. */
-export function getDittoAuth(): Auth {
+function getDittoAuth(): Auth {
   if (cachedAuth) return cachedAuth;
   const auth = getAuth(getDittoFirebaseApp());
   cachedAuth = auth;

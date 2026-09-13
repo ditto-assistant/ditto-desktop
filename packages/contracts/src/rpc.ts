@@ -663,61 +663,61 @@ const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess, {
   error: EnvironmentAuthorizationError,
 });
 
-export const WsDittoHarnessStatusRpc = Rpc.make(WS_METHODS.dittoHarnessStatus, {
+const WsDittoHarnessStatusRpc = Rpc.make(WS_METHODS.dittoHarnessStatus, {
   payload: Schema.Struct({}),
   success: DittoHarnessStatus,
   error: EnvironmentAuthorizationError,
 });
 
-export const WsDittoHarnessSaveMemoryRpc = Rpc.make(WS_METHODS.dittoHarnessSaveMemory, {
+const WsDittoHarnessSaveMemoryRpc = Rpc.make(WS_METHODS.dittoHarnessSaveMemory, {
   payload: DittoHarnessSaveMemoryInput,
   success: DittoHarnessSaveMemoryResult,
   error: Schema.Union([DittoHarnessError, EnvironmentAuthorizationError]),
 });
 
-export const WsDittoHarnessSearchMemoriesRpc = Rpc.make(WS_METHODS.dittoHarnessSearchMemories, {
+const WsDittoHarnessSearchMemoriesRpc = Rpc.make(WS_METHODS.dittoHarnessSearchMemories, {
   payload: DittoHarnessSearchMemoriesInput,
   success: DittoHarnessSearchMemoriesResult,
   error: Schema.Union([DittoHarnessError, EnvironmentAuthorizationError]),
 });
 
-export const WsDittoHarnessSearchSubjectsRpc = Rpc.make(WS_METHODS.dittoHarnessSearchSubjects, {
+const WsDittoHarnessSearchSubjectsRpc = Rpc.make(WS_METHODS.dittoHarnessSearchSubjects, {
   payload: DittoHarnessSearchSubjectsInput,
   success: DittoHarnessSearchSubjectsResult,
   error: Schema.Union([DittoHarnessError, EnvironmentAuthorizationError]),
 });
 
-export const WsDittoHarnessDreamRpc = Rpc.make(WS_METHODS.dittoHarnessDream, {
+const WsDittoHarnessDreamRpc = Rpc.make(WS_METHODS.dittoHarnessDream, {
   payload: DittoHarnessDreamInput,
   success: DittoHarnessDreamResult,
   error: Schema.Union([DittoHarnessError, EnvironmentAuthorizationError]),
 });
 
-export const WsChannelsListAccountsRpc = Rpc.make(WS_METHODS.channelsListAccounts, {
+const WsChannelsListAccountsRpc = Rpc.make(WS_METHODS.channelsListAccounts, {
   payload: Schema.Struct({}),
   success: ChannelListAccountsResult,
   error: Schema.Union([ChannelOperationError, EnvironmentAuthorizationError]),
 });
 
-export const WsChannelsConfigureAccountRpc = Rpc.make(WS_METHODS.channelsConfigureAccount, {
+const WsChannelsConfigureAccountRpc = Rpc.make(WS_METHODS.channelsConfigureAccount, {
   payload: ChannelConfigureAccountInput,
   success: ChannelConfigureAccountResult,
   error: Schema.Union([ChannelOperationError, EnvironmentAuthorizationError]),
 });
 
-export const WsChannelsListConversationsRpc = Rpc.make(WS_METHODS.channelsListConversations, {
+const WsChannelsListConversationsRpc = Rpc.make(WS_METHODS.channelsListConversations, {
   payload: ChannelListConversationsInput,
   success: ChannelListConversationsResult,
   error: Schema.Union([ChannelOperationError, EnvironmentAuthorizationError]),
 });
 
-export const WsChannelsListMessagesRpc = Rpc.make(WS_METHODS.channelsListMessages, {
+const WsChannelsListMessagesRpc = Rpc.make(WS_METHODS.channelsListMessages, {
   payload: ChannelListMessagesInput,
   success: ChannelListMessagesResult,
   error: Schema.Union([ChannelOperationError, EnvironmentAuthorizationError]),
 });
 
-export const WsChannelsSendMessageRpc = Rpc.make(WS_METHODS.channelsSendMessage, {
+const WsChannelsSendMessageRpc = Rpc.make(WS_METHODS.channelsSendMessage, {
   payload: ChannelSendMessageInput,
   success: ChannelSendMessageResult,
   error: Schema.Union([ChannelOperationError, EnvironmentAuthorizationError]),

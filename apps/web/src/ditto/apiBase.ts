@@ -30,7 +30,7 @@ export const DITTO_API_BASE_OPTIONS: readonly DittoApiBaseOption[] = [
   { id: "staging-8", label: "Staging 8", url: "https://staging-api-8.heyditto.ai" },
 ];
 
-export const DITTO_API_BASE_STORAGE_KEY = "ditto.apiBaseUrl";
+const DITTO_API_BASE_STORAGE_KEY = "ditto.apiBaseUrl";
 
 /** Normalizes a candidate base URL: https only, no trailing slash, known host. */
 export function normalizeDittoApiBaseUrl(value: string | null | undefined): string | null {

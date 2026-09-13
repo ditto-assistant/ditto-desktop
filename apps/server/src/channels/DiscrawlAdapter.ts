@@ -41,7 +41,7 @@ const unsupportedSend = [
   "call.start",
 ] as const;
 
-export const DISCRAWL_CAPABILITIES: ReadonlyArray<ChannelCapability> = [
+const DISCRAWL_CAPABILITIES: ReadonlyArray<ChannelCapability> = [
   { operation: "history.read", availability: "available" },
   {
     operation: "events.live",
