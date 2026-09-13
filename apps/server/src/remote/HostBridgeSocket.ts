@@ -66,7 +66,7 @@ function resolveWebSocketConstructor(): WebSocketConstructor | null {
  * The bearer also rides along as the `ditto-host` subprotocol-free query for
  * runtimes that drop custom headers.
  */
-export const makeWebSocketHostBridgeSocketFactory = (
+const makeWebSocketHostBridgeSocketFactory = (
   WebSocketCtor: WebSocketConstructor | null = resolveWebSocketConstructor(),
 ): HostBridgeSocketFactoryShape => ({
   connect: ({ url, bearerToken }) =>

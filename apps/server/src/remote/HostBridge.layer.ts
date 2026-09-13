@@ -13,6 +13,7 @@ import * as HostBridgeAttachments from "./HostBridgeAttachments.ts";
 import { makeHostBridgeClient } from "./HostBridgeClient.ts";
 import * as HostBridgeConfig from "./HostBridgeConfig.ts";
 import * as HostBridgeSocket from "./HostBridgeSocket.ts";
+import * as HostBridgeTunnel from "./HostBridgeTunnel.ts";
 import * as OrchestrationHostBridgeRuntime from "./OrchestrationHostBridgeRuntime.ts";
 
 const start = Effect.gen(function* () {
@@ -35,6 +36,7 @@ export const HostBridgeLive = (input: Parameters<typeof HostBridgeConfig.layer>[
         HostBridgeConfig.layer(input),
         HostBridgeSocket.layer,
         HostBridgeAttachments.fetchLayer,
+        HostBridgeTunnel.layer,
         OrchestrationHostBridgeRuntime.layer,
       ),
     ),

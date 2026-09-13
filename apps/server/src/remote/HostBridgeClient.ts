@@ -22,10 +22,12 @@ import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Encoding from "effect/Encoding";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 
 import {
@@ -44,6 +46,7 @@ import {
   HostBridgeSocketFactory,
   type HostBridgeSocket,
 } from "./HostBridgeSocket.ts";
+import { HostBridgeTunnelTarget, type HostBridgeTunnelConnection } from "./HostBridgeTunnel.ts";
 
 const WELCOME_TIMEOUT = Duration.seconds(15);
 const RECONNECT_MIN = Duration.seconds(1);
@@ -77,6 +80,7 @@ export const makeHostBridgeClient = Effect.fn("makeHostBridgeClient")(function* 
   const runtime = yield* HostBridgeRuntime;
   const factory = yield* HostBridgeSocketFactory;
   const fetcher = yield* HostBridgeFetch;
+  const tunnelTarget = yield* HostBridgeTunnelTarget;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   let welcomes = 0;
@@ -89,6 +93,8 @@ export const makeHostBridgeClient = Effect.fn("makeHostBridgeClient")(function* 
       const seenTurns = new Set<string>();
       const announced = new Map<string, HostBridgeSession>();
       const announcedCommands = new Map<string, string>();
+      const pairedHostIds = new Set<string>();
+      const tunnels = new Map<string, HostBridgeTunnelConnection>();
       let missedPongs = 0;
 
       const send = (frame: HostToBackendFrame) =>
@@ -270,11 +276,68 @@ export const makeHostBridgeClient = Effect.fn("makeHostBridgeClient")(function* 
           ),
         );
 
+      const closeTunnel = (tunnelId: string, reason: string | undefined, notify: boolean) =>
+        Effect.gen(function* () {
+          const tunnel = tunnels.get(tunnelId);
+          tunnels.delete(tunnelId);
+          if (tunnel !== undefined) yield* tunnel.close;
+          if (notify) {
+            yield* send({
+              type: "env.close",
+              tunnelId,
+              ...(reason !== undefined ? { reason } : {}),
+            });
+          }
+        });
+
+      // The backend enforces pairing too; this is the host's own line of defence.
+      const openTunnel = (input: {
+        readonly tunnelId: string;
+        readonly peerHostId: string;
+        readonly path: string | undefined;
+      }) =>
+        Effect.gen(function* () {
+          if (!pairedHostIds.has(input.peerHostId)) {
+            yield* Effect.logWarning("host bridge refused tunnel from unpaired host", {
+              peerHostId: input.peerHostId,
+            });
+            yield* send({ type: "env.close", tunnelId: input.tunnelId, reason: "unpaired" });
+            return;
+          }
+          if (tunnels.has(input.tunnelId)) return;
+          const connection = yield* tunnelTarget.connect({ path: input.path }).pipe(Effect.result);
+          if (connection._tag === "Failure") {
+            yield* send({
+              type: "env.close",
+              tunnelId: input.tunnelId,
+              reason: connection.failure.message,
+            });
+            return;
+          }
+          tunnels.set(input.tunnelId, connection.success);
+          yield* Effect.forkScoped(
+            Stream.runForEach(Stream.fromQueue(connection.success.incoming), (bytes) =>
+              send({
+                type: "env.frame",
+                tunnelId: input.tunnelId,
+                payload: Encoding.encodeBase64(bytes),
+              }),
+            ).pipe(
+              Effect.andThen(
+                tunnels.get(input.tunnelId) === connection.success
+                  ? closeTunnel(input.tunnelId, "closed", true)
+                  : Effect.void,
+              ),
+            ),
+          );
+        });
+
       const handleFrame = (frame: BackendToHostFrame) =>
         Effect.gen(function* () {
           switch (frame.type) {
             case "welcome": {
               welcomes += 1;
+              for (const hostId of frame.pairedHostIds ?? []) pairedHostIds.add(hostId);
               yield* Deferred.succeed(welcome, { heartbeatSeconds: frame.heartbeatSeconds });
               return;
             }
@@ -330,6 +393,41 @@ export const makeHostBridgeClient = Effect.fn("makeHostBridgeClient")(function* 
                   });
               return;
             }
+            case "hosts.paired": {
+              pairedHostIds.clear();
+              for (const hostId of frame.hostIds) pairedHostIds.add(hostId);
+              return;
+            }
+            case "env.open":
+              yield* openTunnel({
+                tunnelId: frame.tunnelId,
+                peerHostId: frame.peerHostId,
+                path: frame.path,
+              });
+              return;
+            case "env.frame": {
+              const tunnel = tunnels.get(frame.tunnelId);
+              if (tunnel === undefined) {
+                yield* send({
+                  type: "env.close",
+                  tunnelId: frame.tunnelId,
+                  reason: "unknown tunnel",
+                });
+                return;
+              }
+              const bytes = Encoding.decodeBase64(frame.payload);
+              if (bytes._tag === "Failure") {
+                yield* closeTunnel(frame.tunnelId, "bad payload", true);
+                return;
+              }
+              yield* tunnel
+                .send(bytes.success)
+                .pipe(Effect.catchCause(() => closeTunnel(frame.tunnelId, "send failed", true)));
+              return;
+            }
+            case "env.close":
+              yield* closeTunnel(frame.tunnelId, undefined, false);
+              return;
             case "prompt.answer": {
               yield* runtime
                 .answerPrompt({ sessionId: null, promptId: frame.promptId, value: frame.value })
@@ -433,6 +531,8 @@ export const makeHostBridgeClient = Effect.fn("makeHostBridgeClient")(function* 
 
       // The incoming loop ends when the peer (or the heartbeat) closes the socket.
       yield* Fiber.join(incoming);
+      for (const tunnel of tunnels.values()) yield* tunnel.close;
+      tunnels.clear();
     }).pipe(Effect.scoped);
 
   const reconnectMin = options.reconnectMin ?? RECONNECT_MIN;

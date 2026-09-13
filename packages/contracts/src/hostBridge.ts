@@ -7,7 +7,7 @@ import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 export const HOST_BRIDGE_PATH = "/api/v5/hosts/ws";
-export const HOST_BRIDGE_DEFAULT_HEARTBEAT_SECONDS = 30;
+const HOST_BRIDGE_DEFAULT_HEARTBEAT_SECONDS = 30;
 /** A host that misses this many pongs in a row is offline; it drops the socket and reconnects. */
 export const HOST_BRIDGE_MAX_MISSED_HEARTBEATS = 3;
 
@@ -149,6 +149,32 @@ export const HostBridgePromptRequestFrame = Schema.Struct({
   default: Schema.optional(Schema.String),
 });
 
+// ---------------------------------------------------------------------------
+// Environment tunnel (both directions): a paired host reaches this server's
+// local RPC listener through the backend (`/api/v5/hosts/{hostId}/env`).
+// ---------------------------------------------------------------------------
+
+export const HostBridgeTunnelId = TrimmedNonEmptyString;
+
+/** Bytes for an open tunnel, base64 in both directions. */
+export const HostBridgeEnvFrame = Schema.Struct({
+  type: Schema.Literal("env.frame"),
+  tunnelId: HostBridgeTunnelId,
+  payload: Schema.String,
+});
+
+export const HostBridgeEnvCloseFrame = Schema.Struct({
+  type: Schema.Literal("env.close"),
+  tunnelId: HostBridgeTunnelId,
+  reason: Schema.optional(Schema.String),
+});
+
+/** Hosts this host is paired with; sent with `welcome` and whenever the set changes. */
+export const HostBridgeHostsPairedFrame = Schema.Struct({
+  type: Schema.Literal("hosts.paired"),
+  hostIds: Schema.Array(TrimmedNonEmptyString),
+});
+
 export const HostBridgePingFrame = Schema.Struct({ type: Schema.Literal("ping") });
 export const HostBridgePongFrame = Schema.Struct({ type: Schema.Literal("pong") });
 
@@ -164,6 +190,8 @@ export const HostToBackendFrame = Schema.Union([
   HostBridgeCheckpointDoneFrame,
   HostBridgeCheckpointFailedFrame,
   HostBridgePromptRequestFrame,
+  HostBridgeEnvFrame,
+  HostBridgeEnvCloseFrame,
   HostBridgePingFrame,
   HostBridgePongFrame,
 ]);
@@ -180,6 +208,8 @@ export const HostBridgeWelcomeFrame = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(HOST_BRIDGE_DEFAULT_HEARTBEAT_SECONDS)),
   ),
   serverTime: Schema.optional(Schema.String),
+  /** Hosts already paired with this one; refreshed by `hosts.paired`. */
+  pairedHostIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
 });
 
 export const HostBridgeTurnKind = Schema.Literals(["prompt", "command", "answer"]);
@@ -217,12 +247,25 @@ export const HostBridgePromptAnswerFrame = Schema.Struct({
   value: Schema.String,
 });
 
+/** Backend asks the host to open a tunnel from `peerHostId` to its local RPC listener. */
+export const HostBridgeEnvOpenFrame = Schema.Struct({
+  type: Schema.Literal("env.open"),
+  tunnelId: HostBridgeTunnelId,
+  /** The paired host on the other end; unpaired peers are refused. */
+  peerHostId: TrimmedNonEmptyString,
+  path: Schema.optional(Schema.String),
+});
+
 export const BackendToHostFrame = Schema.Union([
   HostBridgeWelcomeFrame,
   HostBridgeTurnDeliverFrame,
   HostBridgeTurnInterruptFrame,
   HostBridgeCheckpointRequestFrame,
   HostBridgePromptAnswerFrame,
+  HostBridgeEnvOpenFrame,
+  HostBridgeEnvFrame,
+  HostBridgeEnvCloseFrame,
+  HostBridgeHostsPairedFrame,
   HostBridgePingFrame,
   HostBridgePongFrame,
 ]);

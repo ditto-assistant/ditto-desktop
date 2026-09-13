@@ -16,7 +16,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/unstable/http";
 
-export const ATTACHMENTS_RELATIVE_DIR = ".tmp/ditto/attachments";
+const ATTACHMENTS_RELATIVE_DIR = ".tmp/ditto/attachments";
 const EXCLUDE_ENTRY = "/.tmp/ditto/";
 
 export class HostBridgeAttachmentError extends Schema.TaggedError<HostBridgeAttachmentError>()(
@@ -41,7 +41,7 @@ export class HostBridgeFetch extends Context.Service<HostBridgeFetch, HostBridge
   "t3/remote/HostBridgeAttachments/HostBridgeFetch",
 ) {}
 
-export const makeHttpClientHostBridgeFetch = Effect.gen(function* () {
+const makeHttpClientHostBridgeFetch = Effect.gen(function* () {
   const client = yield* HttpClient.HttpClient;
   return {
     download: (url) =>
@@ -89,7 +89,7 @@ export function safeAttachmentFileName(name: string, fallback: string): string {
 }
 
 /** Relative to `cwd`, forward slashes, ready for the prompt. */
-export function turnAttachmentsRelativeDir(turnId: string): string {
+function turnAttachmentsRelativeDir(turnId: string): string {
   return `${ATTACHMENTS_RELATIVE_DIR}/${safeAttachmentFileName(turnId, "turn")}`;
 }
 
@@ -102,7 +102,7 @@ export function buildTurnPrompt(text: string, relativePaths: ReadonlyArray<strin
 }
 
 /** Adds the attachments directory to `.git/info/exclude` when `cwd` is a git checkout. */
-export const ensureAttachmentsExcluded = Effect.fn("ensureAttachmentsExcluded")(
+const ensureAttachmentsExcluded = Effect.fn("ensureAttachmentsExcluded")(
   function* (cwd: string) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;

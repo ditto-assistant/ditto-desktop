@@ -58,7 +58,7 @@ const CLOSE_EVENT_TYPES = new Set(["thread.deleted", "thread.archived"]);
 const toRuntimeError = (detail: string) => (cause: unknown) =>
   new HostBridgeRuntimeError({ detail, cause });
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const projects = yield* ProjectionProjectRepository;
   const threads = yield* ProjectionThreadRepository;

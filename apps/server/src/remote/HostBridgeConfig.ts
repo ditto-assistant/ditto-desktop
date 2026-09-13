@@ -32,7 +32,7 @@ export class HostBridgeConfig extends Context.Service<HostBridgeConfig, HostBrid
   "t3/remote/HostBridgeConfig",
 ) {}
 
-export const DITTO_DEFAULT_API_BASE_URL = "https://api.heyditto.ai";
+const DITTO_DEFAULT_API_BASE_URL = "https://api.heyditto.ai";
 
 export function hostBridgeSocketUrl(apiBaseUrl: string): string {
   const base = apiBaseUrl.replace(/\/+$/, "");

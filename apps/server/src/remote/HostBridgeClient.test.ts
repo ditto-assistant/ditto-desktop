@@ -5,6 +5,7 @@ import type { BackendToHostFrame, HostToBackendFrame } from "@t3tools/contracts"
 import { expect, it } from "@effect/vitest";
 import type * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
+import * as Encoding from "effect/Encoding";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -24,6 +25,11 @@ import {
   type HostBridgeSession,
 } from "./HostBridgeRuntime.ts";
 import { HostBridgeSocketFactory, type HostBridgeSocket } from "./HostBridgeSocket.ts";
+import {
+  HostBridgeTunnelError,
+  HostBridgeTunnelTarget,
+  type HostBridgeTunnelConnection,
+} from "./HostBridgeTunnel.ts";
 
 // ---------------------------------------------------------------------------
 // Stub backend: an in-memory socket per connection attempt.
@@ -146,10 +152,43 @@ const fetchLayer = (files: Record<string, string>) =>
     },
   });
 
+// ---------------------------------------------------------------------------
+// Stub local RPC listener for environment tunnels.
+// ---------------------------------------------------------------------------
+
+const makeStubTunnelTarget = Effect.gen(function* () {
+  const opened: Array<{ readonly path: string | undefined; readonly received: Uint8Array[] }> = [];
+  const toHost = yield* Queue.unbounded<Uint8Array, Cause.Done>();
+  let closed = 0;
+  const target = {
+    connect: ({ path }: { readonly path: string | undefined }) =>
+      Effect.gen(function* () {
+        if (path === "/refuse") {
+          return yield* new HostBridgeTunnelError({ detail: "listener down" });
+        }
+        const received: Uint8Array[] = [];
+        opened.push({ path, received });
+        return {
+          incoming: toHost,
+          send: (bytes: Uint8Array) => Effect.sync(() => void received.push(bytes)),
+          close: Effect.sync(() => void (closed += 1)),
+        } satisfies HostBridgeTunnelConnection;
+      }),
+  };
+  return {
+    layer: Layer.succeed(HostBridgeTunnelTarget, target),
+    opened,
+    emit: (bytes: Uint8Array) => Queue.offer(toHost, bytes).pipe(Effect.asVoid),
+    end: Queue.end(toHost).pipe(Effect.asVoid),
+    closedCount: () => closed,
+  };
+});
+
 const welcome = (heartbeatSeconds = 3600): typeof BackendToHostFrame.Encoded => ({
   type: "welcome",
   hostId: "host-1",
   heartbeatSeconds,
+  pairedHostIds: ["host-laptop"],
 });
 
 const startClient = (input: {
@@ -160,20 +199,27 @@ const startClient = (input: {
   Effect.gen(function* () {
     const backend = yield* makeStubBackend;
     const fake = yield* makeFakeRuntime(input.sessions);
+    const tunnelTarget = yield* makeStubTunnelTarget;
     const client = yield* makeHostBridgeClient({
       heartbeatOverride: input.heartbeat,
       reconnectMin: Duration.millis(5),
       reconnectMax: Duration.millis(20),
     }).pipe(
       Effect.provide(
-        Layer.mergeAll(configLayer, backend.layer, fake.layer, fetchLayer(input.files ?? {})),
+        Layer.mergeAll(
+          configLayer,
+          backend.layer,
+          fake.layer,
+          fetchLayer(input.files ?? {}),
+          tunnelTarget.layer,
+        ),
       ),
     );
     yield* Effect.forkScoped(client.run);
     const socket = yield* backend.awaitConnection;
     expect(yield* socket.next).toMatchObject({ type: "hello", kind: "desktop", name: "test-host" });
     yield* socket.push(welcome());
-    return { backend, fake, client, socket };
+    return { backend, fake, client, socket, tunnelTarget };
   });
 
 const tempCwd = Effect.gen(function* () {
@@ -494,5 +540,82 @@ it.live("reconnects when the backend drops the socket", () =>
     yield* socket.dropFromBackend;
     const reconnected = yield* backend.awaitConnection;
     expect(yield* reconnected.next).toMatchObject({ type: "hello" });
+  }).pipe(withNode),
+);
+
+it.live("bridges an environment tunnel from a paired host to the local listener", () =>
+  Effect.gen(function* () {
+    const { socket, tunnelTarget } = yield* startClient({ sessions: [] });
+    yield* socket.push({
+      type: "env.open",
+      tunnelId: "tun-1",
+      peerHostId: "host-laptop",
+      path: "/ws",
+    });
+    yield* socket.push({
+      type: "env.frame",
+      tunnelId: "tun-1",
+      payload: Encoding.encodeBase64(new TextEncoder().encode("rpc request")),
+    });
+    yield* tunnelTarget.emit(new TextEncoder().encode("rpc response"));
+    expect(yield* socket.next).toEqual({
+      type: "env.frame",
+      tunnelId: "tun-1",
+      payload: Encoding.encodeBase64(new TextEncoder().encode("rpc response")),
+    });
+    expect(tunnelTarget.opened.map((entry) => entry.path)).toEqual(["/ws"]);
+    expect(new TextDecoder().decode(tunnelTarget.opened[0]!.received[0])).toBe("rpc request");
+
+    // Listener closes → the backend hears env.close.
+    yield* tunnelTarget.end;
+    expect(yield* socket.next).toEqual({ type: "env.close", tunnelId: "tun-1", reason: "closed" });
+
+    // Backend closes → the local connection is closed without an echo.
+    yield* socket.push({ type: "env.open", tunnelId: "tun-2", peerHostId: "host-laptop" });
+    yield* socket.push({ type: "env.close", tunnelId: "tun-2" });
+    yield* socket.push({ type: "ping" });
+    expect(yield* socket.next).toEqual({ type: "pong" });
+    expect(tunnelTarget.closedCount()).toBeGreaterThanOrEqual(2);
+  }).pipe(withNode),
+);
+
+it.live("refuses tunnels from hosts that are not paired and reports listener failures", () =>
+  Effect.gen(function* () {
+    const { socket, tunnelTarget } = yield* startClient({ sessions: [] });
+    yield* socket.push({ type: "env.open", tunnelId: "tun-x", peerHostId: "host-stranger" });
+    expect(yield* socket.next).toEqual({
+      type: "env.close",
+      tunnelId: "tun-x",
+      reason: "unpaired",
+    });
+    expect(tunnelTarget.opened).toHaveLength(0);
+
+    // Pairing can change while connected.
+    yield* socket.push({ type: "hosts.paired", hostIds: ["host-stranger"] });
+    yield* socket.push({
+      type: "env.open",
+      tunnelId: "tun-y",
+      peerHostId: "host-stranger",
+      path: "/refuse",
+    });
+    expect(yield* socket.next).toEqual({
+      type: "env.close",
+      tunnelId: "tun-y",
+      reason: "listener down",
+    });
+    yield* socket.push({ type: "env.open", tunnelId: "tun-z", peerHostId: "host-laptop" });
+    expect(yield* socket.next).toEqual({
+      type: "env.close",
+      tunnelId: "tun-z",
+      reason: "unpaired",
+    });
+
+    // Frames for unknown tunnels are answered with a close so the backend can settle.
+    yield* socket.push({ type: "env.frame", tunnelId: "nope", payload: "" });
+    expect(yield* socket.next).toEqual({
+      type: "env.close",
+      tunnelId: "nope",
+      reason: "unknown tunnel",
+    });
   }).pipe(withNode),
 );
