@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -49,7 +50,7 @@ const connectUnavailableCommand = Command.make("connect", {
 
 export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
   Command.make("t3", { ...sharedServerCommandFlags }).pipe(
-    Command.withDescription("Run the T3 Code server."),
+    Command.withDescription("Run the Ditto server."),
     Command.withHandler((flags) => runServerCommand(flags)),
     Command.withSubcommands([
       startCommand,

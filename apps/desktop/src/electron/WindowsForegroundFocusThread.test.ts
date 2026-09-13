@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { assert, beforeEach, it } from "@effect/vitest";
 import * as NodeEvents from "node:events";
 import { vi } from "vite-plus/test";
@@ -23,7 +24,7 @@ let worker = makeWorker();
 const target = {
   windowId: 7,
   processId: 42,
-  title: "T3 Code (Dev)",
+  title: "Ditto (Dev)",
   bounds: { x: 100, y: 50, width: 1_200, height: 800 },
   contentBounds: { x: 108, y: 50, width: 1_184, height: 792 },
 };

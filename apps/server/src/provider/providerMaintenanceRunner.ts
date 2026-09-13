@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import {
   defaultInstanceIdForDriver,
   ProviderDriverKind,
@@ -417,9 +418,9 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                 startedAt,
                 finishedAt,
                 message: couldNotVerify
-                  ? "Update command completed, but T3 Code could not verify the provider version."
+                  ? "Update command completed, but Ditto could not verify the provider version."
                   : stillOutdated
-                    ? "Update command completed, but T3 Code still detects an outdated provider version."
+                    ? "Update command completed, but Ditto still detects an outdated provider version."
                     : "Provider updated.",
                 output: commandOutput(result),
               }),

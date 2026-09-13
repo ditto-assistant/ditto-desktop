@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { DeviceHostsSettings } from "./DeviceHostsSettings";
 /**
  * Integrations settings - preferences for surfaces T3 Code embeds rather than
@@ -520,7 +521,7 @@ function BrowserRecordingFrameRateSetting({ disabled }: { readonly disabled: boo
 
 const LINK_TARGET_LABELS: Readonly<Record<BrowserLinkTarget, string>> = {
   system: "Your default browser",
-  app: "T3 Code",
+  app: "Ditto",
 };
 
 function BrowserLinkTargetSetting({ disabled }: { readonly disabled: boolean }) {

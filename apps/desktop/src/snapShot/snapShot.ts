@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 // @effect-diagnostics globalTimers:off -- The Electron window-blur handshake uses a native timeout outside any Effect fiber.
 // @effect-diagnostics nodeBuiltinImport:off -- This desktop-only platform check reads procfs and resolves Wayland socket paths with Node.
 
@@ -447,7 +448,7 @@ export function hideAndWaitForBlur(window: {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       window.removeListener("blur", onBlur);
-      reject(new Error("Timed out waiting for T3 Code to lose focus."));
+      reject(new Error("Timed out waiting for Ditto to lose focus."));
     }, WINDOW_BLUR_TIMEOUT_MS);
     const onBlur = () => {
       clearTimeout(timeout);

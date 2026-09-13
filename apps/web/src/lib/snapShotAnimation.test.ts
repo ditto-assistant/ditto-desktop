@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -25,7 +26,7 @@ describe("window capture animation", () => {
     const source = {
       kind: "snap-shot" as const,
       capturedAt: "2026-08-29T00:00:00.000Z",
-      appName: "T3 Code",
+      appName: "Ditto",
       windowTitle: "Capture animation",
     };
 

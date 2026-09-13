@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { LegendList } from "@legendapp/list/react-native";
 import { type StaticScreenProps, useNavigation } from "@react-navigation/native";
 import {
@@ -134,7 +135,7 @@ export function SettingsOpenSourceLicensesRouteScreen() {
         ListHeaderComponent={
           <View className="gap-4 px-5 pt-4 pb-5">
             <Text className="text-base leading-normal text-foreground-muted">
-              Notices for dependencies, assets, and optional tools used by T3 Code Mobile.
+              Notices for dependencies, assets, and optional tools used by Ditto Mobile.
             </Text>
             <TextInput
               accessibilityLabel="Search open-source licenses"

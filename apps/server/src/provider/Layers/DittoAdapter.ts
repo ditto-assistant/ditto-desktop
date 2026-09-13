@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import {
   EventId,
   type DittoSettings,
@@ -92,9 +93,7 @@ function appendAttachmentSummary(input: ProviderSendTurnInput): string {
   const lines = attachments.map(
     (attachment) => `- ${attachment.name} (${attachment.mimeType}, ${attachment.sizeBytes} bytes)`,
   );
-  return [prompt, "", "Attachment metadata available to T3 Code for this turn:", ...lines].join(
-    "\n",
-  );
+  return [prompt, "", "Attachment metadata available to Ditto for this turn:", ...lines].join("\n");
 }
 
 export const makeDittoAdapter = Effect.fn("makeDittoAdapter")(function* (
@@ -517,7 +516,7 @@ export const makeDittoAdapter = Effect.fn("makeDittoAdapter")(function* (
         ...(yield* baseEvent(state)),
         type: "session.exited",
         payload: {
-          reason: "Stopped by T3 Code.",
+          reason: "Stopped by Ditto.",
           exitKind: "graceful",
         },
       });

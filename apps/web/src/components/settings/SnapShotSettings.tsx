@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { useAtomValue } from "@effect/atom-react";
 import {
   isModifierPairShortcut,
@@ -268,7 +269,7 @@ export function SnapShotSettings() {
   const shortcutStatus = recording
     ? "Press your shortcut. Esc cancels."
     : candidateConflict
-      ? `T3 Code already uses this for "${commandLabel(candidateConflict)}".`
+      ? `Ditto already uses this for "${commandLabel(candidateConflict)}".`
       : shortcutCheck.status === "checking"
         ? "Checking shortcut…"
         : shortcutCheck.availability
@@ -320,7 +321,7 @@ export function SnapShotSettings() {
     try {
       if (state?.macPermissions) {
         saveSnapShotSetupResume(wizard?.wasEnabled ?? settings.snapShotEnabled);
-        if (!bridge?.setupSnapShot) throw new Error("Restart T3 Code to finish capture setup.");
+        if (!bridge?.setupSnapShot) throw new Error("Restart Ditto to finish capture setup.");
         await bridge.setupSnapShot("test-mac-capture");
       }
       if (state?.mode === "direct")

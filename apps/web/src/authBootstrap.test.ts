@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import {
   EnvironmentAuthInvalidError,
   type AuthBrowserSessionResult,
@@ -66,7 +67,7 @@ function installTestBrowser(url: string) {
   };
 
   vi.stubGlobal("window", testWindow);
-  vi.stubGlobal("document", { title: "T3 Code" });
+  vi.stubGlobal("document", { title: "Ditto" });
 
   return testWindow;
 }

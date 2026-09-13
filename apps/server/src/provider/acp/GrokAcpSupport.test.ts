@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as EffectAcpErrors from "effect-acp/errors";
@@ -48,7 +49,7 @@ describe("grokAcpSpawnArgs", () => {
 });
 
 describe("buildGrokAcpSpawnInput", () => {
-  it("passes the T3 Code referrer through Grok OAuth env", () => {
+  it("passes the Ditto referrer through Grok OAuth env", () => {
     const spawn = buildGrokAcpSpawnInput({ binaryPath: "/usr/local/bin/grok" }, "/tmp/project", {
       XAI_API_KEY: "secret",
       GROK_OAUTH2_REFERRER: "other-client",

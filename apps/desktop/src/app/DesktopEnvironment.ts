@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import type {
   DesktopAppBranding,
   DesktopAppStageLabel,

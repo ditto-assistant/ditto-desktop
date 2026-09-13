@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import * as NodeCrypto from "node:crypto";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -622,7 +623,7 @@ export const DeviceToolkitRegistrationLive = Layer.mergeAll(
 );
 
 const McpTransportLive = McpServer.layerHttp({
-  name: "T3 Code",
+  name: "Ditto",
   version: packageJson.version,
   path: "/mcp",
   protocols: [McpProtocol.v2025_06_18],

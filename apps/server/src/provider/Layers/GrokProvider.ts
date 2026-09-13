@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import {
   type CustomModelSetting,
   type GrokSettings,
@@ -84,7 +85,7 @@ export function buildInitialGrokProviderSnapshot(
           version: null,
           status: "warning",
           auth: { status: "unknown" },
-          message: "Grok is disabled in T3 Code settings.",
+          message: "Grok is disabled in Ditto settings.",
         },
       });
     }
@@ -351,7 +352,7 @@ export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(func
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Grok is disabled in T3 Code settings.",
+        message: "Grok is disabled in Ditto settings.",
       },
     });
   }

@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 // @effect-diagnostics globalTimers:off -- D-Bus deadlines run at a native async boundary.
 // @effect-diagnostics nodeBuiltinImport:off -- Read the portal file through one bounded file descriptor at the native adapter boundary.
 
@@ -306,7 +307,7 @@ export class LinuxCaptureConnection {
       this.bus.requestName(`${appId}.SnapShot`, NameFlag.DO_NOT_QUEUE),
     );
     if (result !== RequestNameReply.PRIMARY_OWNER) {
-      throw new Error("Another T3 Code instance is capturing a window. Try again.");
+      throw new Error("Another Ditto instance is capturing a window. Try again.");
     }
     const withFeedback = this.feedbackAvailable && options !== undefined;
     const reply = await this.call({

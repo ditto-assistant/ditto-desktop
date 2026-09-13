@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { CircleIcon } from "lucide-react";
 import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
@@ -119,7 +120,7 @@ describe("pull request filters menu", () => {
         {
           id: projectId,
           environmentId,
-          title: "T3 Code",
+          title: "Ditto",
           workspaceRoot: "/work/t3code",
         },
       ],
@@ -145,13 +146,13 @@ describe("pull request filters menu", () => {
         {
           id: projectId,
           environmentId: "env-1" as EnvironmentId,
-          title: "T3 Code · one",
+          title: "Ditto · one",
           workspaceRoot: "/work/t3code-1",
         },
         {
           id: projectId,
           environmentId: "env-2" as EnvironmentId,
-          title: "T3 Code · two",
+          title: "Ditto · two",
           workspaceRoot: "/work/t3code-2",
         },
       ],

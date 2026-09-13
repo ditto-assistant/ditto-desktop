@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 // @effect-diagnostics globalTimers:off -- Bound session-bus registration at a native callback boundary.
 import { Message, MessageType, NameFlag, RequestNameReply, sessionBus } from "dbus-next";
 
@@ -55,7 +56,7 @@ export async function startNiriCaptureShortcut(
       }),
     ]);
     if (result !== RequestNameReply.PRIMARY_OWNER)
-      throw new Error("Another T3 Code instance already owns the capture shortcut.");
+      throw new Error("Another Ditto instance already owns the capture shortcut.");
     return close;
   } catch (error) {
     close();

@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 // @effect-diagnostics nodeBuiltinImport:off - publish commits and rollbacks
 // move exact directory entries with rename, which the FileSystem service does
 // not expose atomically.
@@ -107,7 +108,7 @@ export class ThemeFileInvalidError extends Schema.TaggedError<ThemeFileInvalidEr
   { filePath: Schema.String, cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return `${this.filePath} is not a valid theme file. Use a theme exported from T3 Code, or a seeded file with name, appearance, canvas, and accent.`;
+    return `${this.filePath} is not a valid theme file. Use a theme exported from Ditto, or a seeded file with name, appearance, canvas, and accent.`;
   }
 }
 

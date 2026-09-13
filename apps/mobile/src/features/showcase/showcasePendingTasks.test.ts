@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { EnvironmentId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
@@ -11,7 +12,7 @@ const projects: ReadonlyArray<EnvironmentProject> = [
   {
     environmentId: EnvironmentId.make("moonbase-terminal"),
     id: ProjectId.make("t3code"),
-    title: "T3 Code",
+    title: "Ditto",
     workspaceRoot: "/workspace/t3code",
     repositoryIdentity: null,
     defaultModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
@@ -48,7 +49,7 @@ it("builds sendable-looking pending tasks against real showcase projects", () =>
       {
         environmentId: "moonbase-terminal",
         projectId: "t3code",
-        title: "T3 Code",
+        title: "Ditto",
         branch: "feat/offline-launchpad",
         createdAt: "2026-07-16T08:52:00.000Z",
       },
