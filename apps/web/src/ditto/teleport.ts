@@ -28,13 +28,12 @@ export const teleportCommands = {
       runStream(WS_METHODS.teleportThread, input).pipe(
         Stream.tap((event) => Effect.sync(() => reportTeleportEvent(event))),
         Stream.runLast,
-        Effect.flatMap(
-          (last): Effect.Effect<TeleportCapsuleSummary, TeleportError> =>
-            Option.isSome(last) && last.value.type === "complete"
-              ? Effect.succeed(last.value.capsule)
-              : Effect.fail(
-                  new TeleportError({ message: "The teleport ended without a committed capsule." }),
-                ),
+        Effect.flatMap((last): Effect.Effect<TeleportCapsuleSummary, TeleportError> =>
+          Option.isSome(last) && last.value.type === "complete"
+            ? Effect.succeed(last.value.capsule)
+            : Effect.fail(
+                new TeleportError({ message: "The teleport ended without a committed capsule." }),
+              ),
         ),
       ),
   }),
