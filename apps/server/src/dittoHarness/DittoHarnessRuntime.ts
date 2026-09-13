@@ -149,7 +149,7 @@ function nativeLoadCandidates(path: Path.Path): ReadonlyArray<string> {
   ];
 }
 
-export function loadDittoNativeModule(path: Path.Path): NativeHarnessModule {
+function loadDittoNativeModule(path: Path.Path): NativeHarnessModule {
   const failures: string[] = [];
   for (const candidate of nativeLoadCandidates(path)) {
     try {

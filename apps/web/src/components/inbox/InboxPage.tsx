@@ -16,7 +16,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { ArrowUpIcon, BotIcon, InboxIcon, RefreshCwIcon, ExternalLinkIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useAssetUrl } from "../../assets/assetUrls";
+import { useAssetUrlState } from "../../assets/assetUrls";
 import { isElectron } from "../../env";
 import { readLocalApi } from "../../localApi";
 import { cn, randomUUID } from "../../lib/utils";
@@ -573,12 +573,13 @@ function CachedDiscordAttachment({
   };
   readonly environmentId: EnvironmentId;
 }) {
-  const cachedUrl = useAssetUrl(environmentId, {
+  const cachedUrlState = useAssetUrlState(environmentId, {
     _tag: "attachment",
     attachmentId: attachment.cachedAttachmentId,
     ...(attachment.filename ? { fileName: attachment.filename } : {}),
     ...(attachment.mediaType ? { mimeType: attachment.mediaType } : {}),
   });
+  const cachedUrl = cachedUrlState._tag === "Success" ? cachedUrlState.url : null;
   if (attachment.mediaType?.startsWith("image/") === true && cachedUrl) {
     return <DiscordImage attachment={attachment} url={cachedUrl} />;
   }

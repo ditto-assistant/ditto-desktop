@@ -26,7 +26,7 @@ function trimNonEmpty(value: string | undefined): string | null {
  * auth domain for the sign-in popup handler, the project id for token
  * issuance.
  */
-export function resolveDittoFirebaseConfig(
+function resolveDittoFirebaseConfig(
   env: Readonly<Record<string, string | undefined>> = import.meta.env,
 ): DittoFirebaseConfig | null {
   const apiKey = trimNonEmpty(env.VITE_DITTO_FIREBASE_API_KEY);

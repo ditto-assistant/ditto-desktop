@@ -59,7 +59,7 @@ async function readErrorMessage(response: Response): Promise<string> {
  * Sends a request as `user`. `path` may be a template using `{uid}` for the
  * account id, e.g. `/api/v5/users/{uid}/connectors`.
  */
-export async function dittoFetch(
+async function dittoFetch(
   user: DittoUser,
   path: string,
   init: Omit<RequestInit, "body"> & { readonly body?: unknown } = {},

@@ -89,7 +89,7 @@ export const DittoDriver: ProviderDriver<DittoSettings, DittoDriverEnv> = {
       });
 
       const snapshot = yield* makeManagedServerProvider<DittoSettings>({
-        maintenanceCapabilities,
+        resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
         getSettings: Effect.succeed(effectiveConfig),
         streamSettings: Stream.never,
         haveSettingsChanged: () => false,

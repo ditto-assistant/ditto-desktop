@@ -360,7 +360,7 @@ export const ChannelKnowledgePacketRequest = Schema.Struct({
 });
 export type ChannelKnowledgePacketRequest = typeof ChannelKnowledgePacketRequest.Type;
 
-export class ChannelOperationError extends Schema.TaggedErrorClass<ChannelOperationError>()(
+export class ChannelOperationError extends Schema.TaggedError<ChannelOperationError>()(
   "ChannelOperationError",
   {
     accountId: Schema.optionalKey(ChannelAccountId),
