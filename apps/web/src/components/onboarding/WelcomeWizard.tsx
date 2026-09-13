@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { useAuth } from "@clerk/react";
 import { useAtomValue } from "@effect/atom-react";
 import type {
@@ -189,9 +190,9 @@ export function WelcomeWizard({
         initialFocus={() => document.getElementById("onboarding-pairing-url") ?? true}
       >
         <WizardHeader
-          title="Set up T3 Code"
+          title="Set up Ditto"
           identity={
-            <div className="flex items-baseline gap-1.5" role="img" aria-label="T3 Code">
+            <div className="flex items-baseline gap-1.5" role="img" aria-label="Ditto">
               <T3Wordmark className="h-4 w-auto shrink-0" aria-hidden />
               <span className="text-[1.4rem] font-medium tracking-tight text-muted-foreground">
                 Code
@@ -477,7 +478,7 @@ function ConnectAccountOption({
           </p>
           <CommandBlock command="npx t3 connect" className="mt-3" />
           <p className="mt-3 text-xs text-muted-foreground">
-            Keep T3 Code running. Select the computers you want to set up above.
+            Keep Ditto running. Select the computers you want to set up above.
           </p>
         </div>
       </CollapsiblePanel>
@@ -594,7 +595,7 @@ function PairingForm({
             </p>
             <CommandBlock command="npx t3 pair" className="mt-2" />
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Start T3 Code first, or run <code className="font-mono">npx t3 serve</code>. Add{" "}
+              Start Ditto first, or run <code className="font-mono">npx t3 serve</code>. Add{" "}
               <code className="font-mono">--tailscale</code> to use your tailnet.
             </p>
           </CollapsiblePanel>

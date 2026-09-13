@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { DesktopAppActivationRequest } from "@t3tools/contracts";
 import { useEffect, useEffectEvent, useRef } from "react";
@@ -63,7 +64,7 @@ export function DesktopAppActivationCoordinator() {
         });
         if (result._tag === "Failure") {
           const error = squashAtomCommandFailure(result);
-          throw error instanceof Error ? error : new Error("T3 Code could not add the project.");
+          throw error instanceof Error ? error : new Error("Ditto could not add the project.");
         }
         return projectId;
       },

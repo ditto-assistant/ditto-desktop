@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import * as NodeURL from "node:url";
 
 import type { ChatAttachment, ProviderApprovalDecision, RuntimeMode } from "@t3tools/contracts";
@@ -157,7 +158,7 @@ export const verifyOpenCodeServerVersion = Effect.fn("verifyOpenCodeServerVersio
       (cause) =>
         new OpenCodeRuntimeError({
           operation: "global.health",
-          detail: `OpenCode server returned an invalid health response. T3 Code requires OpenCode v${MINIMUM_OPENCODE_VERSION} or newer.`,
+          detail: `OpenCode server returned an invalid health response. Ditto requires OpenCode v${MINIMUM_OPENCODE_VERSION} or newer.`,
           cause,
         }),
     ),
@@ -165,7 +166,7 @@ export const verifyOpenCodeServerVersion = Effect.fn("verifyOpenCodeServerVersio
   if (parseSemver(health.version) === null) {
     return yield* new OpenCodeRuntimeError({
       operation: "global.health",
-      detail: `OpenCode server returned an invalid version. T3 Code requires OpenCode v${MINIMUM_OPENCODE_VERSION} or newer.`,
+      detail: `OpenCode server returned an invalid version. Ditto requires OpenCode v${MINIMUM_OPENCODE_VERSION} or newer.`,
     });
   }
   if (compareSemverVersions(health.version, MINIMUM_OPENCODE_VERSION) < 0) {

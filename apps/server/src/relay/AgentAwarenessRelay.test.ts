@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import * as NodeCrypto from "node:crypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
@@ -354,7 +355,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
         projects: [
           {
             id: projectId,
-            title: "T3 Code",
+            title: "Ditto",
           },
         ],
         threads: [
@@ -460,7 +461,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
 
         const project = {
           id: projectId,
-          title: "T3 Code",
+          title: "Ditto",
           workspaceRoot: "/workspace",
           repositoryIdentity: null,
           defaultModelSelection: null,
@@ -652,7 +653,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
 
         const project = {
           id: projectId,
-          title: "T3 Code",
+          title: "Ditto",
           workspaceRoot: "/workspace",
           repositoryIdentity: null,
           defaultModelSelection: null,

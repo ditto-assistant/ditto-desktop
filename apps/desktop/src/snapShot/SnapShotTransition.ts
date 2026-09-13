@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import * as Effect from "effect/Effect";
 import type * as Fiber from "effect/Fiber";
 
@@ -114,7 +115,7 @@ function createWindow(
     resizable: false,
     show: false,
     skipTaskbar: true,
-    title: "T3 Code Snapshot Animation",
+    title: "Ditto Snapshot Animation",
     transparent: true,
     webPreferences: {
       backgroundThrottling: false,

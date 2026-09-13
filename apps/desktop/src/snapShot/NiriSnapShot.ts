@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 // @effect-diagnostics nodeBuiltinImport:off -- Niri exposes its compositor API through a local Unix socket.
 // @effect-diagnostics globalTimers:off -- Bound native socket operations outside Effect fibers.
 
@@ -175,7 +176,7 @@ async function activateNiriWindow(path: string, title: string, signal: AbortSign
         (window) => window.pid === process.pid && window.title === title,
       );
       if (matches.length > 1)
-        throw new Error("More than one T3 Code window matches the capture destination.");
+        throw new Error("More than one Ditto window matches the capture destination.");
       return matches[0];
     });
     connection.send("EventStream");

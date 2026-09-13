@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 // @effect-diagnostics globalTimers:off -- The Node socket client owns its response deadline and clears it on every completion path.
 import * as NodeCrypto from "node:crypto";
 import * as NodeNet from "node:net";
@@ -59,7 +60,7 @@ export class DesktopAppUnreachableError extends Schema.TaggedError<DesktopAppUnr
   },
 ) {
   override get message(): string {
-    return "Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.";
+    return "Could not reach the Ditto desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running Ditto server is not enough.";
   }
 }
 
@@ -73,7 +74,7 @@ export class DesktopAppRequestFailedError extends Schema.TaggedError<DesktopAppR
   },
 ) {
   override get message(): string {
-    return `T3 Code could not open ${this.workspaceRoot} (${this.code}).`;
+    return `Ditto could not open ${this.workspaceRoot} (${this.code}).`;
   }
 }
 
@@ -246,7 +247,7 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
     });
   }
 
-  yield* Console.log(`Opened ${workspaceRoot} in T3 Code.`);
+  yield* Console.log(`Opened ${workspaceRoot} in Ditto.`);
 });
 
 export const appCommand = Command.make("app", {
@@ -256,6 +257,6 @@ export const appCommand = Command.make("app", {
     Argument.optional,
   ),
 }).pipe(
-  Command.withDescription("Open a project in the running T3 Code desktop app."),
+  Command.withDescription("Open a project in the running Ditto desktop app."),
   Command.withHandler(runAppCommand),
 );

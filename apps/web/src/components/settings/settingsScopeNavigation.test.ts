@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
 import {
   createMemoryHistory,
@@ -14,7 +15,7 @@ import { retainSettingsScope, validateSettingsRouteSearch } from "./settingsScop
 const checkoutSearch = {
   project: "repository:t3code",
   machine: "remote-server",
-  checkout: "remote-server:/home/user/T3 Code",
+  checkout: "remote-server:/home/user/Ditto",
 };
 
 function createSettingsRouter(initialEntry = "/settings/general") {

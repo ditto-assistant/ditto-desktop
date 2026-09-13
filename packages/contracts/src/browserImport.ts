@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 /**
  * Browser import - pulling cookies from a browser already installed on the
  * machine into a T3 Code browser profile.
@@ -145,7 +146,7 @@ const BROWSER_IMPORT_UNAVAILABLE_COPY: Readonly<Record<BrowserImportUnavailableR
   keychainItemMissing:
     "No encryption key in your Keychain — sign in to that browser once, then retry.",
   needsFullDiskAccess:
-    "Give T3 Code Full Disk Access in System Settings → Privacy & Security, then retry.",
+    "Give Ditto Full Disk Access in System Settings → Privacy & Security, then retry.",
   browserRunning: "Quit the browser first so its cookie database can be read.",
   unsupportedPlatform: "Importing from this browser isn't possible on this platform.",
 };

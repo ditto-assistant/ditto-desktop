@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import {
   CommandId,
   EventId,
@@ -123,7 +124,7 @@ describe("orchestration projector", () => {
           projects: [
             {
               id: ProjectId.make("project-1"),
-              title: "T3 Code",
+              title: "Ditto",
               workspaceRoot: "/repo",
               defaultModelSelection: null,
               scripts: [],

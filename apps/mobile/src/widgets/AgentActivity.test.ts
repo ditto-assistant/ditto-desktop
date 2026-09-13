@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("@expo/ui/swift-ui", () => ({
@@ -46,7 +47,7 @@ function makeRow(overrides: Partial<AgentActivityRowProps>): AgentActivityRowPro
 }
 
 const props = {
-  title: "T3 Code",
+  title: "Ditto",
   subtitle: "Agent work in progress",
   activeCount: 1,
   updatedAt: "2026-05-25T13:07:00.000Z",

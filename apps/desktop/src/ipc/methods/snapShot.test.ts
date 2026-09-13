@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -186,7 +187,7 @@ describe("window capture IPC", () => {
           borderWidth: 1,
           cornerRadius: 8,
           details: {
-            appName: "T3 Code",
+            appName: "Ditto",
             windowTitle: "Capture animation",
             appIconDataUrl: "data:image/png;base64,aWNvbg==",
           },
@@ -204,7 +205,7 @@ describe("window capture IPC", () => {
           cornerRadius: 10,
           scaleFactor: 1.25,
           details: {
-            appName: "T3 Code",
+            appName: "Ditto",
             windowTitle: "Capture animation",
             appIconDataUrl: "data:image/png;base64,aWNvbg==",
           },

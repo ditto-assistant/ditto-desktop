@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 // @effect-diagnostics nodeBuiltinImport:off -- Local socket ownership checks need lstat uid and an atomic stale-socket unlink at the Node adapter boundary.
 import * as NodeFSP from "node:fs/promises";
 import * as NodeNet from "node:net";
@@ -151,7 +152,7 @@ export async function startDesktopAppControlServer(input: {
       activeRequestId = parsed.requestId;
       void input.handle(parsed).then(finish, () => {
         finish(
-          invalidResponse(parsed.requestId, "T3 Code could not process the desktop app request."),
+          invalidResponse(parsed.requestId, "Ditto could not process the desktop app request."),
         );
       });
     });

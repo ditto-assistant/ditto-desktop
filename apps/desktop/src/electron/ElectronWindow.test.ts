@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { assert, describe, it } from "@effect/vitest";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Cause from "effect/Cause";
@@ -79,7 +80,7 @@ function makeWindowsRevealWindow() {
     show: vi.fn(),
     moveTop: vi.fn(),
     focus: vi.fn(),
-    getTitle: vi.fn(() => "T3 Code (Dev)"),
+    getTitle: vi.fn(() => "Ditto (Dev)"),
     getBounds: vi.fn(() => ({ x: 100, y: 50, width: 1_200, height: 800 })),
     getContentBounds: vi.fn(() => ({ x: 108, y: 50, width: 1_184, height: 792 })),
     getNativeWindowHandle: vi.fn(() => Buffer.from([41, 0, 0, 0])),
@@ -116,7 +117,7 @@ describe("ElectronWindow", () => {
         throw cause;
       });
       const options = {
-        title: "T3 Code",
+        title: "Ditto",
         width: 1100,
         height: 780,
         minWidth: 840,
@@ -143,7 +144,7 @@ describe("ElectronWindow", () => {
 
       assert.instanceOf(error, ElectronWindow.ElectronWindowCreateError);
       assert.deepEqual(error.options, {
-        title: "T3 Code",
+        title: "Ditto",
         width: 1100,
         height: 780,
         minWidth: 840,
@@ -166,7 +167,7 @@ describe("ElectronWindow", () => {
       assert.isFalse("icon" in error.options);
       assert.isFalse("spellcheck" in error.options.webPreferences);
       assert.strictEqual(error.cause, cause);
-      assert.equal(error.message, 'Failed to create Electron BrowserWindow "T3 Code" (1100x780).');
+      assert.equal(error.message, 'Failed to create Electron BrowserWindow "Ditto" (1100x780).');
       assert.notInclude(error.message, cause.message);
       assert.deepEqual(browserWindowMock.mock.calls, [[options]]);
     }).pipe(Effect.provide(TestLayer)),
@@ -302,7 +303,7 @@ describe("ElectronWindow", () => {
           {
             windowId: 41,
             processId: process.pid,
-            title: "T3 Code (Dev)",
+            title: "Ditto (Dev)",
             bounds: { x: 100, y: 50, width: 1_200, height: 800 },
             contentBounds: { x: 108, y: 50, width: 1_184, height: 792 },
           },
@@ -327,7 +328,7 @@ describe("ElectronWindow", () => {
           {
             windowId: 41,
             processId: process.pid,
-            title: "T3 Code (Dev)",
+            title: "Ditto (Dev)",
             bounds: { x: 100, y: 50, width: 1_200, height: 800 },
             contentBounds: { x: 108, y: 50, width: 1_184, height: 792 },
           },

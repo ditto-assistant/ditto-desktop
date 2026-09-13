@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -43,7 +44,7 @@ function makeProject(
 function makeScope(projects: ReadonlyArray<EnvironmentProject>): HomeProjectScope {
   return {
     key: "github.com/t3tools/t3code",
-    title: "T3 Code",
+    title: "Ditto",
     representative: projects[0]!,
     projects,
     projectRefs: projects.map((project) => ({

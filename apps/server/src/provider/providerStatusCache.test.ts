@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   defaultInstanceIdForDriver,
@@ -222,7 +223,7 @@ it.layer(NodeServices.layer)("providerStatusCache", (it) => {
       version: null,
       status: "disabled",
       auth: { status: "unknown" },
-      message: "Codex is disabled in T3 Code settings.",
+      message: "Codex is disabled in Ditto settings.",
     });
 
     assert.deepStrictEqual(

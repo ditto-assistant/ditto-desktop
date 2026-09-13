@@ -1,3 +1,4 @@
+// DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -11,7 +12,7 @@ describe("SnapShotAttachmentDetails", () => {
       kind: "snap-shot" as const,
       capturedAt: "2026-08-27T00:00:00.000Z",
       appName: "Safari",
-      windowTitle: "T3 Code",
+      windowTitle: "Ditto",
     };
 
     expect(snapShotIncludesAccessibility(source)).toBe(false);
@@ -23,7 +24,7 @@ describe("SnapShotAttachmentDetails", () => {
       kind: "snap-shot" as const,
       capturedAt: "2026-08-27T00:00:00.000Z",
       appName: "Safari",
-      windowTitle: "T3 Code",
+      windowTitle: "Ditto",
       accessibility: {
         format: "element-tree" as const,
         coordinateSpace: "captured-image" as const,
@@ -31,7 +32,7 @@ describe("SnapShotAttachmentDetails", () => {
         truncated: false,
         root: {
           role: "window",
-          name: "T3 Code",
+          name: "Ditto",
           bounds: { x: 0, y: 0, width: 800, height: 600 },
           children: [
             {
@@ -57,8 +58,8 @@ describe("SnapShotAttachmentDetails", () => {
       kind: "snap-shot" as const,
       capturedAt: "2026-08-27T00:00:00.000Z",
       appName: "Safari",
-      windowTitle: "T3 Code",
-      accessibleText: "T3 Code\nSave",
+      windowTitle: "Ditto",
+      accessibleText: "Ditto\nSave",
       accessibility: {
         format: "element-tree" as const,
         coordinateSpace: "captured-image" as const,
@@ -66,7 +67,7 @@ describe("SnapShotAttachmentDetails", () => {
         truncated: false,
         root: {
           role: "window",
-          name: "T3 Code",
+          name: "Ditto",
           bounds: { x: 0, y: 0, width: 800, height: 600 },
           children: [],
         },
