@@ -79,3 +79,7 @@ keyboard repeat; if repeat is disabled, use two presses or the application menu.
 Change **Settings → General → Confirmations → Quit shortcut** to **Direct** for a
 single press or **Double press** for two presses only. Choosing **Quit** from the
 application menu always quits immediately.
+
+`thread.teleport` saves the active thread to Ditto Cloud (see
+[Teleport](./teleport.md)). It has no default shortcut, only runs for Claude Code and Codex threads,
+and waits until the current turn has finished.

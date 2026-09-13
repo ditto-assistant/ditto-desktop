@@ -13,6 +13,10 @@ an existing worktree, use **New thread in this worktree** from the branch toolba
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
+Right-click a Claude Code or Codex thread and choose **Teleport to Ditto Cloud** to save its
+repositories, working tree, and agent session so you can resume it in Ditto Code or on another
+computer. See [Teleport](./teleport.md).
+
 ### Start in the background
 
 In a desktop browser or the desktop app, press `Cmd+Enter` on macOS or `Ctrl+Enter`

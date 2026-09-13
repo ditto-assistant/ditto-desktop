@@ -4,14 +4,22 @@
  *
  * A Ditto account is optional: the desktop works locally without one. Signing
  * in unlocks the features that live in Ditto's cloud, starting with Google
- * Messages pairing through the hosted bridge.
+ * Messages pairing through the hosted bridge. Linking the computer (device
+ * code) gives the desktop server its own Ditto key for Teleport and Ditto Code.
  *
  * @module DittoAccountSettings
  */
 import { CloudIcon, LogOutIcon, MessageSquareIcon } from "lucide-react";
-import { useCallback, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 
-import { DITTO_API_BASE_OPTIONS, getDittoApiBaseUrl, setDittoApiBaseUrl } from "~/ditto/apiBase";
+import {
+  describeDittoApiBaseUrl,
+  DITTO_API_BASE_OPTIONS,
+  DITTO_PRODUCTION_API_BASE_URL,
+  getDittoApiBaseUrl,
+  getStoredDittoApiBaseUrl,
+  setDittoApiBaseUrl,
+} from "~/ditto/apiBase";
 import { isDittoCloudConfigured } from "~/ditto/config";
 import {
   describeDittoSignInError,
@@ -22,6 +30,8 @@ import {
 import { useDittoUser } from "~/ditto/useDittoUser";
 
 import { Button } from "../ui/button";
+import { describeApiBaseOverride, resolveDittoAccountRows } from "./DittoAccountSettings.logic";
+import { DeviceLinkRow } from "./DittoDeviceLink";
 import { GoogleMessagesConnectionRow } from "./GoogleMessagesConnection";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -33,7 +43,7 @@ function UnconfiguredNotice() {
   return (
     <SettingsRow
       {...searchableSetting("ditto-account")}
-      description="This build has no Ditto cloud configuration. Add the DITTO_FIREBASE_* values from .env.example to the repo's .env and rebuild to enable sign-in."
+      description="Sign in with Ditto is unavailable in this build: add the DITTO_FIREBASE_* values from .env.example to the repo's .env and rebuild. Linking this computer below does not need them."
     />
   );
 }
@@ -187,7 +197,15 @@ function AccountRow() {
 
 function BackendRow() {
   const [baseUrl, setBaseUrl] = useState(() => getDittoApiBaseUrl());
-  const selected = DITTO_API_BASE_OPTIONS.find((option) => option.url === baseUrl);
+
+  useEffect(() => {
+    const notice = describeApiBaseOverride({
+      stored: getStoredDittoApiBaseUrl(),
+      resolved: baseUrl,
+      production: DITTO_PRODUCTION_API_BASE_URL,
+    });
+    if (notice !== null) console.info(notice);
+  }, [baseUrl]);
 
   return (
     <SettingsRow
@@ -205,7 +223,7 @@ function BackendRow() {
           }}
         >
           <SelectTrigger className="w-full sm:w-44" aria-label="Ditto backend">
-            <SelectValue>{selected?.label ?? baseUrl}</SelectValue>
+            <SelectValue>{describeDittoApiBaseUrl(baseUrl)}</SelectValue>
           </SelectTrigger>
           <SelectPopup align="end" alignItemWithTrigger={false}>
             {DITTO_API_BASE_OPTIONS.map((option) => (
@@ -231,20 +249,16 @@ function ConnectionsSection() {
 }
 
 export function DittoAccountSettingsPanel() {
-  const configured = isDittoCloudConfigured();
+  const rows = resolveDittoAccountRows(isDittoCloudConfigured());
   return (
     <SettingsPageContainer>
       <SettingsSection title="Ditto Account" icon={<CloudIcon className="size-4" />}>
-        {configured ? (
-          <>
-            <AccountRow />
-            <BackendRow />
-          </>
-        ) : (
-          <UnconfiguredNotice />
-        )}
+        {rows.signIn ? <AccountRow /> : null}
+        {rows.unconfiguredNotice ? <UnconfiguredNotice /> : null}
+        {rows.backend ? <BackendRow /> : null}
+        {rows.deviceLink ? <DeviceLinkRow /> : null}
       </SettingsSection>
-      {configured ? <ConnectionsSection /> : null}
+      {rows.connections ? <ConnectionsSection /> : null}
     </SettingsPageContainer>
   );
 }

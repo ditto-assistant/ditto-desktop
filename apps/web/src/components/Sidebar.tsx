@@ -118,6 +118,7 @@ import {
   useThreadSelectionStore,
 } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
+import { threadSupportsTeleport, useTeleportThread } from "../hooks/useTeleportThread";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
@@ -4180,6 +4181,7 @@ export default function Sidebar() {
     ],
   );
 
+  const teleportThread = useTeleportThread();
   const handleThreadContextMenu = useCallback(
     (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {
       void (async () => {
@@ -4211,6 +4213,7 @@ export default function Sidebar() {
           serverConfigs.get(thread.environmentId)?.environment.capabilities
             .threadTitleRegeneration === true;
         const isRegeneratingTitle = thread.titleRegeneration != null;
+        const supportsTeleport = threadSupportsTeleport(thread);
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
         const isPinned = thread.pinnedAt != null;
@@ -4232,6 +4235,7 @@ export default function Sidebar() {
                 snooze: supportsSnooze,
                 pinning: supportsPinning,
                 titleRegeneration: supportsTitleRegeneration,
+                teleport: supportsTeleport,
               },
               snoozePresets,
             }),
@@ -4341,6 +4345,9 @@ export default function Sidebar() {
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
             return;
+          case "teleport":
+            await teleportThread(threadRef, thread, threadWorkspacePath);
+            return;
           case "archive": {
             if (confirmThreadArchive) {
               const confirmed = await settlePromise(() =>
@@ -4421,6 +4428,7 @@ export default function Sidebar() {
       projectByKey,
       serverConfigs,
       startThreadRename,
+      teleportThread,
       updateThreadMetadata,
       timestampFormat,
     ],

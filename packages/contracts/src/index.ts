@@ -10,6 +10,7 @@ export * from "./relayClient.ts";
 export * from "./desktopBootstrap.ts";
 export * from "./desktopAppActivation.ts";
 export * from "./dittoHarness.ts";
+export * from "./teleport.ts";
 export * from "./channels.ts";
 export * from "./remoteAccess.ts";
 export * from "./ipc.ts";

@@ -58,6 +58,8 @@ import {
   type RelayClientInstallProgressEvent,
   ServerSelfUpdateError,
   type ServerSelfUpdateProgressEvent,
+  type TeleportError,
+  type TeleportProgressEvent,
   type ServerLifecycleStreamEvent,
   type FilesystemBrowseFailure,
   FilesystemBrowseError,
@@ -81,6 +83,8 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import { DittoHarnessService } from "./dittoHarness/DittoHarnessService.ts";
+import { DittoAccountService } from "./teleport/DittoAccount.ts";
+import { TeleportService } from "./teleport/TeleportService.ts";
 import { ChannelRegistry } from "./channels/ChannelRegistry.ts";
 import {
   materializeKnowledgePacket,
@@ -647,6 +651,8 @@ const makeWsRpcLayer = (
       const usage = yield* UsageService.UsageService;
       const relayClient = yield* RelayClient.RelayClient;
       const dittoHarness = yield* DittoHarnessService;
+      const dittoAccount = yield* DittoAccountService;
+      const teleport = yield* TeleportService;
       const channels = yield* ChannelRegistry;
       const authorizationError = (requiredScope: AuthEnvironmentScope) =>
         new EnvironmentAuthorizationError({
@@ -2194,6 +2200,54 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.dittoHarnessDream, dittoHarness.dream(input), {
             "rpc.aggregate": "ditto-harness",
           }),
+        [WS_METHODS.dittoAccountGetStatus]: (_input) =>
+          observeRpcEffect(WS_METHODS.dittoAccountGetStatus, dittoAccount.status, {
+            "rpc.aggregate": "ditto-account",
+          }),
+        [WS_METHODS.dittoAccountLink]: (input) =>
+          observeRpcEffect(WS_METHODS.dittoAccountLink, dittoAccount.link(input), {
+            "rpc.aggregate": "ditto-account",
+          }),
+        [WS_METHODS.dittoAccountUnlink]: (_input) =>
+          observeRpcEffect(WS_METHODS.dittoAccountUnlink, dittoAccount.unlink, {
+            "rpc.aggregate": "ditto-account",
+          }),
+        [WS_METHODS.dittoAccountStartDeviceLink]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.dittoAccountStartDeviceLink,
+            dittoAccount.startDeviceLink(input),
+            { "rpc.aggregate": "ditto-account" },
+          ),
+        [WS_METHODS.dittoAccountPollDeviceLink]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.dittoAccountPollDeviceLink,
+            dittoAccount.pollDeviceLink(input),
+            { "rpc.aggregate": "ditto-account" },
+          ),
+        [WS_METHODS.teleportThread]: (input) =>
+          observeRpcStream(
+            WS_METHODS.teleportThread,
+            Stream.callback<TeleportProgressEvent, TeleportError>((queue) =>
+              teleport
+                .teleportThread(input, (progress) =>
+                  Queue.offer(queue, { type: "progress", ...progress }).pipe(Effect.asVoid),
+                )
+                .pipe(
+                  Effect.flatMap((capsule) =>
+                    Queue.offer(queue, { type: "complete", capsule }).pipe(Effect.asVoid),
+                  ),
+                  Effect.flatMap(() => Queue.end(queue)),
+                  Effect.catch((error) => Queue.fail(queue, error)),
+                ),
+            ),
+            { "rpc.aggregate": "teleport" },
+          ),
+        [WS_METHODS.teleportLaunchCloudSession]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.teleportLaunchCloudSession,
+            teleport.launchCloudSession(input),
+            { "rpc.aggregate": "teleport" },
+          ),
         [WS_METHODS.channelsListAccounts]: (_input) =>
           observeRpcEffect(
             WS_METHODS.channelsListAccounts,
