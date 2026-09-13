@@ -149,7 +149,7 @@ type RepoPack = TeleportRepoManifest["packs"][number];
 const fail = (message: string) => new TeleportError({ message });
 
 /** Turns the backend's status codes into sentences the dialog can show. */
-export function describeApiFailure(status: number, route: string, message: string): string {
+function describeApiFailure(status: number, route: string, message: string): string {
   const detail = message.trim();
   switch (status) {
     case 401:
@@ -172,7 +172,7 @@ const describe = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
 /** The Ditto web app that fronts an API base, for deep links into a thread. */
-export function dittoAppUrlFor(apiBaseUrl: string): string {
+function dittoAppUrlFor(apiBaseUrl: string): string {
   let host: string;
   try {
     host = new URL(apiBaseUrl).hostname;
@@ -198,7 +198,7 @@ const concat = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
 const toManifestChunks = (bytes: Uint8Array): ReadonlyArray<TeleportManifestChunk> =>
   chunkBytes(bytes).map(({ sha256, size }) => ({ sha256, size }));
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

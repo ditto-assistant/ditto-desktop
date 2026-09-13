@@ -9,7 +9,7 @@ import * as NodeCrypto from "node:crypto";
 import type { TeleportHarness } from "@t3tools/contracts";
 
 /** Chunks stay under the Ditto storage layer's 25 MiB single-object cap. */
-export const TELEPORT_CHUNK_BYTES = 24 * 1024 * 1024;
+const TELEPORT_CHUNK_BYTES = 24 * 1024 * 1024;
 
 /** The Ditto API accepts at most this many chunks per negotiate call. */
 export const TELEPORT_NEGOTIATE_BATCH = 200;

@@ -14,7 +14,7 @@ import * as Schema from "effect/Schema";
 import { dittoFetchJson } from "./api";
 import type { DittoUser } from "./firebase";
 
-export const GOOGLE_MESSAGES_PROVIDER = "googlemessages";
+const GOOGLE_MESSAGES_PROVIDER = "googlemessages";
 
 const ConnectionSchema = Schema.Struct({
   id: Schema.String,
@@ -48,7 +48,7 @@ export type DittoConnectOutcome = typeof ConnectOutcomeSchema.Type;
 const decodeConnectionList = Schema.decodeUnknownEffect(ConnectionListSchema);
 const decodeConnectOutcome = Schema.decodeUnknownEffect(ConnectOutcomeSchema);
 
-export async function listDittoConnections(user: DittoUser): Promise<readonly DittoConnection[]> {
+async function listDittoConnections(user: DittoUser): Promise<readonly DittoConnection[]> {
   const body = await dittoFetchJson<unknown>(user, "/api/v5/users/{uid}/connections");
   const decoded = await Effect.runPromise(decodeConnectionList(body));
   return decoded.connections ?? [];

@@ -14,7 +14,7 @@
  * @module googlemessages/googleMessagesCookies
  */
 
-export const GOOGLE_MESSAGES_REQUIRED_COOKIES = [
+const GOOGLE_MESSAGES_REQUIRED_COOKIES = [
   "SID",
   "HSID",
   "SSID",

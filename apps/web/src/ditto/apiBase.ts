@@ -30,7 +30,7 @@ export const DITTO_API_BASE_OPTIONS: readonly DittoApiBaseOption[] = [
   { id: "staging-8", label: "Staging 8", url: "https://staging-api-8.heyditto.ai" },
 ];
 
-export const DITTO_API_BASE_STORAGE_KEY = "ditto.apiBaseUrl";
+const DITTO_API_BASE_STORAGE_KEY = "ditto.apiBaseUrl";
 
 /**
  * Ephemeral backend previews: a ditto-app pull request that names a backend

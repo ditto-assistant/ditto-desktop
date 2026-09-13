@@ -50,7 +50,7 @@ export function useDittoUser(): DittoUserState {
 }
 
 /** The current user without subscribing; for imperative callers (fetch helpers). */
-export function getCurrentDittoUser(): DittoUser | null {
+function getCurrentDittoUser(): DittoUser | null {
   ensureSubscribed();
   return state.user;
 }

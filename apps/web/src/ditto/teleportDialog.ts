@@ -142,7 +142,7 @@ export function completeTeleportDialogClose(): void {
   publish(reduceTeleportDialog(state, { type: "closed" }));
 }
 
-export function resetTeleportDialogForTests(): void {
+function resetTeleportDialogForTests(): void {
   publish(idleState);
   listeners.clear();
 }

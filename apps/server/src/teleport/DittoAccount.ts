@@ -53,11 +53,11 @@ export interface DittoAccountCredentials {
 }
 
 /** Last four characters, the same hint the Ditto app shows for a key. */
-export function dittoKeyHint(apiKey: string): string {
+function dittoKeyHint(apiKey: string): string {
   return apiKey.length <= 4 ? apiKey : apiKey.slice(-4);
 }
 
-export function normalizeDittoApiBaseUrl(value: string): string | null {
+function normalizeDittoApiBaseUrl(value: string): string | null {
   let url: URL;
   try {
     url = new URL(value.trim());
@@ -106,7 +106,7 @@ function describeCause(cause: unknown): string {
   return String(cause);
 }
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const httpClient = yield* HttpClient.HttpClient;
   // Attempts in flight, keyed by the opaque id the client polls with. The
@@ -183,12 +183,10 @@ export const make = Effect.gen(function* () {
 
   const credentials = read.pipe(
     Effect.map(
-      Option.map(
-        (account): DittoAccountCredentials => ({
-          apiKey: account.apiKey,
-          apiBaseUrl: account.apiBaseUrl,
-        }),
-      ),
+      Option.map((account): DittoAccountCredentials => ({
+        apiKey: account.apiKey,
+        apiBaseUrl: account.apiBaseUrl,
+      })),
     ),
   );
 
