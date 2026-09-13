@@ -5,7 +5,7 @@
  */
 import type { DittoHost, DittoHostPresence, DittoPairing } from "./hosts";
 
-export const PAIRING_CODE_LENGTH = 6;
+const PAIRING_CODE_LENGTH = 6;
 
 export interface PartitionedDittoHosts {
   /** The host record for this machine, matched by device id. */

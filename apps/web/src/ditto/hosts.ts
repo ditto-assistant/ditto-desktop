@@ -55,7 +55,7 @@ export interface DittoPairing {
   readonly expiresAt: string;
 }
 
-export async function listDittoHosts(user: DittoUser): Promise<ReadonlyArray<DittoHost>> {
+async function listDittoHosts(user: DittoUser): Promise<ReadonlyArray<DittoHost>> {
   const body = await dittoFetchJson<{ readonly hosts?: ReadonlyArray<DittoHost> }>(
     user,
     "/api/v5/hosts",

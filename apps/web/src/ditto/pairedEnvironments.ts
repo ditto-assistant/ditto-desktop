@@ -19,11 +19,11 @@ import { EnvironmentId } from "@t3tools/contracts";
 
 import type { DittoHost } from "./hosts";
 
-export function pairedHostEnvironmentId(host: Pick<DittoHost, "id">): EnvironmentId {
+function pairedHostEnvironmentId(host: Pick<DittoHost, "id">): EnvironmentId {
   return EnvironmentId.make(`ditto-host:${host.id}`);
 }
 
-export function pairedHostProxyBaseUrl(apiBaseUrl: string, host: Pick<DittoHost, "id">): string {
+function pairedHostProxyBaseUrl(apiBaseUrl: string, host: Pick<DittoHost, "id">): string {
   return `${apiBaseUrl.replace(/\/+$/, "")}/api/v5/hosts/${encodeURIComponent(host.id)}/env`;
 }
 
