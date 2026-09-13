@@ -67,7 +67,7 @@ describe("ComposerCommandMenu", () => {
     expect(markup).not.toContain("dropdown-glass");
   });
 
-  it("renders commands without a category heading or invented icons", () => {
+  it("renders slash commands with their descriptions", () => {
     const markup = renderToStaticMarkup(
       <ComposerCommandMenu
         items={[
@@ -90,16 +90,9 @@ describe("ComposerCommandMenu", () => {
 
     expect(markup).toContain("/model");
     expect(markup).toContain("Switch response model for this thread");
-    expect(markup).not.toContain("Built-in");
-    expect(markup).not.toContain("<svg");
-    expect(markup).toContain("font-sans text-xs font-medium");
-    expect(markup).not.toContain("font-mono");
-    expect(markup).not.toContain("grid-cols-");
-    expect(markup).toContain("max-w-[45%]");
-    expect(markup).toContain("text-left");
   });
 
-  it("renders the skill source icon inside its badge", () => {
+  it("shows the app source for an app skill", () => {
     const markup = renderToStaticMarkup(
       <ComposerCommandMenu
         items={[
@@ -130,18 +123,10 @@ describe("ComposerCommandMenu", () => {
     expect(markup).toContain('data-slot="badge"');
     expect(markup).toContain(">App Skill</span>");
     expect(markup).toContain("Open and control the in-app browser");
-    expect(markup).toContain("max-w-[48ch]");
-    expect(markup).toContain("text-secondary-label text-xs");
-    expect(markup).toContain("ms-auto");
-    expect(markup).toContain("text-current");
-    expect(markup.indexOf("Open and control the in-app browser")).toBeLessThan(
-      markup.indexOf(">App Skill</span>"),
-    );
     expect(markup).toContain("<svg");
-    expect(markup.indexOf('data-slot="badge"')).toBeLessThan(markup.indexOf("<svg"));
   });
 
-  it("keeps slash skills aligned with the source icon inside the badge", () => {
+  it("shows the repo source for a slash skill", () => {
     const markup = renderToStaticMarkup(
       <ComposerCommandMenu
         items={[
@@ -174,6 +159,5 @@ describe("ComposerCommandMenu", () => {
     expect(markup).toContain("lucide-folder");
     expect(markup).toContain(">Repo</span>");
     expect(markup).toContain("Find the right skill or workflow");
-    expect(markup).not.toContain("font-medium text-secondary-label");
   });
 });

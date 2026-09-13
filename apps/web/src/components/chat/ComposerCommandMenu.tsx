@@ -7,6 +7,7 @@ import {
   type ProjectEntry,
   type ChannelConversation,
   type ProviderDriverKind,
+  type PullRequestContextMetadata,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
@@ -26,6 +27,8 @@ import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import { Command, CommandGroup, CommandItem, CommandList } from "../ui/command";
 import { PierreEntryIcon } from "./PierreEntryIcon";
+import { ComposerBanner } from "./ComposerBanner";
+import { resolvePullRequestState } from "../pullRequest/pullRequestPresentation";
 
 export type ComposerCommandItem =
   | {
@@ -65,6 +68,13 @@ export type ComposerCommandItem =
       skill: ServerProviderSkill;
       label: string;
       description: string;
+    }
+  | {
+      id: string;
+      type: "pull-request";
+      pullRequest: PullRequestContextMetadata;
+      label: string;
+      description: string;
     };
 
 export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
@@ -97,13 +107,13 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
         );
       }}
     >
-      <div
+      <ComposerBanner.Surface
         ref={listRef}
-        className="chat-composer-drawer-surface chat-composer-drawer-attached relative w-full overflow-hidden **:data-[slot=scroll-area-scrollbar]:data-[orientation=vertical]:my-4"
+        className="flex min-h-0 w-full flex-col overflow-hidden pb-(--chat-composer-attachment-overlap) **:data-[slot=scroll-area-scrollbar]:data-[orientation=vertical]:my-4"
         data-composer-command-drawer="true"
       >
         {props.items.length > 0 ? (
-          <CommandList className="max-h-72 scroll-pb-6">
+          <CommandList className="max-h-72 min-h-0 scroll-pb-6">
             <CommandGroup>
               {props.items.map((item) => (
                 <ComposerCommandMenuItem
@@ -124,9 +134,11 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
               {props.isLoading
                 ? props.triggerKind === "skill"
                   ? "Searching workspace skills..."
-                  : props.triggerKind === "chat-context"
-                    ? "Searching conversations..."
-                    : "Searching workspace..."
+                  : props.triggerKind === "pull-request"
+                    ? "Finding pull request..."
+                    : props.triggerKind === "chat-context"
+                      ? "Searching conversations..."
+                      : "Searching workspace files..."
                 : (props.emptyStateText ??
                   (props.triggerKind === "skill"
                     ? "No skills found. Try / to browse provider commands."
@@ -138,7 +150,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
             </p>
           </div>
         )}
-      </div>
+      </ComposerBanner.Surface>
     </Command>
   );
 });
@@ -155,6 +167,8 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
     props.item.type === "skill" ? resolveProviderSkillSourceKind(props.item.skill) : null;
   const isSlashSkill =
     props.triggerKind === "slash-command" && props.item.type === "skill" ? props.item.skill : null;
+  const pullRequestPresentation =
+    props.item.type === "pull-request" ? resolvePullRequestState(props.item.pullRequest) : null;
 
   return (
     <CommandItem
@@ -181,10 +195,12 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           theme={props.resolvedTheme}
         />
       ) : null}
-      {props.item.type === "chat-context" ? (
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
-          <MessageCircleIcon aria-hidden="true" className="size-3.5" />
-        </span>
+      {pullRequestPresentation ? (
+        <pullRequestPresentation.Icon
+          role="img"
+          aria-label={pullRequestPresentation.label}
+          className={cn("size-4 shrink-0", pullRequestPresentation.toneClassName)}
+        />
       ) : null}
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="min-w-0 max-w-[45%] shrink-0 truncate font-sans text-xs font-medium">

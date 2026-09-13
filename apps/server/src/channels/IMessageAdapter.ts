@@ -178,21 +178,19 @@ export function makeIMessageAdapter(
         ? Effect.succeed(unavailableAccount("iMessage integration is available only on macOS."))
         : query("SELECT COUNT(*) AS chat_count FROM chat LIMIT 1").pipe(
             Effect.flatMap(() => DateTime.now),
-            Effect.map(
-              (observedAt): ConnectedChannelAccount => ({
-                accountId: IMESSAGE_ACCOUNT_ID,
-                service: "imessage",
-                transport: "imessage-macos",
-                executionLocation: "device",
-                identityMode: "user",
-                label: "Messages on this Mac",
-                enabled: true,
-                state: "ready",
-                capabilities: [...capabilities(true)],
-                completeness: "complete",
-                lastObservedAt: DateTime.formatIso(observedAt),
-              }),
-            ),
+            Effect.map((observedAt): ConnectedChannelAccount => ({
+              accountId: IMESSAGE_ACCOUNT_ID,
+              service: "imessage",
+              transport: "imessage-macos",
+              executionLocation: "device",
+              identityMode: "user",
+              label: "Messages on this Mac",
+              enabled: true,
+              state: "ready",
+              capabilities: [...capabilities(true)],
+              completeness: "complete",
+              lastObservedAt: DateTime.formatIso(observedAt),
+            })),
             Effect.catch((error) => Effect.succeed(unavailableAccount(error.message))),
           ),
     listConversations:

@@ -9,6 +9,7 @@ export type HardwareKeyboardCommand =
   | "files"
   | "terminal"
   | "review"
+  | "copyThreadReference"
   | "toggleSidebar";
 
 type CommandHandler = () => boolean | void;
@@ -56,7 +57,8 @@ export function subscribeToHardwareKeyboardCommandRegistrations(listener: () => 
 export function dispatchHardwareKeyboardCommand(command: HardwareKeyboardCommand): boolean {
   const commandHandlers = handlers.get(command);
   if (!commandHandlers) return false;
-  for (const handler of [...commandHandlers].toReversed()) {
+  // `.reverse()` on a copy, not `.toReversed()`: Hermes has no ES2023 array methods.
+  for (const handler of [...commandHandlers].reverse()) {
     if (handler() !== false) return true;
   }
   return false;

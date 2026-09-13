@@ -56,14 +56,12 @@ export const DISCRAWL_CAPABILITIES: ReadonlyArray<ChannelCapability> = [
   { operation: "poll.read", availability: "unsupported" },
   { operation: "voice_note.read", availability: "available" },
   { operation: "call.read", availability: "unsupported" },
-  ...unsupportedSend.map(
-    (operation): ChannelCapability => ({
-      operation,
-      availability: "unsupported",
-      reason:
-        "Discrawl is a read-only archive and never extracts a Discord user token or runs a selfbot.",
-    }),
-  ),
+  ...unsupportedSend.map((operation): ChannelCapability => ({
+    operation,
+    availability: "unsupported",
+    reason:
+      "Discrawl is a read-only archive and never extracts a Discord user token or runs a selfbot.",
+  })),
 ];
 
 function transportError(message: string): ChannelOperationError {
@@ -601,21 +599,19 @@ export function makeDiscrawlAdapter(
             detail: "Discord could not finish connecting. Try again.",
           };
     }).pipe(
-      Effect.map(
-        ({ enabled, state, detail }): ConnectedChannelAccount => ({
-          accountId: DISCRAWL_ACCOUNT_ID,
-          service: "discord",
-          transport: "discord-discrawl",
-          executionLocation: "device",
-          identityMode: "archive",
-          label: "Discord on this device",
-          enabled,
-          state,
-          capabilities: [...DISCRAWL_CAPABILITIES],
-          completeness: "device_cache_partial",
-          statusDetail: detail,
-        }),
-      ),
+      Effect.map(({ enabled, state, detail }): ConnectedChannelAccount => ({
+        accountId: DISCRAWL_ACCOUNT_ID,
+        service: "discord",
+        transport: "discord-discrawl",
+        executionLocation: "device",
+        identityMode: "archive",
+        label: "Discord on this device",
+        enabled,
+        state,
+        capabilities: [...DISCRAWL_CAPABILITIES],
+        completeness: "device_cache_partial",
+        statusDetail: detail,
+      })),
     );
   }
 }

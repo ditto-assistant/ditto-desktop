@@ -9,7 +9,10 @@ import {
   toDittoHarnessMessage,
   type DittoHarnessOpener,
 } from "../dittoHarness/DittoHarnessRuntime.ts";
-import type { TextGenerationShape } from "./TextGeneration.ts";
+import type { TextGeneration } from "./TextGeneration.ts";
+// DITTO: upstream folded the service shape into the Context.Service class.
+type TextGenerationShape = TextGeneration["Service"];
+
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,

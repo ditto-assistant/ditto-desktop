@@ -101,7 +101,7 @@ export const DittoHarnessErrorKind = Schema.Literals([
 ]);
 export type DittoHarnessErrorKind = typeof DittoHarnessErrorKind.Type;
 
-export class DittoHarnessError extends Schema.TaggedErrorClass<DittoHarnessError>()(
+export class DittoHarnessError extends Schema.TaggedError<DittoHarnessError>()(
   "DittoHarnessError",
   {
     kind: DittoHarnessErrorKind,
