@@ -138,6 +138,7 @@ import * as UsageService from "./usage/UsageService.ts";
 import { DittoHarnessServiceLive } from "./dittoHarness/DittoHarnessService.ts";
 import * as DittoAccount from "./teleport/DittoAccount.ts";
 import * as TeleportServiceLayer from "./teleport/TeleportService.ts";
+import { HostBridgeLive } from "./remote/HostBridge.layer.ts"; // DITTO
 import * as ChannelRegistry from "./channels/ChannelRegistry.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
@@ -587,12 +588,18 @@ const TeleportLayerLive = TeleportServiceLayer.layer.pipe(
   Layer.provide(DittoAccountLayerLive),
   Layer.provide(ProviderSessionRuntime.layer),
 );
+// DITTO: host mode — the desktop server is a Ditto host of kind `desktop` when a
+// device-link key is configured (see remote/HostBridge.layer.ts).
+const DittoHostBridgeLive = HostBridgeLive({
+  version: process.env.T3CODE_VERSION ?? process.env.npm_package_version ?? "dev",
+});
 
 const RuntimeCoreDependenciesLive = Layer.mergeAll(
   DittoHarnessServiceLive,
   LocalChannelsLayerLive,
   DittoAccountLayerLive,
   TeleportLayerLive,
+  DittoHostBridgeLive,
 ).pipe(Layer.provideMerge(RuntimeCoreDependenciesBaseLive));
 
 const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
