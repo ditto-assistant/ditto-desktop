@@ -131,7 +131,7 @@
       "generatedNotices": [
         {
           "licenseId": "Apache-2.0",
-          "copyrights": ["Copyright 2009, 2010, 2013 André Berg"]
+          "copyrights": ["Copyright 2009, 2010, 2013 Andr\u00e9 Berg"]
         }
       ]
     },
@@ -472,6 +472,366 @@
       "generatedNotice": {
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2025 opencode"]
+      }
+    },
+    {
+      "name": "@firebase/ai",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/analytics",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/analytics-compat",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/analytics-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/app",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/app-check",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/app-check-compat",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/app-check-interop-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/app-check-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/app-compat",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/app-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/auth",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/auth-compat",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/auth-interop-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/auth-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/component",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/data-connect",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/database",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/database-compat",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/database-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/firestore",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/firestore-compat",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/firestore-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/functions",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/functions-compat",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/functions-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/installations",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/installations-compat",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/installations-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/logger",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/messaging",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/messaging-compat",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/messaging-interop-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/performance",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/performance-compat",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/performance-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/remote-config",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/remote-config-compat",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/remote-config-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/storage",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/storage-compat",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/storage-types",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/util",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "@firebase/webchannel-wrapper",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
+      }
+    },
+    {
+      "name": "firebase",
+      "sourceUrl": "https://github.com/firebase/firebase-js-sdk",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0",
+        "copyrights": ["Copyright 2017 Google LLC"]
       }
     }
   ]
