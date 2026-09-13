@@ -30,6 +30,11 @@ function readOrCreateDeviceId(): string {
   }
 }
 
+/** The stable per-install device id sent as `X-Device-ID`; hosts are matched on it. */
+export function getDittoDeviceId(): string {
+  return readOrCreateDeviceId();
+}
+
 export class DittoApiError extends Error {
   override readonly name = "DittoApiError";
   constructor(
