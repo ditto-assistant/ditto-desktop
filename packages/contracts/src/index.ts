@@ -28,6 +28,7 @@ export * from "./settings.ts";
 export * from "./git.ts";
 export * from "./vcs.ts";
 export * from "./sourceControl.ts";
+export * from "./projectClone.ts";
 export * from "./pullRequest.ts";
 export * from "./orchestration.ts";
 export * from "./t3ProjectFile.ts";
@@ -45,4 +46,5 @@ export * from "./previewAutomation.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./usage.ts";
 export * from "./rpc.ts";
+export * from "./worktreeSetup.ts";
 export * from "./hostBridge.ts"; // DITTO: host bridge protocol

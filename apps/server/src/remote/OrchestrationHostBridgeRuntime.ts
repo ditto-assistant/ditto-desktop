@@ -17,13 +17,11 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionCheckpointRepository } from "../persistence/Services/ProjectionCheckpoints.ts";
+import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProjectionTurnRepository } from "../persistence/Services/ProjectionTurns.ts";
 import { ProjectionPendingApprovalRepository } from "../persistence/Services/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
-import {
-  ProjectionThreadRepository,
-  type ProjectionThread,
-} from "../persistence/Services/ProjectionThreads.ts";
+import { ProjectionThreadRepository } from "../persistence/Services/ProjectionThreads.ts";
 import { ProjectionThreadSessionRepository } from "../persistence/Services/ProjectionThreadSessions.ts";
 import { ProviderInstanceRegistry } from "../provider/Services/ProviderInstanceRegistry.ts";
 import { eventThreadId } from "../relay/AgentAwarenessRelay.ts";
@@ -62,9 +60,9 @@ const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const projects = yield* ProjectionProjectRepository;
   const threads = yield* ProjectionThreadRepository;
+  const snapshots = yield* ProjectionSnapshotQuery;
   const threadSessions = yield* ProjectionThreadSessionRepository;
-  // Optional: the checkpoint projection is not part of the core runtime layer everywhere.
-  const checkpoints = yield* Effect.serviceOption(ProjectionCheckpointRepository);
+  const checkpoints = yield* ProjectionTurnRepository;
   const approvals = yield* ProjectionPendingApprovalRepository;
   const providers = yield* ProviderInstanceRegistry;
   const crypto = yield* Crypto.Crypto;
@@ -92,7 +90,14 @@ const make = Effect.gen(function* () {
       return commandsFromProviderSnapshot(snapshot);
     }).pipe(Effect.orElseSucceed(() => []));
 
-  const sessionForThread = (thread: ProjectionThread, workspaceRoot: string | null) =>
+  const sessionForThread = (
+    thread: {
+      readonly threadId: ThreadId;
+      readonly worktreePath: string | null;
+      readonly title: string;
+    },
+    workspaceRoot: string | null,
+  ) =>
     Effect.gen(function* () {
       const session = yield* threadSessions.getByThreadId({ threadId: thread.threadId });
       const providerName = Option.isSome(session) ? session.value.providerName : null;
@@ -114,7 +119,7 @@ const make = Effect.gen(function* () {
       } satisfies HostBridgeSession;
     });
 
-  const workspaceRootFor = (projectId: ProjectionThread["projectId"]) =>
+  const workspaceRootFor = (projectId: Parameters<typeof projects.getById>[0]["projectId"]) =>
     projects.getById({ projectId }).pipe(
       Effect.map((project) => (Option.isSome(project) ? project.value.workspaceRoot : null)),
       Effect.orElseSucceed(() => null),
@@ -122,13 +127,15 @@ const make = Effect.gen(function* () {
 
   const listSessions: HostBridgeRuntimeShape["listSessions"] = Effect.gen(function* () {
     const sessions: HostBridgeSession[] = [];
-    for (const project of yield* projects.listAll()) {
-      const rows = yield* threads.listByProjectId({ projectId: project.projectId });
-      for (const thread of rows) {
-        if (thread.archivedAt !== null) continue;
-        const session = yield* sessionForThread(thread, project.workspaceRoot);
-        if (session !== null) sessions.push(session);
-      }
+    const snapshot = yield* snapshots.getShellSnapshot();
+    for (const thread of snapshot.threads) {
+      if (thread.archivedAt !== null) continue;
+      const project = snapshot.projects.find((candidate) => candidate.id === thread.projectId);
+      const session = yield* sessionForThread(
+        { threadId: thread.id, worktreePath: thread.worktreePath, title: thread.title },
+        project?.workspaceRoot ?? null,
+      );
+      if (session !== null) sessions.push(session);
     }
     return sessions as ReadonlyArray<HostBridgeSession>;
   }).pipe(
@@ -291,16 +298,13 @@ const make = Effect.gen(function* () {
     }).pipe(Effect.mapError(toRuntimeError("Failed to interrupt the turn.")));
 
   const createCheckpoint: HostBridgeRuntimeShape["createCheckpoint"] = (input) =>
-    (Option.isNone(checkpoints)
-      ? Effect.fail(
-          new HostBridgeRuntimeError({ detail: "Checkpoints are not available on this server." }),
-        )
-      : checkpoints.value.listByThreadId({ threadId: ThreadId.make(input.sessionId) })
-    ).pipe(
+    checkpoints.listByThreadId({ threadId: ThreadId.make(input.sessionId) }).pipe(
       Effect.mapError(toRuntimeError("Failed to read checkpoints.")),
       Effect.flatMap((rows) => {
-        const latest = rows.toSorted((a, b) => b.checkpointTurnCount - a.checkpointTurnCount)[0];
-        return latest === undefined
+        const latest = rows
+          .filter((row) => row.checkpointRef !== null && row.checkpointTurnCount !== null)
+          .toSorted((a, b) => (b.checkpointTurnCount ?? 0) - (a.checkpointTurnCount ?? 0))[0];
+        return latest?.checkpointRef == null
           ? Effect.fail(
               new HostBridgeRuntimeError({
                 detail:
