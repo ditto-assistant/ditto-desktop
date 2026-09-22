@@ -27,6 +27,7 @@ import {
   DESKTOP_EXTRA_RESOURCES,
   LINUX_CAPTURE_EXTRA_RESOURCES,
   LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
+  LINUX_FILE_EXCLUSIONS,
   MAC_DISCORD_ACCESSIBILITY_EXTRA_RESOURCES,
   MAC_DISCORD_SIDECAR_EXTRA_RESOURCES,
   MAC_TELEGRAM_SIDECAR_EXTRA_RESOURCES,
@@ -108,20 +109,27 @@ const makeLinuxCliArchiveFixture = Effect.fn("test.makeLinuxCliArchiveFixture")(
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  yield* fs.makeDirectory(path.join(root, "apps/server/dist"), {
-    recursive: true,
-  });
-  yield* fs.writeFileString(path.join(root, "apps/server/dist/bin.mjs"), serverSource);
-  yield* fs.makeDirectory(path.join(root, "node_modules/node-pty/prebuilds/linux-x64"), {
-    recursive: true,
-  });
-  yield* fs.writeFileString(
-    path.join(root, "node_modules/node-pty/package.json"),
-    '{"name":"node-pty"}\n',
-  );
-  yield* fs.writeFileString(
-    path.join(root, "node_modules/node-pty/prebuilds/linux-x64/pty.node"),
-    "pty",
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const contentRoot = path.join(input.root, "content");
+  const members = [
+    `${input.stem}/t3`,
+    `${input.stem}/client/index.html`,
+    `${input.stem}/node_modules/node-pty/package.json`,
+    `${input.stem}/node_modules/node-pty/build/Release/pty.node`,
+    ...(input.extraMembers ?? []),
+  ].filter((member) => !(input.omitMembers ?? []).includes(member));
+  for (const member of members) {
+    const memberPath = path.join(contentRoot, member);
+    yield* fs.makeDirectory(path.dirname(memberPath), { recursive: true });
+    yield* fs.writeFileString(memberPath, member);
+  }
+  const archivePath = path.join(input.root, `${input.stem}.tar.gz`);
+  const tar = yield* spawner.spawn(
+    ChildProcess.make("tar", ["-czf", archivePath, "-C", contentRoot, "."], {
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "pipe",
+    }),
   );
   assert.equal(Number(yield* tar.exitCode), 0);
   return archivePath;
@@ -145,10 +153,7 @@ function mockProcess(exitCode: number, stdout = "") {
 }
 
 function iconResizeSpawnerLayer(
-  commands: Array<{
-    readonly command: string;
-    readonly args: ReadonlyArray<string>;
-  }>,
+  commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }>,
   exitCodes: ReadonlyArray<number>,
 ) {
   let commandIndex = 0;
@@ -189,18 +194,12 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
   yield* fs.writeFileString(nativePath, "native-binary");
 
   const generatedAsarPath = path.join(tempDir, WINDOWS_SERVER_ASAR_RESOURCE);
-  yield* packWindowsServerAsar({
-    sourceDir,
-    asarPath: generatedAsarPath,
-    arch: "x64",
-  });
+  yield* packWindowsServerAsar({ sourceDir, asarPath: generatedAsarPath, arch: "x64" });
 
   const stageDistDir = path.join(tempDir, "dist");
   const packagedAppDir = path.join(stageDistDir, "win-unpacked");
   const resourcesDir = path.join(packagedAppDir, "resources");
-  yield* fs.makeDirectory(path.join(resourcesDir, "resource-monitor"), {
-    recursive: true,
-  });
+  yield* fs.makeDirectory(path.join(resourcesDir, "resource-monitor"), { recursive: true });
   yield* fs.copyFile(generatedAsarPath, path.join(resourcesDir, WINDOWS_SERVER_ASAR_RESOURCE));
   if (input.copyUnpackedNatives) {
     yield* fs.copy(
@@ -217,65 +216,30 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
   yield* fs.writeFileString(path.join(packagedAppDir, "chrome_crashpad_handler.exe"), "crashpad");
 
   if (input.wslRuntime !== undefined) {
-    const wslSourceDir = path.join(tempDir, "wsl-source");
-    const linuxPrebuildDir = path.join(wslSourceDir, "node_modules/node-pty/prebuilds/linux-x64");
-    yield* fs.makeDirectory(path.join(wslSourceDir, "apps/server/dist"), {
-      recursive: true,
-    });
-    yield* fs.makeDirectory(linuxPrebuildDir, { recursive: true });
-    yield* fs.writeFileString(
-      path.join(wslSourceDir, "apps/server/dist/bin.mjs"),
-      "console.log('wsl server');\n",
-    );
-    yield* fs.writeFileString(
-      path.join(wslSourceDir, "node_modules/node-pty/package.json"),
-      '{"name":"node-pty"}',
-    );
-    yield* fs.writeFileString(path.join(linuxPrebuildDir, "pty.node"), "linux-pty");
-    yield* fs.writeFileString(
-      path.join(linuxPrebuildDir, "t3code-wsl-node-pty.json"),
-      '{"arch":"x64"}',
-    );
-    if (input.wslRuntime === "forbidden") {
-      const windowsPrebuildDir = path.join(
-        wslSourceDir,
-        "node_modules/node-pty/prebuilds/win32-x64",
-      );
-      yield* fs.makeDirectory(windowsPrebuildDir, { recursive: true });
-      yield* fs.writeFileString(path.join(windowsPrebuildDir, "pty.node"), "windows-pty");
-    }
-
+    const stem = wslRuntimeArchiveStem(WINDOWS_PAYLOAD_FIXTURE_VERSION, "x64");
+    const sourceArchivePath =
+      input.wslRuntime === "loose-server-tree"
+        ? // The old hand-rolled runtime: apps/server/dist + node_modules at the
+          // archive root, no single stem directory, no `t3` executable.
+          yield* makeLinuxCliArchiveFixture({
+            root: path.join(tempDir, "wsl-runtime"),
+            stem: "apps",
+            omitMembers: ["apps/t3", "apps/client/index.html"],
+            extraMembers: ["apps/server/dist/bin.mjs", "node_modules/node-pty/package.json"],
+          })
+        : yield* makeLinuxCliArchiveFixture({
+            root: path.join(tempDir, "wsl-runtime"),
+            stem,
+            ...(input.wslRuntime === "missing-pty"
+              ? { omitMembers: [`${stem}/node_modules/node-pty/build/Release/pty.node`] }
+              : {}),
+          });
     const archivePath = path.join(resourcesDir, WSL_RUNTIME_ARCHIVE_NAME);
     const hashPath = path.join(resourcesDir, WSL_RUNTIME_ARCHIVE_HASH_NAME);
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const tar = yield* spawner.spawn(
-      ChildProcess.make(
-        "tar",
-        [
-          "-czf",
-          wslRuntimeArchiveTarTarget(path.relative(wslSourceDir, archivePath)),
-          "apps/server/dist",
-          "node_modules",
-        ],
-        {
-          cwd: wslSourceDir,
-          stdin: "ignore",
-          stdout: "ignore",
-          stderr: "pipe",
-        },
-      ),
-    );
-    assert.equal(Number(yield* tar.exitCode), 0);
-    const archiveDigest = NodeCrypto.createHash("sha256");
-    yield* fs
-      .stream(archivePath)
-      .pipe(Stream.runForEach((chunk) => Effect.sync(() => archiveDigest.update(chunk))));
-    yield* fs.writeFileString(
-      hashPath,
-      input.wslRuntime === "bad-digest"
-        ? `${"0".repeat(64)}\n`
-        : `${archiveDigest.digest("hex")}\n`,
-    );
+    yield* stageWslRuntimeArchive({ sourceArchivePath, archivePath, hashPath });
+    if (input.wslRuntime === "bad-digest") {
+      yield* fs.writeFileString(hashPath, `${"0".repeat(64)}\n`);
+    }
   }
 
   return {
@@ -402,9 +366,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(
-          ConfigProvider.fromEnv({
-            env: { GITHUB_REPOSITORY: "pingdotgg/t3code" },
-          }),
+          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "pingdotgg/t3code" } }),
         ),
       ),
     ),
@@ -502,40 +464,12 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         cpu: ["x64"],
       },
     });
-    // The server sidecar stage bundles the same-architecture WSL (Linux,
-    // glibc) backend, so its install must fetch Linux native optional deps
-    // (e.g. ffi-rs) too — and must be hoisted so the tree survives asar
-    // packing and runtime extraction without symlinks.
-    assert.deepStrictEqual(
-      createStageWorkspaceConfig({
-        platform: "win",
-        arch: "x64",
-        linuxServerBackend: true,
-      }),
-      {
-        supportedArchitectures: {
-          os: ["win32", "linux"],
-          cpu: ["x64"],
-          libc: ["glibc"],
-        },
-        nodeLinker: "hoisted",
+    assert.deepStrictEqual(createStageWorkspaceConfig({ platform: "win", arch: "arm64" }), {
+      supportedArchitectures: {
+        os: ["win32"],
+        cpu: ["arm64"],
       },
-    );
-    assert.deepStrictEqual(
-      createStageWorkspaceConfig({
-        platform: "win",
-        arch: "arm64",
-        linuxServerBackend: true,
-      }),
-      {
-        supportedArchitectures: {
-          os: ["win32", "linux"],
-          cpu: ["arm64"],
-          libc: ["glibc"],
-        },
-        nodeLinker: "hoisted",
-      },
-    );
+    });
     assert.deepStrictEqual(createStageWorkspaceConfig({ platform: "mac", arch: "universal" }), {
       supportedArchitectures: {
         os: ["darwin"],
@@ -693,8 +627,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.notProperty(linux, "asarUnpack");
       assert.deepStrictEqual(win.asar, { smartUnpack: false });
       assert.deepStrictEqual(win.asarUnpack, [WINDOWS_NATIVE_ASAR_UNPACK_GLOB]);
-      assert.deepStrictEqual(winWithoutWslPrebuild.asar, win.asar);
-      assert.deepStrictEqual(winWithoutWslPrebuild.asarUnpack, win.asarUnpack);
+      assert.deepStrictEqual(winWithoutWslRuntime.asar, win.asar);
+      assert.deepStrictEqual(winWithoutWslRuntime.asarUnpack, win.asarUnpack);
       assert.deepStrictEqual(mac.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
         ...MAC_DISCORD_ACCESSIBILITY_EXTRA_RESOURCES,
@@ -880,9 +814,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
         for (const nativeFile of nativeFiles) {
           const nativePath = path.join(sourceDir, nativeFile);
-          yield* fs.makeDirectory(path.dirname(nativePath), {
-            recursive: true,
-          });
+          yield* fs.makeDirectory(path.dirname(nativePath), { recursive: true });
           yield* fs.writeFileString(nativePath, "native");
         }
 
@@ -1235,9 +1167,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const fixture = yield* makeWindowsPayloadFixture({
-          copyUnpackedNatives: true,
-        });
+        const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         const result = yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
           appExecutableName: fixture.appExecutableName,
@@ -1308,9 +1238,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it.effect("rejects a Windows package missing its expected WSL runtime", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const fixture = yield* makeWindowsPayloadFixture({
-          copyUnpackedNatives: true,
-        });
+        const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         const error = yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
           appExecutableName: fixture.appExecutableName,
@@ -1411,9 +1339,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     return Effect.scoped(
       Effect.gen(function* () {
         const path = yield* Path.Path;
-        const fixture = yield* makeWindowsPayloadFixture({
-          copyUnpackedNatives: true,
-        });
+        const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
           appExecutableName: fixture.appExecutableName,
@@ -1553,9 +1479,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
     return Effect.scoped(
       Effect.gen(function* () {
-        const fixture = yield* makeWindowsPayloadFixture({
-          copyUnpackedNatives: true,
-        });
+        const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
           appExecutableName: fixture.appExecutableName,
@@ -1589,9 +1513,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const fixture = yield* makeWindowsPayloadFixture({
-          copyUnpackedNatives: true,
-        });
+        const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         const executablePath = path.join(fixture.packagedAppDir, fixture.appExecutableName);
         yield* fs.remove(executablePath);
 
@@ -1618,9 +1540,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it.effect("rejects a packaged sidecar whose ASAR-unpacked native is missing", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const fixture = yield* makeWindowsPayloadFixture({
-          copyUnpackedNatives: false,
-        });
+        const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: false });
         const error = yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
           appExecutableName: fixture.appExecutableName,
@@ -1642,9 +1562,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const fixture = yield* makeWindowsPayloadFixture({
-          copyUnpackedNatives: true,
-        });
+        const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         const nativePath = path.join(
           fixture.packagedAppDir,
           "resources/server.asar.unpacked/node_modules/native/addon.node",
@@ -1691,9 +1609,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it.effect("rejects a Windows payload that regresses above the file-count budget", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const fixture = yield* makeWindowsPayloadFixture({
-          copyUnpackedNatives: true,
-        });
+        const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         const error = yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
           appExecutableName: fixture.appExecutableName,
@@ -1730,10 +1646,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   );
 
   it.effect("preserves both Linux icon resize failures with structural context", () => {
-    const commands: Array<{
-      readonly command: string;
-      readonly args: ReadonlyArray<string>;
-    }> = [];
+    const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
 
     return Effect.gen(function* () {
       const error = yield* stageLinuxIconSize("source.png", "target.png", 512, false).pipe(
@@ -1784,10 +1697,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         yield* fs.makeDirectory(dmgDir, { recursive: true });
         const sourcePath = path.join(dmgDir, "dmg-background-nightly.svg");
         yield* fs.writeFileString(sourcePath, '<svg xmlns="http://www.w3.org/2000/svg"/>');
-        const commands: Array<{
-          readonly command: string;
-          readonly args: ReadonlyArray<string>;
-        }> = [];
+        const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> =
+          [];
 
         yield* stageDesktopDmgBackground(stageResourcesDir, "nightly", false).pipe(
           Effect.provide(iconResizeSpawnerLayer(commands, [0, 0])),
@@ -1940,9 +1851,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it("preserves known passkey signing configuration errors at the build boundary", () => {
     const decodingCause = new Error("publishable-key-decode-failed");
-    const knownError = new InvalidMacPasskeyPublishableKeyError({
-      cause: decodingCause,
-    });
+    const knownError = new InvalidMacPasskeyPublishableKeyError({ cause: decodingCause });
     const error = MacPasskeySigningConfigurationResolutionError.fromCause(knownError);
 
     assert.strictEqual(error, knownError);
@@ -2067,120 +1976,21 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     );
   });
 
-  it("keeps Windows tar targets colon-free so GNU tar does not read them as remote hosts", () => {
-    assert.equal(
-      wslRuntimeArchiveTarTarget("..\\app\\apps\\desktop\\prod-resources\\wsl-runtime.tar.gz"),
-      "../app/apps/desktop/prod-resources/wsl-runtime.tar.gz",
-    );
-    assert.equal(
-      wslRuntimeArchiveTarTarget("../app/apps/desktop/prod-resources/wsl-runtime.tar.gz"),
-      "../app/apps/desktop/prod-resources/wsl-runtime.tar.gz",
-    );
-  });
-
-  // The staged source tree and the archive live in sibling stage directories,
-  // so this covers the real call: on Windows the archive path is an absolute
-  // C:\... path, and handing that to tar is what made Git's GNU tar try to
-  // reach a host named "C".
-  it.effect("spawns tar with an archive target relative to the staged source tree", () => {
-    const commands: Array<{
-      readonly command: string;
-      readonly args: ReadonlyArray<string>;
-      readonly options: { readonly cwd?: string };
-    }> = [];
-
-    return Effect.scoped(
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const stageRoot = yield* fs.makeTempDirectoryScoped({
-          prefix: "t3-wsl-runtime-archive-",
-        });
-        const sourceDir = path.join(stageRoot, "server");
-        const stageAppDir = path.join(stageRoot, "app");
-        const archivePath = path.join(stageAppDir, WSL_RUNTIME_ARCHIVE_EXTRA_RESOURCE.from);
-        const hashPath = path.join(stageAppDir, WSL_RUNTIME_ARCHIVE_HASH_EXTRA_RESOURCE.from);
-        yield* stageWslRuntimeTreeFixture(sourceDir, "export const serve = 1;\n");
-
-        const spawnerLayer = Layer.succeed(
-          ChildProcessSpawner.ChildProcessSpawner,
-          ChildProcessSpawner.make((command) => {
-            const childProcess = command as unknown as (typeof commands)[number];
-            commands.push(childProcess);
-            // Stand in for tar: write the archive by resolving the -f target
-            // against the cwd tar was spawned in, exactly as tar would.
-            const target = path.resolve(childProcess.options.cwd ?? "", childProcess.args[1] ?? "");
-            return Effect.as(fs.writeFileString(target, "wsl-runtime-archive"), mockProcess(0));
-          }),
-        );
-
-        yield* stageWslRuntimeArchive({
-          sourceDir,
-          archivePath,
-          hashPath,
-        }).pipe(Effect.provide(spawnerLayer));
-
-        const tarCommand = commands.find((command) => command.command === "tar");
-        if (tarCommand === undefined) return assert.fail("tar was not spawned");
-
-        const target = tarCommand.args[1] ?? "";
-        assert.equal(tarCommand.options.cwd, sourceDir);
-        assert.notInclude(target, ":");
-        assert.isFalse(path.isAbsolute(target));
-        // Relative or not, tar has to land the archive where the build expects it.
-        assert.equal(path.resolve(sourceDir, target), archivePath);
-        assert.isTrue(yield* fs.exists(archivePath));
-
-        // The archive digest both gates installation and names the cache.
-        const hash = yield* fs.readFileString(hashPath);
-        assert.match(hash.trim(), /^[0-9a-f]{64}$/);
-      }),
-    );
-  });
-
-  it.effect("ships only Linux runtime members in the WSL archive", () =>
+  it.effect("stages the Linux CLI archive verbatim with its SHA-256 sidecar", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-        const root = yield* fs.makeTempDirectoryScoped({
-          prefix: "t3-wsl-runtime-members-",
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-wsl-runtime-stage-" });
+        const sourceArchivePath = yield* makeLinuxCliArchiveFixture({
+          root,
+          stem: "t3-1.2.3-linux-x64",
         });
-        const sourceDir = path.join(root, "server");
-        const archivePath = path.join(root, "wsl-runtime.tar.gz");
-        const hashPath = `${archivePath}.sha256`;
-        yield* stageWslRuntimeTreeFixture(sourceDir, "export const serve = 1;\n");
+        const stageAppDir = path.join(root, "app");
+        const archivePath = path.join(stageAppDir, WSL_RUNTIME_ARCHIVE_EXTRA_RESOURCE.from);
+        const hashPath = path.join(stageAppDir, WSL_RUNTIME_ARCHIVE_HASH_EXTRA_RESOURCE.from);
 
-        const members = [
-          "node_modules/node-pty/prebuilds/darwin-x64/pty.node",
-          "node_modules/node-pty/prebuilds/win32-x64/pty.node",
-          "node_modules/node-pty/build/Release/pty.node",
-          "node_modules/node-pty/third_party/conpty/win10-x64/conpty.dll",
-          "node_modules/@ff-labs/fff-bin-win32-x64/fff.dll",
-          "node_modules/@ff-labs/fff-bin-linux-x64-gnu/libfff.so",
-          "node_modules/@yuuang/ffi-rs-win32-x64-msvc/ffi.dll",
-          "node_modules/@yuuang/ffi-rs-linux-x64-gnu/libffi.so",
-          "node_modules/@msgpackr-extract/msgpackr-extract-win32-x64/addon.node",
-          "node_modules/@msgpackr-extract/msgpackr-extract-linux-x64/addon.node",
-          "node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/index.js",
-          "node_modules/.bin/tool",
-          "node_modules/.pnpm/lock.yaml",
-          "node_modules/.modules.yaml",
-          "node_modules/.pnpm-workspace-state-v1.json",
-        ] as const;
-        yield* Effect.forEach(
-          members,
-          (member) =>
-            Effect.gen(function* () {
-              const memberPath = path.join(sourceDir, member);
-              yield* fs.makeDirectory(path.dirname(memberPath), {
-                recursive: true,
-              });
-              yield* fs.writeFileString(memberPath, member);
-            }),
-          { discard: true },
-        );
+        yield* stageWslRuntimeArchive({ sourceArchivePath, archivePath, hashPath });
 
         const [source, staged] = yield* Effect.all([
           fs.readFile(sourceArchivePath),
@@ -2442,9 +2252,7 @@ it.effect.skipIf(!symlinksSupported)("rebases packaged links into the isolated t
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const root = yield* fs.makeTempDirectoryScoped({
-      prefix: "t3code-copy-symlinks-",
-    });
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-copy-symlinks-" });
     const source = path.join(root, "source");
     const destination = path.join(root, "destination");
     const packageDir = path.join(source, "node_modules/.pnpm/example@1/node_modules/example");

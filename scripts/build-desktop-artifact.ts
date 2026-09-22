@@ -2835,96 +2835,10 @@ const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(f
   }
 });
 
-// Stage the prebuilt Linux node-pty binary into the packaged app so the WSL
-// backend never compiles on the user's machine. node-pty publishes no Linux
-// prebuilt and the WSL Linux Node can't load the Windows/Electron binary, so the
-// Linux CI job builds pty.node and hands it here. We drop it into the staged
-// node-pty's prebuilds/linux-<arch>/ with a t3code marker the WSL preflight
-// checks (arch + node-pty version; the binary is N-API, hence ABI-stable across
-// Node versions). A missing prebuild is a warning, not an error, so local and
-// non-Windows builds still succeed — they just won't ship a working WSL backend.
-const stageWslNodePtyPrebuild = Effect.fn("stageWslNodePtyPrebuild")(function* (input: {
-  readonly stageAppDir: string;
-  readonly arch: typeof BuildArch.Type;
-  readonly prebuildPath: string | undefined;
-}) {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-
-  if (input.prebuildPath === undefined) {
-    yield* Effect.logWarning(
-      "[desktop-artifact] No WSL node-pty prebuild provided (--wsl-prebuild / T3CODE_DESKTOP_WSL_PREBUILD); the packaged WSL backend will not start until a Linux pty.node is bundled.",
-    );
-    return;
-  }
-
-  const linuxArch = resolveWslPrebuildArch(input.arch);
-  if (linuxArch === undefined) {
-    yield* Effect.logWarning(
-      `[desktop-artifact] No WSL node-pty prebuild mapping for arch "${input.arch}"; skipping WSL backend bundling.`,
-    );
-    return;
-  }
-
-  const prebuildExists = yield* fs
-    .exists(input.prebuildPath)
-    .pipe(Effect.orElseSucceed(() => false));
-  if (!prebuildExists) {
-    return yield* new WslNodePtyPrebuildMissingError({
-      prebuildPath: input.prebuildPath,
-    });
-  }
-
-  // Resolve through the (pnpm) symlink so we write into the stage's own node-pty
-  // copy, never a shared content-addressable store.
-  const nodePtyLink = path.join(input.stageAppDir, "node_modules", "node-pty");
-  const nodePtyDir = yield* fs.realPath(nodePtyLink).pipe(Effect.orElseSucceed(() => nodePtyLink));
-
-  const manifestPath = path.join(nodePtyDir, "package.json");
-  const pkgRaw = yield* fs.readFileString(manifestPath);
-  const manifest = yield* decodeNodePtyManifest(pkgRaw).pipe(
-    Effect.mapError(
-      (cause) =>
-        new WslNodePtyManifestReadError({
-          manifestPath,
-          cause,
-        }),
-    ),
-  );
-  const nodePtyVersion = manifest.version;
-
-  const prebuildDir = path.join(nodePtyDir, "prebuilds", `linux-${linuxArch}`);
-  yield* fs.makeDirectory(prebuildDir, { recursive: true });
-  yield* fs.copyFile(input.prebuildPath, path.join(prebuildDir, "pty.node"));
-  const markerJson = yield* encodeJsonString({
-    arch: linuxArch,
-    nodePtyVersion,
-  });
-  yield* fs.writeFileString(path.join(prebuildDir, "t3code-wsl-node-pty.json"), `${markerJson}\n`);
-
-  yield* Effect.log(
-    `[desktop-artifact] Staged WSL node-pty prebuild (linux-${linuxArch}, node-pty ${nodePtyVersion}).`,
-  );
-});
-
-// tar reads an `-f` target containing a colon as `host:path` and tries to reach
-// it over rsh, so handing it a Windows drive path (C:\...\wsl-runtime.tar.gz)
-// makes Git for Windows' GNU tar fail with "Cannot connect to C: resolve
-// failed". The staged source tree and the archive both live under the build's
-// stage root, so the target is always expressible relative to tar's cwd.
-export const wslRuntimeArchiveTarTarget = (relativeArchivePath: string): string =>
-  relativeArchivePath.replaceAll("\\", "/");
-
-// `archivePath` is relative to the cwd tar runs in; see wslRuntimeArchiveTarTarget.
-export const buildWslRuntimeArchiveArgs = (
-  archivePath: string = WSL_RUNTIME_ARCHIVE_EXTRA_RESOURCE.from,
-): ReadonlyArray<string> => [
-  "-czf",
-  archivePath,
-  ...WSL_RUNTIME_ARCHIVE_EXCLUDED_PREFIXES.map((prefix) => `--exclude=${prefix}*`),
-  ...WSL_RUNTIME_ARCHIVE_CONTENT_ROOTS,
-];
-
+// Copy the Linux CLI release archive into the stage verbatim and record its
+// SHA-256 beside it. The desktop app verifies the digest inside the distro
+// before extracting, and the digest also names the extracted runtime's cache
+// directory, so it must be computed from the exact bytes that ship.
 export const stageWslRuntimeArchive = Effect.fn("stageWslRuntimeArchive")(function* (input: {
   readonly sourceArchivePath: string;
   readonly archivePath: string;
@@ -2932,16 +2846,14 @@ export const stageWslRuntimeArchive = Effect.fn("stageWslRuntimeArchive")(functi
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  yield* fs.makeDirectory(path.dirname(input.archivePath), {
-    recursive: true,
-  });
-  const tarTarget = wslRuntimeArchiveTarTarget(path.relative(input.sourceDir, input.archivePath));
-  yield* runCommand(
-    ChildProcess.make("tar", buildWslRuntimeArchiveArgs(tarTarget), {
-      cwd: input.sourceDir,
-    }),
-    { label: "tar WSL runtime", verbose: false },
-  );
+  const sourceExists = yield* fs
+    .exists(input.sourceArchivePath)
+    .pipe(Effect.orElseSucceed(() => false));
+  if (!sourceExists) {
+    return yield* new WslRuntimeArchiveMissingError({ archivePath: input.sourceArchivePath });
+  }
+  yield* fs.makeDirectory(path.dirname(input.archivePath), { recursive: true });
+  yield* fs.copyFile(input.sourceArchivePath, input.archivePath);
   const hash = NodeCrypto.createHash("sha256");
   yield* fs
     .stream(input.archivePath)
@@ -3072,27 +2984,6 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
     }),
     { label: "vp install --prod (server sidecar)", verbose: input.verbose },
   );
-
-  yield* stageWslNodePtyPrebuild({
-    stageAppDir: serverStageDir,
-    arch: input.arch,
-    prebuildPath: input.wslPrebuildPath,
-  });
-  // Skip the archive entirely rather than shipping one the install script must
-  // extract and reject on every launch. The desktop app treats a missing
-  // archive as "no WSL-local runtime" and goes straight to the mounted tree.
-  if (
-    bundlesWslRuntime({
-      arch: input.arch,
-      prebuildPath: input.wslPrebuildPath,
-    })
-  ) {
-    yield* stageWslRuntimeArchive({
-      sourceDir: serverStageDir,
-      archivePath: input.wslRuntimeArchivePath,
-      hashPath: input.wslRuntimeArchiveHashPath,
-    });
-  }
 
   yield* Effect.log("[desktop-artifact] Packing server.asar...");
   yield* fs.makeDirectory(path.dirname(input.asarPath), { recursive: true });
