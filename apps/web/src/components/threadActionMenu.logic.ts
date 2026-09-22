@@ -21,7 +21,6 @@ export type ThreadActionMenuId =
   | "regenerate-title"
   | "mark-unread"
   | "teleport"
-  | "teleport"
   | "copy"
   | "copy-path"
   | "copy-branch"
@@ -124,6 +123,17 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
+    ...(state.projectFilter
+      ? [
+          {
+            id: "filter-by-project" as const,
+            label: state.projectFilter.isActive
+              ? "Show all projects"
+              : `Filter by ${state.projectFilter.label}`,
+            icon: "folder-tree",
+          },
+        ]
+      : []),
     // Teleport snapshots the thread's repos, working tree, and agent session
     // to Ditto Cloud. Capturing mid-turn would ship a half-written transcript,
     // so it waits for the turn like Archive does.
