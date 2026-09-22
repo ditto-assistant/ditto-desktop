@@ -15,6 +15,7 @@ import {
   BotIcon,
   CloudIcon,
   GitBranchIcon,
+  HardDriveIcon,
   KeyboardIcon,
   Link2Icon,
   MonitorSmartphoneIcon,
@@ -26,10 +27,8 @@ import {
   createLucideIcon,
 } from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useCompactSidebarEnabled } from "../../hooks/useSettings";
 
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { Kbd } from "../ui/kbd";
 import {
   SidebarContent,
@@ -39,6 +38,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
+  SidebarInput,
 } from "../ui/sidebar";
 import { SidebarUtilityMenu } from "../sidebar/SidebarChrome";
 import { scrollToSettingsTarget } from "./settingsLayout";
@@ -86,6 +86,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/providers": BotIcon,
   "/settings/integrations": BlocksIcon,
   "/settings/source-control": GitBranchIcon,
+  "/settings/storage": HardDriveIcon,
   "/settings/connections": Link2Icon,
   "/settings/ditto-account": CloudIcon,
   "/settings/devices": MonitorSmartphoneIcon, // DITTO
@@ -116,13 +117,12 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     (item) => item.to !== "/settings/projects" || isSettingsOverviewVisible(scopeSearch),
   );
   const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
-  const compactSidebarEnabled = useCompactSidebarEnabled();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [activeResultIndex, setActiveResultIndex] = useState(0);
   const searchableItems = useAvailableSettingsSearchItems();
   const results = useMemo(() => searchSettings(query, searchableItems), [query, searchableItems]);
-  const isSearching = query.trim().length > 0 && !(compactSidebarEnabled && !isMobile && !open);
+  const isSearching = query.trim().length > 0;
   const hasResults = results.length > 0;
 
   useEffect(() => {
@@ -238,24 +238,12 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   return (
     <>
       <SidebarContent className="overflow-x-hidden">
-        <SidebarGroup className="gap-2 p-[var(--sidebar-content-inset)]">
-          <SidebarMenuButton
-            className="hidden group-data-[collapsible=icon]:flex"
-            aria-label="Search settings"
-            tooltip="Search settings"
-            onClick={() => {
-              setOpen(true);
-              requestAnimationFrame(() => searchInputRef.current?.focus());
-            }}
-          >
-            <SearchIcon />
-          </SidebarMenuButton>
-          <div className="flex h-8 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground group-data-[collapsible=icon]:hidden">
+        <SidebarGroup className="gap-2">
+          <div className="flex h-8 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground">
             <SearchIcon className="size-4 shrink-0 text-sidebar-muted-foreground/80" />
-            <Input
+            <SidebarInput
               ref={searchInputRef}
               nativeInput
-              unstyled
               type="search"
               value={query}
               onChange={(event) => {
@@ -274,7 +262,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                   ? `settings-search-result-${results[activeResultIndex].id}`
                   : undefined
               }
-              className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-sm [&_[data-slot=input]]:font-medium [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-muted-foreground"
+              className="min-w-0 flex-1"
             />
             {isSearching ? (
               <Button
@@ -291,7 +279,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                 <XIcon className="size-3" />
               </Button>
             ) : (
-              <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">/</Kbd>
+              <Kbd>/</Kbd>
             )}
           </div>
           {isSearching && results.length === 0 ? (
@@ -347,14 +335,10 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                   <SidebarMenuItem key={item.to}>
                     <SidebarMenuButton
                       isActive={isActive}
-                      aria-label={item.label}
-                      tooltip={item.label}
                       onClick={() => handleSectionClick(item.to)}
                     >
                       <Icon />
-                      <span className="truncate group-data-[collapsible=icon]:hidden">
-                        {item.label}
-                      </span>
+                      <span className="truncate">{item.label}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -363,13 +347,11 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
           )}
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="px-[var(--sidebar-content-inset)] py-1">
-        <div className="contents group-data-[collapsible=icon]:hidden">
-          <Suspense fallback={null}>
-            <T3ConnectSidebarSignIn />
-          </Suspense>
-        </div>
-        <div className="flex items-center gap-1 group-data-[collapsible=icon]:flex-col">
+      <SidebarFooter>
+        <Suspense fallback={null}>
+          <T3ConnectSidebarSignIn />
+        </Suspense>
+        <div className="flex items-center gap-1">
           <div className="min-w-0 flex-1">
             <SidebarUtilityMenu />
           </div>

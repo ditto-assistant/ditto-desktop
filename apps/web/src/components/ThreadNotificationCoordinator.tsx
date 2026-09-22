@@ -2,7 +2,13 @@ import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { useEffect, useRef } from "react";
+import {
+  CircleAlertIcon,
+  CircleCheckIcon,
+  MessageCircleQuestionIcon,
+  ShieldQuestionIcon,
+} from "lucide-react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../hooks/useSettings";
 import { useEnvironments } from "../state/environments";
@@ -11,6 +17,7 @@ import {
   hasDesktopNotifications,
   hasNotificationSound,
   playNotificationSound,
+  setNotificationBadge,
   unlockNotificationAudio,
 } from "../threadNotifications";
 import { resolveSidebarThreadStatus } from "./Sidebar.logic";
@@ -22,6 +29,42 @@ export function ThreadNotificationCoordinator() {
   const inAppNotificationsEnabled = useClientSettings(
     (settings) => settings.inAppNotificationsEnabled,
   );
+  const pending = useRef(
+    new Map<string, { environmentId: EnvironmentId; notification: Notification }>(),
+  );
+  const onNotification = useCallback((environmentId: EnvironmentId, notification: Notification) => {
+    pending.current.get(notification.tag)?.notification.close();
+    pending.current.set(notification.tag, { environmentId, notification });
+    setNotificationBadge(pending.current.size);
+  }, []);
+
+  useEffect(() => {
+    const activeIds = new Set(environments.map(({ environmentId }) => environmentId));
+    const count = pending.current.size;
+    for (const [tag, { environmentId, notification }] of pending.current) {
+      if (activeIds.has(environmentId)) continue;
+      notification.close();
+      pending.current.delete(tag);
+    }
+    if (count !== pending.current.size) setNotificationBadge(pending.current.size);
+  }, [environments]);
+
+  useEffect(() => {
+    const clear = () => {
+      for (const { notification } of pending.current.values()) notification.close();
+      pending.current.clear();
+      setNotificationBadge(0);
+    };
+    clear();
+    if (!hasDesktopNotifications(mode)) return;
+    const unsubscribe = window.desktopBridge?.onNotificationBadgeClear?.(clear);
+    window.addEventListener("focus", clear);
+    return () => {
+      unsubscribe?.();
+      window.removeEventListener("focus", clear);
+      clear();
+    };
+  }, [mode]);
 
   useEffect(() => {
     if (!hasNotificationSound(mode)) return;
@@ -39,11 +82,18 @@ export function ThreadNotificationCoordinator() {
     <EnvironmentNotifications
       key={environment.environmentId}
       environmentId={environment.environmentId}
+      onNotification={onNotification}
     />
   ));
 }
 
-function EnvironmentNotifications({ environmentId }: { environmentId: EnvironmentId }) {
+function EnvironmentNotifications({
+  environmentId,
+  onNotification,
+}: {
+  environmentId: EnvironmentId;
+  onNotification: (environmentId: EnvironmentId, notification: Notification) => void;
+}) {
   const shell = useAtomValue(environmentShell.stateValueAtom(environmentId));
   const mode = useClientSettings((settings) => settings.notificationMode);
   const inAppNotificationsEnabled = useClientSettings(
@@ -110,7 +160,28 @@ function EnvironmentNotifications({ environmentId }: { environmentId: Environmen
           type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
           title,
           description: thread.title,
-          data: { hideCopyButton: true },
+          data: {
+            hideCopyButton: true,
+            leadingIcon:
+              kind === "completion" ? (
+                <CircleCheckIcon
+                  aria-hidden
+                  className="size-4 text-emerald-700 dark:text-emerald-300"
+                />
+              ) : status === "approval" ? (
+                <ShieldQuestionIcon
+                  aria-hidden
+                  className="size-4 text-amber-700 dark:text-amber-300"
+                />
+              ) : status === "failed" ? (
+                <CircleAlertIcon aria-hidden className="size-4 text-red-700 dark:text-red-300" />
+              ) : (
+                <MessageCircleQuestionIcon
+                  aria-hidden
+                  className="size-4 text-indigo-600 dark:text-indigo-300"
+                />
+              ),
+          },
           actionProps: {
             children: "Open thread",
             onClick: () => {
@@ -126,6 +197,7 @@ function EnvironmentNotifications({ environmentId }: { environmentId: Environmen
       }
       if (
         !hasDesktopNotifications(mode) ||
+        (document.visibilityState === "visible" && document.hasFocus()) ||
         typeof Notification === "undefined" ||
         Notification.permission !== "granted"
       )
@@ -136,6 +208,7 @@ function EnvironmentNotifications({ environmentId }: { environmentId: Environmen
           tag: `${environmentId}:${thread.id}`,
           silent: true,
         });
+        onNotification(environmentId, notification);
         notification.addEventListener("click", () => {
           notification.close();
           window.focus();
@@ -156,6 +229,7 @@ function EnvironmentNotifications({ environmentId }: { environmentId: Environmen
     inAppNotificationsEnabled,
     mode,
     navigate,
+    onNotification,
     shell,
   ]);
 

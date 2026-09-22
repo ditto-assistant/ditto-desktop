@@ -69,7 +69,7 @@ function MobileClientsSkeleton() {
       {MOBILE_CLIENT_SKELETON_ROWS.map((row) => (
         <div key={row} className="py-4">
           <div className="flex gap-3">
-            <Skeleton className="size-8 shrink-0 rounded-lg" />
+            <Skeleton shape="card" className="size-8 shrink-0" />
             <div className="flex-1 space-y-2">
               <Skeleton className="h-3.5 w-36" />
               <Skeleton className="h-3 w-28" />
@@ -87,8 +87,8 @@ function MobileClientsSkeleton() {
 
 function EmptyMobileClients() {
   return (
-    <Empty className="min-h-64 gap-4 border-t px-6 py-10 md:p-10">
-      <EmptyMedia className="mb-0" variant="icon">
+    <Empty size="compact">
+      <EmptyMedia variant="icon">
         <SmartphoneIcon />
       </EmptyMedia>
       <EmptyHeader>
@@ -146,7 +146,9 @@ export function MobileClientsUserProfilePage() {
             ))}
           </ul>
         ) : (
-          <EmptyMobileClients />
+          <div className="border-t">
+            <EmptyMobileClients />
+          </div>
         )}
       </div>
     </ClerkUserProfilePage>

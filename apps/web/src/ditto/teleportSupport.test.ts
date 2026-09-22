@@ -20,6 +20,7 @@ function threadWith(
 function menuStateFor(thread: Pick<EnvironmentThreadShell, "session">): ThreadActionMenuState {
   return {
     branch: null,
+    projectFilter: null,
     isPinned: false,
     isSettled: false,
     isSnoozed: false,
