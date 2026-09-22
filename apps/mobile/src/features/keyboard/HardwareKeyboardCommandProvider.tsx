@@ -19,6 +19,7 @@ import { useThreadShell } from "../../state/entities";
 import type { GitActionProgress } from "../../state/use-vcs-action-state";
 import { GitActionProgressOverlay } from "../threads/GitActionProgressOverlay";
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
+import { CommandPalette } from "./CommandPalette";
 import {
   dispatchHardwareKeyboardCommand,
   getHardwareKeyboardCommandRegistrationVersion,
