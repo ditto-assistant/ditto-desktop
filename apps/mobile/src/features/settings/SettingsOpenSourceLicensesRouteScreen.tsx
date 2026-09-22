@@ -1,4 +1,5 @@
 // DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
+import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { LegendList } from "@legendapp/list/react-native";
 import { type StaticScreenProps, useNavigation } from "@react-navigation/native";
 import {
