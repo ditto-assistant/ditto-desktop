@@ -1673,7 +1673,32 @@ const makeWsRpcLayer = (
               };
             }
 
-            return yield* dispatchFromClient(finalTurnStartCommand);
+            yield* track(worktreeSetupTracker.stageStatus(threadId, "agent", "running"));
+            // Once the turn starts, cancellation must not delete its thread.
+            yield* track(worktreeSetupTracker.markUncancellable(threadId));
+            const started = yield* Effect.uninterruptible(
+              dispatchFromClient(finalTurnStartCommand),
+            );
+            yield* track(worktreeSetupTracker.stageStatus(threadId, "agent", "done"));
+            const settle = tracked
+              ? worktreeSetupTracker
+                  .finish(threadId, "done")
+                  .pipe(
+                    Effect.flatMap((snapshot) =>
+                      snapshot ? recordWorktreeSetup(snapshot) : Effect.void,
+                    ),
+                  )
+              : Effect.void;
+            if (pendingSetupScript) {
+              yield* Fiber.join(pendingSetupScript).pipe(
+                Effect.ignoreCause({ log: true }),
+                Effect.andThen(settle),
+                Effect.forkDetach,
+              );
+            } else {
+              yield* settle;
+            }
+            return started;
           });
 
           const cleanupAndFail = (
