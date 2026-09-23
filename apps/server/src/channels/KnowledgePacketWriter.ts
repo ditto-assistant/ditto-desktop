@@ -196,10 +196,36 @@ async function findCachedAttachment(
   }
 }
 
-async function readBoundedResponse(response: Response): Promise<Uint8Array | null> {
-  if (!response.ok || !response.body) return null;
+/**
+ * `media.discordapp.net` is Discord's media proxy. It only serves proxyable
+ * media, so a text file or a document comes back as HTTP 415 while the same
+ * signed URL on the CDN host returns the real bytes. The `ex`/`is`/`hm`
+ * signature is host independent, so swapping the host is safe.
+ */
+function cdnEquivalent(url: URL): URL | null {
+  if (url.hostname.toLowerCase() !== "media.discordapp.net") return null;
+  if (!url.pathname.startsWith("/attachments/")) return null;
+  const cdn = new URL(url.href);
+  cdn.hostname = "cdn.discordapp.com";
+  return cdn;
+}
+
+/** Describes a failed response without leaking the signed attachment URL. */
+function describeFailedResponse(url: URL, response: Response): string {
+  const reason = response.statusText.trim();
+  return `${url.hostname} returned HTTP ${response.status}${reason ? ` ${reason}` : ""}.`;
+}
+
+type BytesOutcome =
+  | { readonly bytes: Uint8Array; readonly error?: undefined }
+  | { readonly bytes: null; readonly error: string };
+
+async function readBoundedResponse(response: Response): Promise<BytesOutcome> {
+  if (!response.body) return { bytes: null, error: "The attachment response had no body." };
   const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_ATTACHMENT_BYTES) return null;
+  if (Number.isFinite(declared) && declared > MAX_ATTACHMENT_BYTES) {
+    return { bytes: null, error: "The attachment exceeded the 25 MB file limit." };
+  }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -210,7 +236,7 @@ async function readBoundedResponse(response: Response): Promise<Uint8Array | nul
       total += next.value.byteLength;
       if (total > MAX_ATTACHMENT_BYTES) {
         await reader.cancel();
-        return null;
+        return { bytes: null, error: "The attachment exceeded the 25 MB file limit." };
       }
       chunks.push(next.value);
     }
@@ -223,7 +249,26 @@ async function readBoundedResponse(response: Response): Promise<Uint8Array | nul
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return bytes;
+  return { bytes };
+}
+
+async function followDiscordRedirects(
+  url: URL,
+  fetchAttachment: (input: string | URL, init?: RequestInit) => Promise<Response>,
+  signal: AbortSignal,
+): Promise<{ readonly response: Response } | { readonly response: null; readonly error: string }> {
+  let currentUrl = url;
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    const response = await fetchAttachment(currentUrl, { redirect: "manual", signal });
+    if (response.status < 300 || response.status >= 400) return { response };
+    const location = response.headers.get("location");
+    const nextUrl = location ? allowedDiscordUrl(new URL(location, currentUrl).href) : null;
+    if (!nextUrl || redirects === 3) {
+      return { response: null, error: "The attachment redirected outside Discord media hosts." };
+    }
+    currentUrl = nextUrl;
+  }
+  return { response: null, error: "The attachment exceeded the redirect limit." };
 }
 
 async function sourceBytes(
@@ -249,23 +294,27 @@ async function sourceBytes(
     return { bytes: null, error: "No accessible local file or supported Discord media URL." };
   const fetchAttachment = options.fetch ?? globalThis.fetch;
   const signal = AbortSignal.timeout(15_000);
-  let currentUrl = remoteUrl;
-  let response: Response | null = null;
-  for (let redirects = 0; redirects <= 3; redirects += 1) {
-    response = await fetchAttachment(currentUrl, { redirect: "manual", signal });
-    if (response.status < 300 || response.status >= 400) break;
-    const location = response.headers.get("location");
-    const nextUrl = location ? allowedDiscordUrl(new URL(location, currentUrl).href) : null;
-    if (!nextUrl || redirects === 3) {
-      return { bytes: null, error: "The attachment redirected outside Discord media hosts." };
+  // A media-proxy URL gets one retry on the CDN host, which serves every
+  // attachment type rather than only proxyable media.
+  const cdnFallback = cdnEquivalent(remoteUrl);
+  const urls = cdnFallback === null ? [remoteUrl] : [remoteUrl, cdnFallback];
+  let lastError = "The attachment did not return a response.";
+  for (const url of urls) {
+    const attempt = await followDiscordRedirects(url, fetchAttachment, signal);
+    if (!attempt.response) {
+      lastError = attempt.error;
+      continue;
     }
-    currentUrl = nextUrl;
+    if (!attempt.response.ok) {
+      lastError = describeFailedResponse(url, attempt.response);
+      continue;
+    }
+    const outcome = await readBoundedResponse(attempt.response);
+    if (outcome.bytes) return { bytes: outcome.bytes };
+    // A size or stream failure is about the file, not the host, so stop here.
+    return { bytes: null, error: outcome.error };
   }
-  if (!response) return { bytes: null, error: "The attachment did not return a response." };
-  const bytes = await readBoundedResponse(response);
-  return bytes
-    ? { bytes }
-    : { bytes: null, error: "The attachment was unavailable or exceeded the 25 MB file limit." };
+  return { bytes: null, error: lastError };
 }
 
 function renderTranscript(
