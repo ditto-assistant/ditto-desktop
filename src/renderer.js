@@ -31,7 +31,7 @@ function notify(message) {
 function goto(page) {
   for (const element of document.querySelectorAll('.page')) element.classList.toggle('active', element.id === `page-${page}`);
   for (const element of document.querySelectorAll('.nav-item')) element.classList.toggle('active', element.dataset.page === page);
-  $('#page-breadcrumb').textContent = ({ home: 'Home', memory: 'Memory', agent: 'Pi Agent', account: 'Ditto Account' })[page];
+  $('#page-breadcrumb').textContent = ({ home: 'Home', memory: 'Memory', 'chat-apps': 'Chat Apps', agent: 'Pi Agent', account: 'Ditto Account' })[page];
 }
 
 function number(value) { return Number(value || 0).toLocaleString(); }
@@ -177,6 +177,14 @@ $('#export-bundle').addEventListener('click', async () => {
     notify(`${number(result.records)} records prepared in ${result.files.length} Ditto import files. Finder opened the folder.`);
   } catch (error) { notify(error.message); }
   finally { button.disabled = false; button.textContent = 'Prepare Ditto import files'; }
+});
+$('#open-connections').addEventListener('click', async () => {
+  try { await window.ditto.openConnections(); }
+  catch (error) { notify(error.message); }
+});
+$('#open-connections-browser').addEventListener('click', async () => {
+  try { await window.ditto.openConnectionsBrowser(); }
+  catch (error) { notify(error.message); }
 });
 $('#link-start').addEventListener('click', startLink);
 $('#sign-out').addEventListener('click', async () => { try { await window.ditto.signOut(); await refresh(); notify('Signed out of Ditto.'); } catch (error) { notify(error.message); } });

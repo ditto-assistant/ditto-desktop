@@ -8,11 +8,13 @@ const readline = require('node:readline');
 const { MemoryStore, defaultCodeRoots } = require('./memory.cjs');
 
 const API_BASE = 'https://api.heyditto.ai';
+const DITTO_CONNECTIONS_LOGIN_URL = `https://assistant.heyditto.ai/login?redirect=${encodeURIComponent('/settings/connections')}`;
 const PI_SCRIPT = path.join(__dirname, '..', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'bundle', 'cli.js');
 const persistentDataDir = path.join(app.getPath('appData'), 'hey-ditto-local');
 fs.mkdirSync(persistentDataDir, { recursive: true, mode: 0o700 });
 app.setPath('userData', persistentDataDir);
 let win;
+let connectionsWindow;
 let store;
 let harness;
 let scanPromise = null;
@@ -125,11 +127,45 @@ function createWindow() {
       nodeIntegration: false, sandbox: true, webSecurity: true,
     },
   });
+  win.on('closed', () => { win = null; });
   win.loadFile(path.join(__dirname, 'index.html'));
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) shell.openExternal(url);
     return { action: 'deny' };
   });
+}
+
+async function openConnectionsWindow() {
+  if (connectionsWindow && !connectionsWindow.isDestroyed()) {
+    connectionsWindow.focus();
+    return;
+  }
+  const remote = new BrowserWindow({
+    width: 1180, height: 850, minWidth: 900, minHeight: 650,
+    title: 'Ditto Chat Apps', backgroundColor: '#08090c',
+    webPreferences: {
+      partition: 'persist:ditto-connections', contextIsolation: true,
+      nodeIntegration: false, sandbox: true, webSecurity: true,
+    },
+  });
+  connectionsWindow = remote;
+  remote.on('closed', () => { if (connectionsWindow === remote) connectionsWindow = null; });
+  remote.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      if (new URL(url).protocol === 'https:') {
+        return { action: 'allow', overrideBrowserWindowOptions: {
+          webPreferences: { partition: 'persist:ditto-connections', contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true },
+        } };
+      }
+    } catch { /* Reject malformed popup URLs. */ }
+    return { action: 'deny' };
+  });
+  try {
+    await remote.loadURL(DITTO_CONNECTIONS_LOGIN_URL);
+  } catch (error) {
+    remote.close();
+    throw new Error(`Ditto Connections could not open: ${errorMessage(error)}`);
+  }
 }
 
 function registerIpc() {
@@ -185,6 +221,9 @@ function registerIpc() {
     await shell.openPath(result.folder);
     return result;
   });
+
+  ipcMain.handle('ditto:open-connections', openConnectionsWindow);
+  ipcMain.handle('ditto:open-connections-browser', () => shell.openExternal(DITTO_CONNECTIONS_LOGIN_URL));
 
   ipcMain.handle('ditto:link-start', async () => {
     const { status, data } = await postDitto('/api/v2/mcp/device-code', {});
@@ -329,7 +368,7 @@ app.whenReady().then(async () => {
   };
   setTimeout(scanIfStale, 1500);
   setInterval(scanIfStale, 30 * 60 * 1000).unref();
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  app.on('activate', () => { if (!win || win.isDestroyed()) createWindow(); });
 }).catch(error => { dialog.showErrorBox('Hey Ditto Local failed to start', errorMessage(error)); app.quit(); });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('ditto', {
   removeRoot: root => ipcRenderer.invoke('ditto:remove-root', root),
   chooseWorkspace: () => ipcRenderer.invoke('ditto:choose-workspace'),
   exportBundle: () => ipcRenderer.invoke('ditto:export'),
+  openConnections: () => ipcRenderer.invoke('ditto:open-connections'),
+  openConnectionsBrowser: () => ipcRenderer.invoke('ditto:open-connections-browser'),
   linkStart: () => ipcRenderer.invoke('ditto:link-start'),
   linkPoll: () => ipcRenderer.invoke('ditto:link-poll'),
   signOut: () => ipcRenderer.invoke('ditto:sign-out'),

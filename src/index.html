@@ -24,6 +24,7 @@
       <nav aria-label="Main navigation">
         <button class="nav-item active" data-page="home">Home</button>
         <button class="nav-item" data-page="memory">Memory</button>
+        <button class="nav-item" data-page="chat-apps">Chat Apps</button>
         <button class="nav-item" data-page="agent">Pi Agent</button>
         <button class="nav-item" data-page="account">Ditto Account</button>
       </nav>
@@ -64,6 +65,18 @@
         <div class="panel search-panel"><div class="panel-heading"><h2>Search local memory</h2><span>Code · Codex · Cursor</span></div><form id="search-form" class="search-form"><input id="search-input" type="search" placeholder="What did I work on in Ditto?" aria-label="Search local memory"><button class="primary" type="submit">Search</button></form><div id="search-results" class="search-results"><div class="empty-state">Search your local history after a scan.</div></div></div>
       </section>
 
+      <section class="page" id="page-chat-apps">
+        <div class="eyebrow">Your connected conversations</div><h1 class="page-title">Your chat apps,<br><em>in Ditto.</em></h1>
+        <p class="page-intro">Open your Ditto Connections screen to see which accounts are linked, check their sync status, and manage them. Sign in there if asked; your connection session stays on this Mac.</p>
+        <div class="toolbar"><button class="primary" id="open-connections">Open Ditto Connections ↗</button><button class="secondary" id="open-connections-browser">Open in browser</button></div>
+        <div class="chat-app-grid">
+          <article class="chat-app-card"><h2>Discord</h2><p>View connected servers and conversation history sync.</p></article>
+          <article class="chat-app-card"><h2>Slack</h2><p>View connected workspaces and conversation history sync.</p></article>
+          <article class="chat-app-card"><h2>Telegram</h2><p>View your connected account and conversation history sync.</p></article>
+        </div>
+        <p class="chat-app-note">These connections use your Ditto account. The code and agent history on this Mac stays in the local memory shown under Memory.</p>
+      </section>
+
       <section class="page" id="page-agent">
         <div class="eyebrow">Memory-first coding</div><h1 class="page-title">Pi Agent,<br><em>with your context.</em></h1>
         <p class="page-intro">Pi gets the most relevant local memories before it works. It can read and edit files in the project you choose. Sending a task shares those memory snippets with your selected Pi model provider.</p>
@@ -78,6 +91,7 @@
         <div class="account-panel"><div><h2 id="account-title">Sign in with Ditto</h2><p id="account-description">Use Ditto’s secure device sign-in to connect this desktop.</p></div><button class="primary" id="link-start">Sign in with Ditto</button><button class="secondary" id="sign-out" hidden>Sign out</button></div>
         <div id="device-code-panel" class="device-code-panel" hidden><span class="small-label">Enter this code in the browser</span><strong id="device-code"></strong><p>A Ditto page has opened. Approve this Mac there, then return here.</p><span id="device-link-status">Waiting for approval…</span></div>
         <div class="panel"><div class="panel-heading"><h2>Cloud import</h2><span>Prepared by you</span></div><p class="panel-copy">Prepare import files from Memory, then upload the ZIP files in Ditto under Settings → Import → Markdown/notes. Each file contains indexed code and conversations. Nothing uploads automatically.</p><button class="secondary" data-goto="memory">Go to Memory →</button></div>
+        <div class="panel"><div class="panel-heading"><h2>Chat apps</h2><span>Discord · Slack · Telegram</span></div><p class="panel-copy">View and manage your linked chat accounts in Ditto Connections.</p><button class="secondary" data-goto="chat-apps">Go to Chat Apps →</button></div>
       </section>
     </main>
   </div>
