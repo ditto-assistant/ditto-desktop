@@ -9,6 +9,8 @@
   };
   const number = value => Number(value || 0).toLocaleString();
   let activePanel = null;
+  let cloudCodeMode = false;
+  let defaultCodeOpenPending = false;
   function markActive() {
     const target = activePanel === 'Inbox' ? 'Chats' : activePanel === 'Local' ? 'Code'
       : location.pathname.startsWith('/code') ? 'Code' : location.pathname === '/' ? 'Chats' : null;
@@ -19,9 +21,13 @@
       if (selected) button.setAttribute('aria-current', 'page');
       else button.removeAttribute('aria-current');
     }
+    for (const button of document.querySelectorAll('[data-ditto-code-mode]')) {
+      button.classList.toggle('is-selected', button.dataset.dittoCodeMode === (activePanel === 'Local' ? 'local' : 'cloud'));
+    }
   }
   function openPanel(name) {
     activePanel = name;
+    document.body.classList.remove('ditto-local-from-chat');
     document.body.classList.toggle('ditto-local-open', name === 'Local');
     document.body.classList.toggle('ditto-inbox-open', name === 'Inbox');
     markActive();
@@ -33,9 +39,19 @@
     if (!rail) return;
     const width = Math.round(rail.getBoundingClientRect().right);
     if (width) document.documentElement.style.setProperty('--ditto-desktop-rail-width', `${width}px`);
+    const sidebar = document.querySelector('aside.v2-desktop-sidebar');
+    const sidebarWidth = Math.round(sidebar?.getBoundingClientRect().right || 320);
+    if (sidebarWidth) document.documentElement.style.setProperty('--ditto-desktop-sidebar-width', `${sidebarWidth}px`);
     markActive();
     mountChatSources();
     mountCodeSource();
+    if (location.pathname === '/code' && !activePanel && !cloudCodeMode && !defaultCodeOpenPending) {
+      defaultCodeOpenPending = true;
+      setTimeout(() => {
+        defaultCodeOpenPending = false;
+        if (location.pathname === '/code' && !activePanel && !cloudCodeMode) openPanel('Local');
+      }, 0);
+    }
   }
   function mountChatSources() {
     const body = document.querySelector('.v2-studio-section[data-section-id="chats"] > .v2-studio-section-body');
@@ -66,22 +82,41 @@
     const panel = document.querySelector('.v2-code-panel');
     if (!panel || panel.querySelector('.ditto-desktop-code-group')) return;
     const group = element('section', 'v2-studio-section ditto-desktop-code-group');
-    group.setAttribute('aria-label', 'Code on this Mac');
+    group.setAttribute('aria-label', 'Code execution');
     const heading = element('div', 'v2-studio-section-head');
-    heading.append(element('span', 'ditto-desktop-code-heading', 'On this Mac'));
+    heading.append(element('span', 'ditto-desktop-code-heading', 'Execution'));
     group.append(heading);
-    const row = element('div', 'v2-studio-recent-row');
-    const button = element('button', 'v2-studio-recent');
-    button.type = 'button';
-    button.setAttribute('aria-label', 'Open Ditto Code on this Mac');
-    button.append(element('span', 'ditto-desktop-local-mark', '⌂'));
-    const copy = element('span');
-    copy.append(element('strong', '', 'Ditto Code'), element('small', '', 'Pi and local memory'));
-    button.append(copy);
-    button.addEventListener('click', () => openPanel('Local'));
-    row.append(button);
-    group.append(row);
+    for (const [mode, title, description, glyph] of [
+      ['local', 'Local · Pi', 'Codex and Claude available', '⌂'],
+      ['cloud', 'Cloud · Ditto', 'Ditto cloud tasks and projects', '☁'],
+    ]) {
+      const row = element('div', 'v2-studio-recent-row');
+      const button = element('button', 'v2-studio-recent ditto-desktop-code-mode');
+      button.type = 'button';
+      button.dataset.dittoCodeMode = mode;
+      button.setAttribute('aria-label', mode === 'local' ? 'Run Ditto Code locally' : 'Run Ditto Code in the cloud');
+      button.append(element('span', 'ditto-desktop-local-mark', glyph));
+      const copy = element('span');
+      copy.append(element('strong', '', title), element('small', '', description));
+      button.append(copy);
+      button.addEventListener('click', () => {
+        if (mode === 'local') {
+          cloudCodeMode = false;
+          $('#dl-provider').value = 'pi';
+          $('#dl-provider').dispatchEvent(new Event('change'));
+          openPanel('Local');
+        } else {
+          cloudCodeMode = true;
+          activePanel = null;
+          document.body.classList.remove('ditto-local-open', 'ditto-local-from-chat');
+          markActive();
+        }
+      });
+      row.append(button);
+      group.append(row);
+    }
     panel.insertBefore(group, panel.firstElementChild?.nextSibling || null);
+    markActive();
   }
   let railFrame = 0;
   const observer = new MutationObserver(() => {
@@ -89,12 +124,29 @@
     railFrame = requestAnimationFrame(() => { railFrame = 0; mountSidebars(); });
   });
   observer.observe(document.querySelector('#root') || document.body, { childList: true, subtree: true });
-  mountSidebars();
   document.addEventListener('click', event => {
-    if (!event.target.closest('nav.v2-studio-rail a')) return;
-    activePanel = null;
-    document.body.classList.remove('ditto-local-open', 'ditto-inbox-open');
-    markActive();
+    const railLink = event.target.closest('nav.v2-studio-rail a');
+    if (railLink?.getAttribute('aria-label') === 'Code') {
+      cloudCodeMode = false;
+      $('#dl-provider').value = 'pi';
+      $('#dl-provider').dispatchEvent(new Event('change'));
+      openPanel('Local');
+      return;
+    }
+    if (railLink) {
+      cloudCodeMode = false;
+      activePanel = null;
+      document.body.classList.remove('ditto-local-open', 'ditto-inbox-open', 'ditto-local-from-chat');
+      markActive();
+      return;
+    }
+    const cloudCode = event.target.closest('.v2-code-panel button');
+    if (cloudCode && !cloudCode.closest('.ditto-desktop-code-group') && activePanel === 'Local') {
+      cloudCodeMode = true;
+      activePanel = null;
+      document.body.classList.remove('ditto-local-open', 'ditto-local-from-chat');
+      markActive();
+    }
   }, true);
 
   const local = element('main', 'ditto-local-page');
@@ -102,8 +154,8 @@
   local.innerHTML = `
     <div class="ditto-local-inner">
       <div class="ditto-local-hero"><div class="ditto-local-eyebrow">On this Mac</div>
-        <h1>Local memory & Ditto Code</h1>
-        <p>Code, Codex, and Cursor trajectories become private memory for local coding tasks. Pi is the default. Export to Ditto when you choose.</p></div>
+        <h1>Ditto Code</h1>
+        <p>Pi runs coding tasks locally on this Mac, grounded in your private code and agent memory. Choose another engine only when you want to dispatch elsewhere.</p></div>
       <div class="ditto-local-grid">
         <div class="ditto-local-stat"><strong id="dl-code">0</strong><span>Code chunks</span></div>
         <div class="ditto-local-stat"><strong id="dl-codex">0</strong><span>Codex messages</span></div>
@@ -122,13 +174,17 @@
           <option value="pi">Ditto Code · Pi (default)</option><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="cursor">Cursor Agent</option><option value="grok">Grok</option>
         </select><button id="dl-provider-login" type="button" hidden>Sign in to provider</button></div>
         <form id="dl-chat-form" style="margin-top:13px"><textarea id="dl-prompt" placeholder="Ask Pi to use your local memory and work on a project…" aria-label="Ask Pi"></textarea>
-          <div class="ditto-local-row" style="margin-top:9px"><button id="dl-run" class="primary">Run in Ditto Code</button><button id="dl-cancel" type="button" hidden>Stop</button><span id="dl-context" class="ditto-local-muted"></span></div></form>
+          <div class="ditto-local-row" style="margin-top:9px"><button id="dl-run" class="primary">Run locally with Pi</button><button id="dl-cancel" type="button" hidden>Stop</button><span id="dl-context" class="ditto-local-muted"></span></div></form>
         <div id="dl-output" class="ditto-local-output" aria-live="polite"></div></section>
       <section class="ditto-local-card"><h2>Recent local executions</h2><p>Saved privately on this Mac.</p><div id="dl-runs" class="ditto-local-list"></div></section>
     </div>`;
+  const executionCard = local.querySelector('#dl-chat-form').closest('.ditto-local-card');
+  executionCard.classList.add('ditto-local-execution-card');
+  local.querySelector('.ditto-local-hero').after(executionCard, local.querySelector('#dl-runs').closest('.ditto-local-card'));
   document.body.append(local);
 
   let running = false;
+  let workspaceReady = false;
   const show = (target, message) => { $(target).textContent = message; };
   const item = (title, subtitle, body) => {
     const card = element('div', 'ditto-local-item');
@@ -160,7 +216,8 @@
         const option = $('#dl-provider').querySelector(`[value="${provider.id}"]`);
         if (option) { option.disabled = !provider.available; option.title = provider.detail; }
       }
-      show('#dl-workspace', status.workspace);
+      workspaceReady = Boolean(status.workspace);
+      show('#dl-workspace', status.workspace || 'Choose a project folder');
       roots(status.roots);
       const list = $('#dl-runs');
       list.replaceChildren();
@@ -199,7 +256,7 @@
     } catch (error) { list.textContent = error.message; }
   });
   $('#dl-choose-workspace').addEventListener('click', async () => {
-    try { const folder = await window.ditto.chooseWorkspace(); if (folder) show('#dl-workspace', folder); }
+    try { const folder = await window.ditto.chooseWorkspace(); if (folder) { workspaceReady = true; show('#dl-workspace', folder); } }
     catch (error) { show('#dl-pi-status', error.message); }
   });
   $('#dl-pi-login').addEventListener('click', async () => {
@@ -207,7 +264,17 @@
     catch (error) { show('#dl-pi-status', error.message); }
   });
   $('#dl-provider').addEventListener('change', () => {
-    $('#dl-provider-login').hidden = $('#dl-provider').value === 'pi';
+    const provider = $('#dl-provider').value;
+    $('#dl-provider-login').hidden = provider === 'pi';
+    if (provider !== 'pi') {
+      const label = $('#dl-provider').selectedOptions[0]?.textContent || provider;
+      $('#dl-provider-login').textContent = `Sign in to ${label}`;
+      $('#dl-run').textContent = `Dispatch locally to ${label}`;
+      show('#dl-context', `${label} runs through its installed local CLI. Sign in here if needed.`);
+    } else {
+      $('#dl-run').textContent = 'Run locally with Pi';
+      show('#dl-context', 'Pi runs locally with your selected model.');
+    }
   });
   $('#dl-provider-login').addEventListener('click', async () => {
     try { await window.ditto.providerLogin($('#dl-provider').value); show('#dl-context', 'Provider sign-in opened in Terminal.'); }
@@ -216,10 +283,18 @@
   $('#dl-chat-form').addEventListener('submit', async event => {
     event.preventDefault(); if (running) return;
     const prompt = $('#dl-prompt').value.trim(); if (!prompt) return;
+    if (!workspaceReady) {
+      try {
+        const folder = await window.ditto.chooseWorkspace();
+        if (!folder) { show('#dl-context', 'Choose a project folder to run local code.'); return; }
+        workspaceReady = true;
+        show('#dl-workspace', folder);
+      } catch (error) { show('#dl-context', error.message); return; }
+    }
     running = true; $('#dl-run').disabled = true; $('#dl-cancel').hidden = false;
-    show('#dl-output', ''); show('#dl-context', 'Starting Pi…');
+    const provider = $('#dl-provider').value;
+    show('#dl-output', ''); show('#dl-context', `Starting ${provider === 'pi' ? 'Pi' : $('#dl-provider').selectedOptions[0]?.textContent || provider} on this Mac…`);
     try {
-      const provider = $('#dl-provider').value;
       if (provider === 'pi') await window.ditto.chat(prompt);
       else await window.ditto.runProvider(provider, prompt);
       $('#dl-prompt').value = '';
@@ -396,9 +471,12 @@
     const button = $('#di-packet'); button.disabled = true;
     try {
       const packet = await window.ditto.createPacket(selectedService, selectedConversation.id);
+      cloudCodeMode = false;
+      $('#dl-provider').value = 'pi';
+      $('#dl-provider').dispatchEvent(new Event('change'));
       activePanel = 'Local';
       document.body.classList.remove('ditto-inbox-open');
-      document.body.classList.add('ditto-local-open');
+      document.body.classList.add('ditto-local-open', 'ditto-local-from-chat');
       markActive();
       await refresh();
       $('#dl-prompt').value = `Use the local knowledge packet at ${packet.path} as context for this task.\n\n`;
@@ -407,4 +485,5 @@
     } catch (error) { show('#di-status', error.message); }
     finally { button.disabled = false; }
   });
+  mountSidebars();
 })();

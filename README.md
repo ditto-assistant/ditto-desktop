@@ -23,11 +23,12 @@ Build the installable app with `npm run dist:mac`. It appears at `dist/mac-arm64
 ## What the navigation contains
 
 - **Chats:** Ditto chats and linked Discord, Slack, Telegram, and other cloud conversation sources. The **On this Mac** group opens locally connected Discord, Telegram, and iMessage. Local Discord and Telegram sign-in uses a QR code; iMessage needs macOS Full Disk Access to read local Messages. Sending a reply happens only when you click **Send as me**.
-- **Code:** Ditto's web Code projects and tasks.
+- **Code:** Opens local Ditto Code with Pi by default. The Code sidebar has explicit **Local · Pi** and **Cloud · Ditto** choices. Cloud projects and tasks remain below; selecting one switches to its cloud task view.
 - **Customize:** Ditto's agents and integrations.
 - **Connections:** Linked app status and management through the same signed-in desktop window.
 - **Chats → On this Mac:** Read and reply to local conversations. **Use in Ditto Code** creates a private knowledge packet, including bounded chat history and supported attachments, and inserts its path into a coding task.
-- **Code → Ditto Code:** Private Mac memory from selected Git project text and Codex/Cursor user and assistant trajectories. Search, scan, choose code folders, export, and inspect saved local executions. Pi is the default coding engine; installed Codex, Claude Code, Cursor Agent, and Grok CLIs are available in the engine selector.
+- **Code → Local · Pi:** Runs Pi on this Mac using private memory from selected Git project text and Codex/Cursor user and assistant trajectories. Choose a project folder before the first run; local coding is not launched from your entire home directory. Search, scan, export, and inspect saved local executions. Select an installed Codex, Claude Code, Cursor Agent, or Grok CLI to dispatch a task locally through that engine. Each engine uses its own local sign-in; Claude Code must be signed in before it can complete a run.
+- **Code → Cloud · Ditto:** Opens the existing end-to-end Ditto cloud task composer and project history.
 
 The desktop renderer is copied from the pinned web source at build time, with native entries in the web app's left navigation. Electron serves those copied files locally under Ditto's web origin and forwards other HTTPS requests normally. It clears any old PWA worker on launch to prevent a stale hosted build from replacing the bundled UI.
 
