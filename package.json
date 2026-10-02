@@ -7,13 +7,17 @@
   "main": "src/main.cjs",
   "scripts": {
     "start": "electron .",
+    "build:web": "node scripts/build-web.cjs",
     "build:native": "node scripts/build-native.cjs",
+    "build:channels": "node scripts/build-channels.cjs",
     "scan:local": "node scripts/scan-local.cjs",
     "test": "node --test tests/*.test.cjs",
-    "dist:mac": "electron-builder --mac dir --arm64 --config electron-builder.yml"
+    "dist:mac": "npm run build:web && npm run build:channels && electron-builder --mac dir --arm64 --config electron-builder.yml"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.0.0",
+    "@xai-official/grok": "^1.0.46",
+    "qrcode": "^1.5.4",
     "yazl": "^3.3.1"
   },
   "devDependencies": {

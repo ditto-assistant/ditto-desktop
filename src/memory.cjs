@@ -142,7 +142,20 @@ class MemoryStore {
         source TEXT NOT NULL, path TEXT NOT NULL, mtime_ms INTEGER NOT NULL, size INTEGER NOT NULL,
         PRIMARY KEY(source,path)
       );
+      CREATE TABLE IF NOT EXISTS pi_runs (
+        id INTEGER PRIMARY KEY,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        workspace TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        response TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        error TEXT NOT NULL DEFAULT ''
+      );
     `);
+    if (!this.db.prepare('PRAGMA table_info(pi_runs)').all().some(column => column.name === 'provider')) {
+      this.db.exec("ALTER TABLE pi_runs ADD COLUMN provider TEXT NOT NULL DEFAULT 'pi'");
+    }
     this.upsert = this.db.prepare(`INSERT INTO docs(source,path,part,role,title,body,digest,modified_at,indexed_at)
       VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(source,path,part) DO UPDATE SET
       role=excluded.role,title=excluded.title,body=excluded.body,digest=excluded.digest,
@@ -155,6 +168,21 @@ class MemoryStore {
   }
 
   close() { this.db.close(); }
+
+  startPiRun(workspace, prompt, provider = 'pi') {
+    return Number(this.db.prepare('INSERT INTO pi_runs(started_at,workspace,prompt,status,provider) VALUES(?,?,?,?,?)')
+      .run(new Date().toISOString(), workspace, prompt, 'running', provider).lastInsertRowid);
+  }
+
+  finishPiRun(id, status, response, error = '') {
+    this.db.prepare('UPDATE pi_runs SET finished_at=?,status=?,response=?,error=? WHERE id=?')
+      .run(new Date().toISOString(), status, response, error, id);
+  }
+
+  recentPiRuns(limit = 20) {
+    return this.db.prepare('SELECT id,started_at,finished_at,workspace,prompt,response,status,error,provider FROM pi_runs ORDER BY id DESC LIMIT ?')
+      .all(Math.max(1, Math.min(100, limit)));
+  }
 
   getSetting(key, fallback) {
     const row = this.db.prepare('SELECT value FROM settings WHERE key=?').get(key);

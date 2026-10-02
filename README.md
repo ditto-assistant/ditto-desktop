@@ -1,39 +1,42 @@
-# Hey Ditto Local
+# Ditto Desktop
 
-A standalone Mac desktop app for Pi coding tasks with local-first Ditto memory.
+Ditto's web app, built from the pinned `ditto-app` source and bundled inside an Electron app, with additional private Mac memory and coding tasks. The desktop window uses Ditto's normal Firebase sign-in and the same Chats, Code, agents, Connections, and conversations as the web app. Its window and Dock name are **Ditto Desktop**. The existing left navigation also has **Local chats** and **Ditto Code**. The Chats sidebar shows an **On this Mac** group for local Discord, Telegram, and iMessage accounts. The app does not load the hosted web UI into a second window.
 
-The interface uses the [Ditto Brandkit](https://github.com/ditto-assistant/brand-kit): the outlined DITTO wordmark, sculptural-D app icon, Display 3.1 type, and its Carbon, Parchment, Signal, Vermilion, and Tide palettes in light and dark modes. The macOS Dock icon uses Brandkit's Tide dark sculptural D, with transparent rounded corners in `resources/icon.svg` so it appears rounded like the web PWA. The wordmark and theme values match `ditto-app` main at commit `8cf8ad6a3`; the Brandkit source was checked at `8e3da6a8e`.
+The UI is sourced from `ditto-app` main at `8cf8ad6a3`. The rounded Tide blue icon follows the web PWA and Brandkit at `8e3da6a8e`. The product is independent of the T3 fork.
 
-The app indexes Git project text files under selected code folders and user/assistant messages from local Codex and Cursor trajectory files. Text is stored in a private SQLite search index. Conversation pairs are also saved to the [Ditto Harness](https://github.com/ditto-assistant/ditto-harness) memory database with its offline hash embedder. Pi receives the most relevant search results and Ditto memories before each task. The app uses Peyton's `@earendil-works/pi-coding-agent` package, the same Pi package used by the Ditto backend runner.
+## Build and run on macOS
 
-## Run on macOS
+Requires Apple Silicon macOS, Node 22.19 or newer, Bun, Go, and Rust/Cargo for the native memory module. Clone with submodules, or run `git submodule update --init --recursive` after cloning.
 
-Requires macOS on Apple Silicon, Node 22.19 or newer, and Rust/Cargo for the native memory module. If Ollama is running with `qwen2.5:7b` already installed, Pi uses it locally without another sign-in. Other Pi models can be configured through **Open Pi sign-in**.
+Copy `.env.desktop.example` to `.env.desktop.local` and fill in the Firebase values for the Ditto deployment. Use an API key allowed for `https://assistant.heyditto.ai`; the desktop app serves bundled code at that origin so Firebase sign-in and existing account sessions work. Set `VITE_DITTO_API_BASE` to the matching Ditto API. The local env file is ignored by Git and is removed from the web checkout after each build.
 
 ```sh
 npm install
 npm run build:native
+npm run build:web
+npm run build:channels
 npm start
 ```
 
-To build an unsigned local `.app`:
+Build the installable app with `npm run dist:mac`. It appears at `dist/mac-arm64/Ditto Desktop.app`. The app preserves its existing `hey-ditto-local` Application Support directory and bundle ID, so upgrading keeps local memory, Pi settings, and the previous Ditto Connections sign-in. The new bundle name and Dock icon are **Ditto Desktop**.
 
-```sh
-npm run dist:mac
-```
+## What the navigation contains
 
-Open `dist/mac-arm64/Hey Ditto Local.app`. The app uses its own macOS Application Support directory and does not touch T3 Code's data.
+- **Chats:** Ditto chats and linked Discord, Slack, Telegram, and other cloud conversation sources. The **On this Mac** group opens locally connected Discord, Telegram, and iMessage. Local Discord and Telegram sign-in uses a QR code; iMessage needs macOS Full Disk Access to read local Messages. Sending a reply happens only when you click **Send as me**.
+- **Code:** Ditto's web Code projects and tasks.
+- **Customize:** Ditto's agents and integrations.
+- **Connections:** Linked app status and management through the same signed-in desktop window.
+- **Local chats:** Read and reply to local conversations. **Use in Ditto Code** creates a private knowledge packet, including bounded chat history and supported attachments, and inserts its path into a coding task.
+- **Ditto Code:** Private Mac memory from selected Git project text and Codex/Cursor user and assistant trajectories. Search, scan, choose code folders, export, and inspect saved local executions. Pi is the default coding engine; installed Codex, Claude Code, Cursor Agent, and Grok CLIs are available in the engine selector.
 
-## Memory and cloud boundary
+The desktop renderer is copied from the pinned web source at build time, with native entries in the web app's left navigation. Electron serves those copied files locally under Ditto's web origin and forwards other HTTPS requests normally. It clears any old PWA worker on launch to prevent a stale hosted build from replacing the bundled UI.
 
-- First launch starts an incremental local scan; use **Memory → Scan sources** anytime.
-- Default code folders include `~/code`, `~/Documents/ChatGPT`, `~/Documents/Codex`, `~/heyditto-stack`, and `~/aiq`. Add or remove folders in Memory. Git tracked and unignored text files up to 512 KB are indexed; common secret files, binary files, dependency directories, and lockfiles are excluded. Obvious credential patterns are redacted before storage.
-- Codex sessions under `~/.codex/sessions` and `~/.codex/archived_sessions`, and Cursor agent transcripts under `~/.cursor/projects`, are indexed. Only user and assistant text is ingested.
-- Local databases and exports live in macOS Application Support for **Hey Ditto Local**. The app does not upload indexed data automatically.
-- **Prepare Ditto import files** creates ZIP archives in a new local folder and opens that folder in Finder. In Ditto, choose **Settings → Import → Markdown/notes** and upload the archives one at a time. They use stable note IDs so repeating an import can skip duplicates. Each archive is kept below Ditto's 200 MiB upload limit and 50,000 memory limit. Exporting does not transmit data.
-- The earlier `cloud-upload-ready.jsonl` format remains available through `MemoryStore.exportCloudBundle()` for local tooling. The desktop button now prepares archives accepted by Ditto's existing importer.
-- **Ditto Account** uses the Ditto API's device-code flow. The resulting key is encrypted with macOS Keychain-backed Electron storage. Linking the account does not upload memory.
-- **Chat Apps** opens Ditto's Connections screen in a sandboxed desktop window. From there you can view and manage linked Discord, Slack, and Telegram accounts using Ditto's existing connector flows. That web session is saved on this Mac and may ask you to sign in once; it is separate from the device key above. Chat-app histories remain in Ditto's cloud memory and are not silently copied into the local code/trajectory index.
-- Sending a Pi task shares retrieved memory snippets with the selected Pi model provider. Pi may edit files in the selected workspace. Use **Open Pi sign-in** in the app and choose `/login` to configure a model provider.
+## Local memory and cloud boundary
 
-The standalone app is independent of the T3 fork. The T3-based `ditto-desktop` repository was used to verify Ditto's existing sign-in and harness contracts.
+First launch starts an incremental local scan. Default code folders include `~/code`, `~/Documents/ChatGPT`, `~/Documents/Codex`, `~/heyditto-stack`, and `~/aiq`. Git tracked and unignored text files up to 512 KB are indexed; common secret files, binary files, dependency directories, and lockfiles are excluded. Obvious credential patterns are redacted before storage. Codex sessions in `~/.codex/sessions` and `~/.codex/archived_sessions`, and Cursor agent transcripts in `~/.cursor/projects`, are indexed. Only user and assistant text is ingested.
+
+Text is stored in a private SQLite search index. Conversation pairs are also saved to the Ditto Harness memory database with its offline hash embedder. Pi receives relevant local search results and Ditto memories before each task, and local run history is stored in SQLite. If Ollama is running with `qwen2.5:7b`, Pi uses it locally; other models can be configured through Pi sign-in. The other coding engines run through their installed local CLIs and use their own account sign-in.
+
+**Prepare Ditto import** creates local ZIP archives and opens them in Finder. In Ditto, use Settings → Import → Markdown/notes to upload them. Exporting does not transmit data. The earlier `cloud-upload-ready.jsonl` format remains available through `MemoryStore.exportCloudBundle()` for local tooling. Local chat histories are read only when you open a conversation or create a knowledge packet; they are not silently copied into the local code index. Sending a coding task shares retrieved snippets and any referenced packet with the selected model provider. Coding engines may edit files in the chosen workspace.
+
+The previous MCP device-code link is retained for compatibility with local tooling, but the main desktop app uses the web app's Ditto authentication session. The local memory database and Pi settings stay in macOS Application Support for `hey-ditto-local` to preserve existing data.

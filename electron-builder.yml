@@ -1,6 +1,6 @@
 appId: ai.heyditto.local
-productName: Hey Ditto Local
-artifactName: Hey-Ditto-Local-${version}-${arch}.${ext}
+productName: Ditto Desktop
+artifactName: Ditto-Desktop-${version}-${arch}.${ext}
 directories:
   output: dist
 files:
@@ -20,6 +20,10 @@ asarUnpack:
 extraResources:
   - from: resources/icon.png
     to: dock-icon.png
+  - from: resources/web
+    to: web
+  - from: native/bin
+    to: channel-sidecars
 mac:
   category: public.app-category.productivity
   icon: resources/icon.png

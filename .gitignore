@@ -1,6 +1,9 @@
 node_modules/
 dist/
 native/*.node
+native/bin/
 .build/
+.env.desktop.local
+resources/web/
 *.log
 .DS_Store

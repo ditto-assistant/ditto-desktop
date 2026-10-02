@@ -1,0 +1,3 @@
+[submodule "web/ditto-app"]
+	path = web/ditto-app
+	url = git@github.com:ditto-assistant/ditto-app.git
