@@ -9,24 +9,15 @@
   };
   const number = value => Number(value || 0).toLocaleString();
   let activePanel = null;
-  const railButtons = new Map();
   function markActive() {
-    for (const [name, button] of railButtons) {
-      const selected = name === activePanel;
+    const target = activePanel === 'Inbox' ? 'Chats' : activePanel === 'Local' ? 'Code'
+      : location.pathname.startsWith('/code') ? 'Code' : location.pathname === '/' ? 'Chats' : null;
+    if (!target) return;
+    for (const button of document.querySelectorAll('nav.v2-studio-rail a.v2-sidebar-nav-button')) {
+      const selected = button.getAttribute('aria-label') === target;
       button.classList.toggle('is-selected', selected);
       if (selected) button.setAttribute('aria-current', 'page');
       else button.removeAttribute('aria-current');
-    }
-    for (const button of document.querySelectorAll('nav.v2-studio-rail .v2-sidebar-nav-button:not(.ditto-desktop-rail-link)')) {
-      if (activePanel) {
-        if (button.hasAttribute('aria-current') || button.classList.contains('is-selected')) button.dataset.dittoDesktopWasSelected = 'true';
-        button.removeAttribute('aria-current');
-        button.classList.remove('is-selected');
-      } else if (button.dataset.dittoDesktopWasSelected) {
-        button.setAttribute('aria-current', 'page');
-        button.classList.add('is-selected');
-        delete button.dataset.dittoDesktopWasSelected;
-      }
     }
   }
   function openPanel(name) {
@@ -37,45 +28,14 @@
     if (name === 'Local') void refresh();
     else void selectService(selectedService);
   }
-  function makeRailLink(name, description, iconPaths) {
-    const link = element('a', 'v2-sidebar-nav-button ditto-desktop-rail-link');
-    link.href = name === 'Inbox' ? '#local-inbox' : '#local-code';
-    link.setAttribute('aria-label', name === 'Inbox' ? 'Local chats' : 'Ditto Code on this Mac');
-    link.title = name === 'Inbox' ? 'Local chats' : 'Ditto Code on this Mac';
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    for (const [key, value] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', width: '20', height: '20', 'aria-hidden': 'true' })) svg.setAttribute(key, value);
-    svg.setAttribute('class', 'v2-icon v2-navigation-icon');
-    for (const pathData of iconPaths) {
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', pathData);
-      svg.append(path);
-    }
-    const copy = element('span');
-    copy.append(element('strong', '', name === 'Inbox' ? 'Local chats' : 'Ditto Code'), element('small', '', description));
-    link.append(svg, copy);
-    link.addEventListener('click', event => { event.preventDefault(); openPanel(name); });
-    return link;
-  }
-  function mountRail() {
+  function mountSidebars() {
     const rail = document.querySelector('nav.v2-studio-rail');
     if (!rail) return;
     const width = Math.round(rail.getBoundingClientRect().right);
     if (width) document.documentElement.style.setProperty('--ditto-desktop-rail-width', `${width}px`);
-    const more = rail.querySelector('.v2-studio-more');
-    for (const [name, description, paths] of [
-      ['Inbox', 'Discord, Telegram, and iMessage on this Mac', ['M4 5.5h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-5 3v-3a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z', 'M7 10h10', 'M7 14h7']],
-      ['Local', 'Local memory and coding tasks', ['M8 8 4 12l4 4', 'M16 8l4 4-4 4', 'M13.5 5 10.5 19']],
-    ]) {
-      let link = rail.querySelector(`[data-ditto-desktop-panel="${name}"]`);
-      if (!link) {
-        link = makeRailLink(name, description, paths);
-        link.dataset.dittoDesktopPanel = name;
-        rail.insertBefore(link, more || rail.querySelector('.v2-studio-rail-spacer'));
-      }
-      railButtons.set(name, link);
-    }
     markActive();
     mountChatSources();
+    mountCodeSource();
   }
   function mountChatSources() {
     const body = document.querySelector('.v2-studio-section[data-section-id="chats"] > .v2-studio-section-body');
@@ -102,15 +62,36 @@
     }
     body.insertBefore(group, body.firstElementChild?.nextSibling || null);
   }
+  function mountCodeSource() {
+    const panel = document.querySelector('.v2-code-panel');
+    if (!panel || panel.querySelector('.ditto-desktop-code-group')) return;
+    const group = element('section', 'v2-studio-section ditto-desktop-code-group');
+    group.setAttribute('aria-label', 'Code on this Mac');
+    const heading = element('div', 'v2-studio-section-head');
+    heading.append(element('span', 'ditto-desktop-code-heading', 'On this Mac'));
+    group.append(heading);
+    const row = element('div', 'v2-studio-recent-row');
+    const button = element('button', 'v2-studio-recent');
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Open Ditto Code on this Mac');
+    button.append(element('span', 'ditto-desktop-local-mark', '⌂'));
+    const copy = element('span');
+    copy.append(element('strong', '', 'Ditto Code'), element('small', '', 'Pi and local memory'));
+    button.append(copy);
+    button.addEventListener('click', () => openPanel('Local'));
+    row.append(button);
+    group.append(row);
+    panel.insertBefore(group, panel.firstElementChild?.nextSibling || null);
+  }
   let railFrame = 0;
   const observer = new MutationObserver(() => {
     if (railFrame) return;
-    railFrame = requestAnimationFrame(() => { railFrame = 0; mountRail(); });
+    railFrame = requestAnimationFrame(() => { railFrame = 0; mountSidebars(); });
   });
   observer.observe(document.querySelector('#root') || document.body, { childList: true, subtree: true });
-  mountRail();
+  mountSidebars();
   document.addEventListener('click', event => {
-    if (!event.target.closest('nav.v2-studio-rail a:not(.ditto-desktop-rail-link)')) return;
+    if (!event.target.closest('nav.v2-studio-rail a')) return;
     activePanel = null;
     document.body.classList.remove('ditto-local-open', 'ditto-inbox-open');
     markActive();

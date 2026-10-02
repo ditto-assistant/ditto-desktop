@@ -1,6 +1,6 @@
 # Ditto Desktop
 
-Ditto's web app, built from the pinned `ditto-app` source and bundled inside an Electron app, with additional private Mac memory and coding tasks. The desktop window uses Ditto's normal Firebase sign-in and the same Chats, Code, agents, Connections, and conversations as the web app. Its window and Dock name are **Ditto Desktop**. The existing left navigation also has **Local chats** and **Ditto Code**. The Chats sidebar shows an **On this Mac** group for local Discord, Telegram, and iMessage accounts. The app does not load the hosted web UI into a second window.
+Ditto's web app, built from the pinned `ditto-app` source and bundled inside an Electron app, with additional private Mac memory and coding tasks. The desktop window uses Ditto's normal Firebase sign-in and the same Chats, Code, agents, Connections, and conversations as the web app. Its window and Dock name are **Ditto Desktop**. The Chats sidebar has an **On this Mac** group for local Discord, Telegram, and iMessage accounts; the Code sidebar has a **Ditto Code** entry for Pi and local memory. The app does not load the hosted web UI into a second window.
 
 The UI is sourced from `ditto-app` main at `8cf8ad6a3`. The rounded Tide blue icon follows the web PWA and Brandkit at `8e3da6a8e`. The product is independent of the T3 fork.
 
@@ -26,8 +26,8 @@ Build the installable app with `npm run dist:mac`. It appears at `dist/mac-arm64
 - **Code:** Ditto's web Code projects and tasks.
 - **Customize:** Ditto's agents and integrations.
 - **Connections:** Linked app status and management through the same signed-in desktop window.
-- **Local chats:** Read and reply to local conversations. **Use in Ditto Code** creates a private knowledge packet, including bounded chat history and supported attachments, and inserts its path into a coding task.
-- **Ditto Code:** Private Mac memory from selected Git project text and Codex/Cursor user and assistant trajectories. Search, scan, choose code folders, export, and inspect saved local executions. Pi is the default coding engine; installed Codex, Claude Code, Cursor Agent, and Grok CLIs are available in the engine selector.
+- **Chats → On this Mac:** Read and reply to local conversations. **Use in Ditto Code** creates a private knowledge packet, including bounded chat history and supported attachments, and inserts its path into a coding task.
+- **Code → Ditto Code:** Private Mac memory from selected Git project text and Codex/Cursor user and assistant trajectories. Search, scan, choose code folders, export, and inspect saved local executions. Pi is the default coding engine; installed Codex, Claude Code, Cursor Agent, and Grok CLIs are available in the engine selector.
 
 The desktop renderer is copied from the pinned web source at build time, with native entries in the web app's left navigation. Electron serves those copied files locally under Ditto's web origin and forwards other HTTPS requests normally. It clears any old PWA worker on launch to prevent a stale hosted build from replacing the bundled UI.
 
