@@ -9,6 +9,9 @@ const { MemoryStore, defaultCodeRoots } = require('./memory.cjs');
 
 const API_BASE = 'https://api.heyditto.ai';
 const PI_SCRIPT = path.join(__dirname, '..', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'bundle', 'cli.js');
+const persistentDataDir = path.join(app.getPath('appData'), 'hey-ditto-local');
+fs.mkdirSync(persistentDataDir, { recursive: true, mode: 0o700 });
+app.setPath('userData', persistentDataDir);
 let win;
 let store;
 let harness;
