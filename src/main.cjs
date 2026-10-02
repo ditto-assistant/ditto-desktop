@@ -8,7 +8,8 @@ const readline = require('node:readline');
 const { MemoryStore, defaultCodeRoots } = require('./memory.cjs');
 
 const API_BASE = 'https://api.heyditto.ai';
-const DITTO_CONNECTIONS_LOGIN_URL = `https://assistant.heyditto.ai/login?redirect=${encodeURIComponent('/settings/connections')}`;
+const DITTO_CONNECTIONS_PATH = '/connections/apps';
+const DITTO_CONNECTIONS_LOGIN_URL = `https://assistant.heyditto.ai/login?redirect=${encodeURIComponent(DITTO_CONNECTIONS_PATH)}`;
 const PI_SCRIPT = path.join(__dirname, '..', 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'bundle', 'cli.js');
 const persistentDataDir = path.join(app.getPath('appData'), 'hey-ditto-local');
 fs.mkdirSync(persistentDataDir, { recursive: true, mode: 0o700 });
@@ -138,6 +139,11 @@ function createWindow() {
 async function openConnectionsWindow() {
   if (connectionsWindow && !connectionsWindow.isDestroyed()) {
     connectionsWindow.focus();
+    const current = connectionsWindow.webContents.getURL();
+    if (!current.startsWith(`https://assistant.heyditto.ai/connections/`) &&
+        current !== DITTO_CONNECTIONS_LOGIN_URL) {
+      await connectionsWindow.loadURL(DITTO_CONNECTIONS_LOGIN_URL);
+    }
     return;
   }
   const remote = new BrowserWindow({
