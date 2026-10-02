@@ -17,6 +17,9 @@ files:
   - node_modules/**/*
 asarUnpack:
   - native/*.node
+extraResources:
+  - from: resources/icon.png
+    to: dock-icon.png
 mac:
   category: public.app-category.productivity
   icon: resources/icon.png

@@ -363,6 +363,8 @@ function registerIpc() {
 app.whenReady().then(async () => {
   app.setName('Hey Ditto Local');
   app.setAppUserModelId('ai.heyditto.local');
+  const dockIcon = path.join(process.resourcesPath, 'dock-icon.png');
+  if (app.dock && fs.existsSync(dockIcon)) app.dock.setIcon(dockIcon);
   store = new MemoryStore(dataDir());
   registerIpc();
   createWindow();

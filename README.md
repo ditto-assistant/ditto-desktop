@@ -2,7 +2,7 @@
 
 A standalone Mac desktop app for Pi coding tasks with local-first Ditto memory.
 
-The interface uses the [Ditto Brandkit](https://github.com/ditto-assistant/brand-kit): the outlined DITTO wordmark, sculptural-D app icon, Display 3.1 type, and its Carbon, Parchment, Signal, Vermilion, and Tide palettes in light and dark modes. The wordmark and theme values match `ditto-app` main at commit `8cf8ad6a3`; the Brandkit source was checked at `8e3da6a8e`.
+The interface uses the [Ditto Brandkit](https://github.com/ditto-assistant/brand-kit): the outlined DITTO wordmark, sculptural-D app icon, Display 3.1 type, and its Carbon, Parchment, Signal, Vermilion, and Tide palettes in light and dark modes. The macOS Dock icon comes from Brandkit's `kit/png/ditto-app-icon-tide-dark-1024.png`, matching the app icon selected on `ditto-app` main. The wordmark and theme values match `ditto-app` main at commit `8cf8ad6a3`; the Brandkit source was checked at `8e3da6a8e`.
 
 The app indexes Git project text files under selected code folders and user/assistant messages from local Codex and Cursor trajectory files. Text is stored in a private SQLite search index. Conversation pairs are also saved to the [Ditto Harness](https://github.com/ditto-assistant/ditto-harness) memory database with its offline hash embedder. Pi receives the most relevant search results and Ditto memories before each task. The app uses Peyton's `@earendil-works/pi-coding-agent` package, the same Pi package used by the Ditto backend runner.
 
