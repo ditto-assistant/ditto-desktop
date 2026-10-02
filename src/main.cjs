@@ -9,6 +9,7 @@ const { MemoryStore, defaultCodeRoots } = require('./memory.cjs');
 const { LocalChannels } = require('./channels.cjs');
 const { createKnowledgePacket } = require('./packets.cjs');
 const { binaryFor, providerAvailability, startProvider } = require('./code-providers.cjs');
+const { spawnSandboxedPi } = require('./pi-sandbox.cjs');
 
 const API_BASE = 'https://api.heyditto.ai';
 const WEB_ORIGIN = 'https://assistant.heyditto.ai';
@@ -393,17 +394,16 @@ function registerIpc() {
       relevantMemory || 'No matching local memory was found.',
       `User request: ${question}`,
     ].join('\n\n');
+    const child = spawnSandboxedPi(process.execPath, PI_SCRIPT, ['--mode', 'json', '--print', '--no-session', '--no-themes',
+      '--no-skills', '--no-extensions',
+      ...(aboutThisApp ? ['--no-tools', '--no-context-files'] : []),
+      '--approve', ...(pi.localModel ? ['--offline', '--provider', 'ollama', '--model', pi.localModel] : []),
+      '--append-system-prompt', context, '--', task], {
+      workspace, agentDir: piDir(), dataDir: dataDir(),
+    });
     const runId = store.startPiRun(workspace, question);
     emit('ditto:chat-event', { type: 'start', memoryCount: matches.length + vector.length });
     return new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [PI_SCRIPT, '--mode', 'json', '--print', '--no-session', '--no-themes',
-        '--no-skills', '--no-extensions',
-        ...(aboutThisApp ? ['--no-tools', '--no-context-files'] : []),
-        '--approve', ...(pi.localModel ? ['--offline', '--provider', 'ollama', '--model', pi.localModel] : []),
-        '--append-system-prompt', context, '--', task], {
-        cwd: workspace, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PI_CODING_AGENT_DIR: piDir() },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
       piProcess = child;
       let final = '';
       let stderr = '';
