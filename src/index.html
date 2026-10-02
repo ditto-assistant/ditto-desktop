@@ -1,23 +1,34 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-ditto-theme="carbon" data-ditto-mode="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'none'">
   <title>Hey Ditto Local</title>
+  <script src="appearance-boot.js"></script>
+  <link rel="stylesheet" href="brand/themes.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand"><div class="brand-mark"><img src="ditto-face.svg" alt=""></div><div><strong>hey ditto</strong><span>LOCAL</span></div></div>
+      <div class="brand"><svg class="brand-wordmark" xmlns="http://www.w3.org/2000/svg" width="3077" height="732" viewBox="0 0 3077 732" role="img" aria-label="Ditto">
+  <g data-wordmark="ditto-hybrid" fill="currentColor" fill-rule="evenodd" transform="translate(-87 718) scale(1 -1)">
+    <path transform="translate(0 0)" d="M119 0Q91 0 91 28V672Q91 700 119 700H378Q455 700 517.5 674.5Q580 649 625.5 602.5Q671 556 695 492Q719 428 719 350Q719 273 695 208.5Q671 144 626 97.5Q581 51 518 25.5Q455 0 378 0ZM241 135H373Q418 135 454 150.5Q490 166 515.5 193.5Q541 221 554 261Q567 301 567 350Q567 399 554 438.5Q541 478 515.5 506Q490 534 454 549.5Q418 565 373 565H241Z"/>
+    <path transform="translate(716 0)" d="M99 0H397Q423 0 423 26V106Q423 132 397 132H339Q323 132 323 148V552Q323 568 339 568H397Q423 568 423 594V674Q423 700 397 700H99Q73 700 73 674V594Q73 568 99 568H157Q173 568 173 552V148Q173 132 157 132H99Q73 132 73 106V26Q73 0 99 0Z"/>
+    <path transform="translate(1176 0)" d="M272 0H362Q394 0 394 32V545Q394 565 414 565H565Q597 565 597 597V668Q597 700 565 700H65Q33 700 33 668V597Q33 565 65 565H219Q239 565 239 545V32Q239 0 272 0Z"/>
+    <path transform="translate(1798 0)" d="M272 0H362Q394 0 394 32V545Q394 565 414 565H565Q597 565 597 597V668Q597 700 565 700H65Q33 700 33 668V597Q33 565 65 565H219Q239 565 239 545V32Q239 0 272 0Z"/>
+    <path transform="translate(2403 0)" d="M402 -10Q324 -10 259.0 17.0Q194 44 145.5 92.5Q97 141 71.0 207.5Q45 274 45 352Q45 431 71.0 497.0Q97 563 145.5 611.5Q194 660 259.0 687.0Q324 714 401 714Q479 714 543.5 687.0Q608 660 656.5 611.0Q705 562 731.0 496.0Q757 430 757 352Q757 274 731.0 208.0Q705 142 656.5 93.0Q608 44 543.5 17.0Q479 -10 402 -10ZM401 132Q446 132 483.0 148.5Q520 165 547.0 194.5Q574 224 589.5 264.0Q605 304 605 352Q605 400 589.5 440.0Q574 480 547.0 509.5Q520 539 483.0 555.5Q446 572 401 572Q357 572 320.0 555.5Q283 539 255.0 509.5Q227 480 212.5 440.0Q198 400 198 352Q198 304 212.5 264.0Q227 224 255.0 194.5Q283 165 320.0 148.5Q357 132 401 132Z"/>
+  </g>
+</svg><span class="brand-local">Local</span></div>
       <nav aria-label="Main navigation">
-        <button class="nav-item active" data-page="home"><span class="nav-icon">◈</span> Home</button>
-        <button class="nav-item" data-page="memory"><span class="nav-icon">▧</span> Memory</button>
-        <button class="nav-item" data-page="agent"><span class="nav-icon">✳</span> Pi Agent</button>
-        <button class="nav-item" data-page="account"><span class="nav-icon">◉</span> Ditto Account</button>
+        <button class="nav-item active" data-page="home">Home</button>
+        <button class="nav-item" data-page="memory">Memory</button>
+        <button class="nav-item" data-page="agent">Pi Agent</button>
+        <button class="nav-item" data-page="account">Ditto Account</button>
       </nav>
       <div class="sidebar-bottom">
+        <div class="appearance"><label for="palette-select">Appearance</label><select id="palette-select" aria-label="Colour theme"><option value="carbon">Carbon</option><option value="parchment">Parchment</option><option value="signal">Signal</option><option value="vermilion">Vermilion</option><option value="tide">Tide</option></select><button id="mode-toggle" type="button" aria-label="Switch colour mode">Light mode</button></div>
         <div class="local-pill"><span class="pulse-dot"></span> Private on this Mac</div>
         <p>Your code and trajectories stay here until you choose to export them.</p>
       </div>
@@ -27,47 +38,46 @@
       <div id="notice" class="notice" role="status" hidden></div>
 
       <section class="page active" id="page-home">
-        <div class="eyebrow">YOUR DESKTOP COMPANION</div>
+        <div class="eyebrow">Your desktop companion</div>
         <div class="hero">
           <div><h1>Ditto remembers<br><em>what you build.</em></h1><p>Code, Codex, and Cursor become a private memory on your Mac. Pi uses it before every task.</p><button class="primary" id="home-scan">Scan this Mac <span>↗</span></button></div>
-          <div class="hero-art"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><img src="ditto-face.svg" alt="Ditto"></div>
         </div>
         <div class="section-heading"><h2>Your local memory</h2><span id="last-scan">Waiting for first scan</span></div>
         <div class="stats-grid">
-          <div class="stat-card"><div class="stat-icon purple">&lt;/&gt;</div><strong id="stat-code">0</strong><span>Code chunks</span></div>
-          <div class="stat-card"><div class="stat-icon blue">⌘</div><strong id="stat-codex">0</strong><span>Codex messages</span></div>
-          <div class="stat-card"><div class="stat-icon amber">◇</div><strong id="stat-cursor">0</strong><span>Cursor messages</span></div>
-          <div class="stat-card"><div class="stat-icon green">✦</div><strong id="stat-memories">0</strong><span>Ditto memories</span></div>
+          <div class="stat-card"><strong id="stat-code">0</strong><span>Code chunks</span></div>
+          <div class="stat-card"><strong id="stat-codex">0</strong><span>Codex messages</span></div>
+          <div class="stat-card"><strong id="stat-cursor">0</strong><span>Cursor messages</span></div>
+          <div class="stat-card"><strong id="stat-memories">0</strong><span>Ditto memories</span></div>
         </div>
         <div class="home-grid">
-          <div class="feature-card"><div class="feature-icon">✳</div><h3>Ask Pi with context</h3><p>Pi reads relevant local memory before working in your selected project.</p><button class="text-button" data-goto="agent">Open Pi Agent →</button></div>
-          <div class="feature-card"><div class="feature-icon">▧</div><h3>Explore your history</h3><p>Search across your code and agent trajectories, with sources you can inspect.</p><button class="text-button" data-goto="memory">Browse memory →</button></div>
+          <div class="feature-card"><h3>Ask Pi with context</h3><p>Pi reads relevant local memory before working in your selected project.</p><button class="text-button" data-goto="agent">Open Pi Agent →</button></div>
+          <div class="feature-card"><h3>Explore your history</h3><p>Search across your code and agent trajectories, with sources you can inspect.</p><button class="text-button" data-goto="memory">Browse memory →</button></div>
         </div>
       </section>
 
       <section class="page" id="page-memory">
-        <div class="eyebrow">LOCAL-FIRST MEMORY</div><h1 class="page-title">Everything you built,<br><em>ready to recall.</em></h1>
+        <div class="eyebrow">Local memory</div><h1 class="page-title">Everything you built,<br><em>ready to recall.</em></h1>
         <p class="page-intro">Index Git project files and Codex and Cursor trajectories. Your local search works without a cloud connection.</p>
-        <div class="toolbar"><button class="primary" id="memory-scan">Scan sources</button><button class="secondary" id="add-root">Add code folder</button><button class="secondary" id="export-bundle">Prepare cloud bundle</button></div>
+        <div class="toolbar"><button class="primary" id="memory-scan">Scan sources</button><button class="secondary" id="add-root">Add code folder</button><button class="secondary" id="export-bundle">Prepare Ditto import files</button></div>
         <div id="scan-progress" class="progress-line" role="status">Ready to scan.</div>
         <div class="panel"><div class="panel-heading"><h2>Code folders</h2><span>Git-tracked text files</span></div><div id="roots-list" class="roots-list"></div></div>
         <div class="panel search-panel"><div class="panel-heading"><h2>Search local memory</h2><span>Code · Codex · Cursor</span></div><form id="search-form" class="search-form"><input id="search-input" type="search" placeholder="What did I work on in Ditto?" aria-label="Search local memory"><button class="primary" type="submit">Search</button></form><div id="search-results" class="search-results"><div class="empty-state">Search your local history after a scan.</div></div></div>
       </section>
 
       <section class="page" id="page-agent">
-        <div class="eyebrow">MEMORY-FIRST CODING</div><h1 class="page-title">Pi Agent,<br><em>with your context.</em></h1>
+        <div class="eyebrow">Memory-first coding</div><h1 class="page-title">Pi Agent,<br><em>with your context.</em></h1>
         <p class="page-intro">Pi gets the most relevant local memories before it works. It can read and edit files in the project you choose. Sending a task shares those memory snippets with your selected Pi model provider.</p>
-        <div class="agent-top"><div><span class="small-label">WORKSPACE</span><strong id="workspace-path">Choose a project</strong><span id="pi-model-status" class="model-status"></span></div><button class="secondary" id="choose-workspace">Change folder</button></div>
+        <div class="agent-top"><div><span class="small-label">Workspace</span><strong id="workspace-path">Choose a project</strong><span id="pi-model-status" class="model-status"></span></div><button class="secondary" id="choose-workspace">Change folder</button></div>
         <div id="pi-setup" class="setup-card" hidden><div><h3>Connect a model to Pi</h3><p>Pi needs a model sign-in once. Open its sign-in terminal, then choose /login and a provider.</p></div><button class="secondary" id="pi-login">Open Pi sign-in</button></div>
         <div class="chat-card"><div class="chat-card-head"><span class="pulse-dot"></span> Local memory is read before each task <span id="context-count"></span></div><div id="chat-output" class="chat-output"><div class="empty-chat"><div class="empty-symbol">✳</div><strong>What are we building?</strong><span>Ask Pi about a project, a past decision, or the next change.</span></div></div><form id="chat-form" class="chat-form"><textarea id="chat-input" placeholder="Ask Ditto to work on your code…" rows="3"></textarea><div class="chat-actions"><span>Pi can edit files in this workspace</span><button id="chat-cancel" class="secondary" type="button" hidden>Stop</button><button id="chat-send" class="primary" type="submit">Send to Pi ↗</button></div></form></div>
       </section>
 
       <section class="page" id="page-account">
-        <div class="eyebrow">YOUR DITTO ACCOUNT</div><h1 class="page-title">Local now.<br><em>Cloud when ready.</em></h1>
+        <div class="eyebrow">Your Ditto account</div><h1 class="page-title">Local now.<br><em>Cloud when ready.</em></h1>
         <p class="page-intro">Link this Mac to your Ditto account. Your local memory stays on this Mac until you choose to move it.</p>
-        <div class="account-panel"><div class="account-avatar"><img src="ditto-face.svg" alt=""></div><div><h2 id="account-title">Sign in with Ditto</h2><p id="account-description">Use Ditto’s secure device sign-in to connect this desktop.</p></div><button class="primary" id="link-start">Sign in with Ditto</button><button class="secondary" id="sign-out" hidden>Sign out</button></div>
-        <div id="device-code-panel" class="device-code-panel" hidden><span class="small-label">ENTER THIS CODE IN THE BROWSER</span><strong id="device-code"></strong><p>A Ditto page has opened. Approve this Mac there, then return here.</p><span id="device-link-status">Waiting for approval…</span></div>
-        <div class="panel"><div class="panel-heading"><h2>Cloud upload</h2><span>Prepared by you</span></div><p class="panel-copy">Prepare an export from Memory. It contains your indexed code and conversations as a local file for the Ditto cloud ingestion pipeline.</p><button class="secondary" data-goto="memory">Go to Memory →</button></div>
+        <div class="account-panel"><div><h2 id="account-title">Sign in with Ditto</h2><p id="account-description">Use Ditto’s secure device sign-in to connect this desktop.</p></div><button class="primary" id="link-start">Sign in with Ditto</button><button class="secondary" id="sign-out" hidden>Sign out</button></div>
+        <div id="device-code-panel" class="device-code-panel" hidden><span class="small-label">Enter this code in the browser</span><strong id="device-code"></strong><p>A Ditto page has opened. Approve this Mac there, then return here.</p><span id="device-link-status">Waiting for approval…</span></div>
+        <div class="panel"><div class="panel-heading"><h2>Cloud import</h2><span>Prepared by you</span></div><p class="panel-copy">Prepare import files from Memory, then upload the ZIP files in Ditto under Settings → Import → Markdown/notes. Each file contains indexed code and conversations. Nothing uploads automatically.</p><button class="secondary" data-goto="memory">Go to Memory →</button></div>
       </section>
     </main>
   </div>

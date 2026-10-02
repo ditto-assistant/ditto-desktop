@@ -1,0 +1,220 @@
+/* Exact user-supplied Ditto theme values. Scope a component with both data attributes. */
+
+[data-ditto-theme="carbon"][data-ditto-mode="light"] {
+  --ditto-canvas: oklch(96% 0.004 270);
+  --ditto-surface: oklch(99% 0.002 270);
+  --ditto-raised: oklch(90% 0.006 270);
+  --ditto-ink: oklch(17% 0.006 270);
+  --ditto-muted: oklch(40% 0.008 270);
+  --ditto-rule: oklch(79% 0.007 270);
+  --ditto-island: oklch(14% 0.006 270);
+  --ditto-island-raised: oklch(23% 0.008 270);
+  --ditto-island-ink: oklch(96% 0.004 270);
+  --ditto-island-muted: oklch(78% 0.006 270);
+  --ditto-action: oklch(20% 0.008 270);
+  --ditto-action-ink: oklch(97% 0.003 270);
+  --ditto-selection: oklch(86% 0.007 270);
+  --ditto-paper: oklch(99% 0.002 85);
+  --ditto-paper-raised: oklch(93% 0.004 85);
+  --ditto-paper-ink: oklch(18% 0.008 60);
+  --ditto-paper-muted: oklch(42% 0.008 60);
+}
+
+[data-ditto-theme="carbon"][data-ditto-mode="dark"] {
+  --ditto-canvas: oklch(14% 0.006 270);
+  --ditto-surface: oklch(19% 0.007 270);
+  --ditto-raised: oklch(24% 0.008 270);
+  --ditto-ink: oklch(96% 0.004 270);
+  --ditto-muted: oklch(78% 0.008 270);
+  --ditto-rule: oklch(31% 0.008 270);
+  --ditto-island: oklch(10% 0.005 270);
+  --ditto-island-raised: oklch(21% 0.008 270);
+  --ditto-island-ink: oklch(96% 0.004 270);
+  --ditto-island-muted: oklch(78% 0.008 270);
+  --ditto-action: oklch(86% 0.006 270);
+  --ditto-action-ink: oklch(16% 0.006 270);
+  --ditto-selection: oklch(30% 0.008 270);
+  --ditto-paper: oklch(96% 0.006 85);
+  --ditto-paper-raised: oklch(90% 0.008 85);
+  --ditto-paper-ink: oklch(18% 0.008 60);
+  --ditto-paper-muted: oklch(43% 0.008 60);
+}
+
+[data-ditto-theme="parchment"][data-ditto-mode="light"] {
+  --ditto-canvas: oklch(95% 0.022 78);
+  --ditto-surface: oklch(98% 0.012 78);
+  --ditto-raised: oklch(90% 0.032 72);
+  --ditto-ink: oklch(21% 0.028 52);
+  --ditto-muted: oklch(42% 0.035 52);
+  --ditto-rule: oklch(77% 0.035 72);
+  --ditto-island: oklch(24% 0.032 52);
+  --ditto-island-raised: oklch(32% 0.034 56);
+  --ditto-island-ink: oklch(96% 0.018 78);
+  --ditto-island-muted: oklch(78% 0.028 72);
+  --ditto-action: oklch(39% 0.1 38);
+  --ditto-action-ink: oklch(97% 0.012 78);
+  --ditto-selection: oklch(86% 0.04 72);
+  --ditto-paper: oklch(99% 0.01 78);
+  --ditto-paper-raised: oklch(93% 0.024 75);
+  --ditto-paper-ink: oklch(21% 0.028 52);
+  --ditto-paper-muted: oklch(42% 0.035 52);
+}
+
+[data-ditto-theme="parchment"][data-ditto-mode="dark"] {
+  --ditto-canvas: oklch(17% 0.022 55);
+  --ditto-surface: oklch(21% 0.026 58);
+  --ditto-raised: oklch(27% 0.032 62);
+  --ditto-ink: oklch(94% 0.025 78);
+  --ditto-muted: oklch(77% 0.025 72);
+  --ditto-rule: oklch(36% 0.03 60);
+  --ditto-island: oklch(12% 0.018 52);
+  --ditto-island-raised: oklch(24% 0.03 58);
+  --ditto-island-ink: oklch(95% 0.022 78);
+  --ditto-island-muted: oklch(78% 0.024 72);
+  --ditto-action: oklch(85% 0.055 72);
+  --ditto-action-ink: oklch(20% 0.03 52);
+  --ditto-selection: oklch(31% 0.04 62);
+  --ditto-paper: oklch(91% 0.04 76);
+  --ditto-paper-raised: oklch(84% 0.05 72);
+  --ditto-paper-ink: oklch(21% 0.032 52);
+  --ditto-paper-muted: oklch(43% 0.035 55);
+}
+
+[data-ditto-theme="signal"][data-ditto-mode="light"] {
+  --ditto-canvas: oklch(94% 0.03 155);
+  --ditto-surface: oklch(98% 0.015 158);
+  --ditto-raised: oklch(87% 0.06 155);
+  --ditto-ink: oklch(18% 0.03 164);
+  --ditto-muted: oklch(39% 0.04 160);
+  --ditto-rule: oklch(76% 0.06 158);
+  --ditto-island: oklch(16% 0.03 166);
+  --ditto-island-raised: oklch(25% 0.045 164);
+  --ditto-island-ink: oklch(94% 0.055 150);
+  --ditto-island-muted: oklch(78% 0.06 153);
+  --ditto-action: oklch(36% 0.14 155);
+  --ditto-action-ink: oklch(98% 0.012 155);
+  --ditto-selection: oklch(84% 0.08 155);
+  --ditto-paper: oklch(96% 0.035 150);
+  --ditto-paper-raised: oklch(89% 0.06 153);
+  --ditto-paper-ink: oklch(18% 0.03 164);
+  --ditto-paper-muted: oklch(39% 0.04 160);
+}
+
+[data-ditto-theme="signal"][data-ditto-mode="dark"] {
+  --ditto-canvas: oklch(14% 0.008 270);
+  --ditto-surface: oklch(19% 0.009 270);
+  --ditto-raised: oklch(25% 0.011 270);
+  --ditto-ink: oklch(94% 0.006 270);
+  --ditto-muted: oklch(78% 0.008 270);
+  --ditto-rule: oklch(34% 0.01 270);
+  --ditto-island: oklch(10% 0.006 270);
+  --ditto-island-raised: oklch(22% 0.012 270);
+  --ditto-island-ink: oklch(94% 0.006 270);
+  --ditto-island-muted: oklch(78% 0.008 270);
+  --ditto-action: oklch(84% 0.14 150);
+  --ditto-action-ink: oklch(16% 0.028 165);
+  --ditto-selection: oklch(29% 0.04 160);
+  --ditto-paper: oklch(88% 0.12 150);
+  --ditto-paper-raised: oklch(81% 0.12 152);
+  --ditto-paper-ink: oklch(16% 0.028 165);
+  --ditto-paper-muted: oklch(35% 0.045 162);
+}
+
+[data-ditto-theme="vermilion"][data-ditto-mode="light"] {
+  --ditto-canvas: oklch(95% 0.008 30);
+  --ditto-surface: oklch(98% 0.004 30);
+  --ditto-raised: oklch(89% 0.016 30);
+  --ditto-ink: oklch(19% 0.012 30);
+  --ditto-muted: oklch(41% 0.018 30);
+  --ditto-rule: oklch(78% 0.018 30);
+  --ditto-island: oklch(18% 0.014 30);
+  --ditto-island-raised: oklch(27% 0.02 30);
+  --ditto-island-ink: oklch(96% 0.008 30);
+  --ditto-island-muted: oklch(78% 0.012 30);
+  --ditto-action: oklch(48% 0.16 29);
+  --ditto-action-ink: oklch(97% 0.01 78);
+  --ditto-selection: oklch(86% 0.035 30);
+  --ditto-paper: oklch(97% 0.016 76);
+  --ditto-paper-raised: oklch(91% 0.025 68);
+  --ditto-paper-ink: oklch(19% 0.012 30);
+  --ditto-paper-muted: oklch(41% 0.018 30);
+}
+
+[data-ditto-theme="vermilion"][data-ditto-mode="dark"] {
+  --ditto-canvas: oklch(16% 0.018 235);
+  --ditto-surface: oklch(20% 0.022 235);
+  --ditto-raised: oklch(27% 0.028 235);
+  --ditto-ink: oklch(94% 0.008 230);
+  --ditto-muted: oklch(77% 0.014 230);
+  --ditto-rule: oklch(35% 0.028 235);
+  --ditto-island: oklch(11% 0.02 235);
+  --ditto-island-raised: oklch(23% 0.027 235);
+  --ditto-island-ink: oklch(94% 0.008 230);
+  --ditto-island-muted: oklch(77% 0.014 230);
+  --ditto-action: oklch(69% 0.16 31);
+  --ditto-action-ink: oklch(15% 0.02 235);
+  --ditto-selection: oklch(30% 0.05 32);
+  --ditto-paper: oklch(93% 0.025 75);
+  --ditto-paper-raised: oklch(86% 0.035 70);
+  --ditto-paper-ink: oklch(18% 0.018 32);
+  --ditto-paper-muted: oklch(42% 0.025 35);
+}
+
+[data-ditto-theme="tide"][data-ditto-mode="light"] {
+  --ditto-canvas: oklch(94% 0.018 230);
+  --ditto-surface: oklch(98% 0.008 230);
+  --ditto-raised: oklch(88% 0.035 225);
+  --ditto-ink: oklch(20% 0.045 245);
+  --ditto-muted: oklch(42% 0.04 238);
+  --ditto-rule: oklch(77% 0.04 228);
+  --ditto-island: oklch(23% 0.06 244);
+  --ditto-island-raised: oklch(31% 0.073 243);
+  --ditto-island-ink: oklch(94% 0.042 88);
+  --ditto-island-muted: oklch(78% 0.045 93);
+  --ditto-action: oklch(29% 0.095 244);
+  --ditto-action-ink: oklch(97% 0.015 85);
+  --ditto-selection: oklch(85% 0.06 220);
+  --ditto-paper: oklch(97% 0.02 88);
+  --ditto-paper-raised: oklch(91% 0.032 88);
+  --ditto-paper-ink: oklch(20% 0.045 245);
+  --ditto-paper-muted: oklch(42% 0.04 238);
+}
+
+[data-ditto-theme="tide"][data-ditto-mode="dark"] {
+  --ditto-canvas: oklch(18% 0.06 244);
+  --ditto-surface: oklch(24% 0.073 243);
+  --ditto-raised: oklch(31% 0.082 238);
+  --ditto-ink: oklch(94% 0.042 88);
+  --ditto-muted: oklch(78% 0.045 93);
+  --ditto-rule: oklch(43% 0.078 238);
+  --ditto-island: oklch(13% 0.05 244);
+  --ditto-island-raised: oklch(27% 0.078 241);
+  --ditto-island-ink: oklch(94% 0.042 88);
+  --ditto-island-muted: oklch(78% 0.045 93);
+  --ditto-action: oklch(82% 0.13 210);
+  --ditto-action-ink: oklch(17% 0.06 244);
+  --ditto-selection: oklch(35% 0.08 238);
+  --ditto-paper: oklch(82% 0.13 210);
+  --ditto-paper-raised: oklch(76% 0.12 210);
+  --ditto-paper-ink: oklch(17% 0.06 244);
+  --ditto-paper-muted: oklch(37% 0.065 238);
+}
+
+[data-ditto-theme][data-ditto-mode] {
+  --background: var(--ditto-canvas);
+  --foreground: var(--ditto-ink);
+  --card: var(--ditto-surface);
+  --popover: var(--ditto-surface);
+  --primary: var(--ditto-action);
+  --primary-foreground: var(--ditto-action-ink);
+  --secondary: var(--ditto-raised);
+  --muted: var(--ditto-raised);
+  --muted-foreground: var(--ditto-muted);
+  --accent: var(--ditto-selection);
+  --border: var(--ditto-rule);
+  --input: var(--ditto-surface);
+  --sidebar: var(--ditto-surface);
+  --sidebar-primary: var(--ditto-action);
+  --sidebar-accent: var(--ditto-raised);
+  --sidebar-border: var(--ditto-rule);
+}

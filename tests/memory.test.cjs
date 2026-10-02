@@ -23,7 +23,21 @@ test('redacts credentials before local persistence', () => {
   assert.equal(redact('api_key=abcdefghijklmnopq'), 'api_key=[credential removed]');
 });
 
-test('indexes Git code and both trajectory formats, then exports a cloud-ready file', async t => {
+test('ranks memory content above a distractor path match', async t => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'ditto-memory-rank-'));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const store = new MemoryStore(root);
+  t.after(() => store.close());
+  store.addDoc('code', '/fake/ditto-local-desktop.ts', 0, '', 'ditto-local-desktop.ts',
+    'This file only defines a generic button.', '2026-10-02T00:00:00Z');
+  store.addDoc('code', '/real/README.md', 0, '', 'README.md',
+    'The local Ditto desktop remembers code, Codex trajectories, and Cursor conversations in private memory.',
+    '2026-10-02T00:00:00Z');
+  const result = store.search('What does the local Ditto desktop remember?', 2);
+  assert.equal(result[0].path, '/real/README.md');
+});
+
+test('indexes Git code and both trajectory formats, then exports Ditto import ZIPs', async t => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'ditto-local-test-'));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));
   const repo = path.join(root, 'project');
@@ -67,4 +81,11 @@ test('indexes Git code and both trajectory formats, then exports a cloud-ready f
   assert.equal(lines.length, 5);
   assert.equal(JSON.parse(lines[0]).format, 'ditto-local-memory-v1');
   assert.equal(fs.statSync(destination).mode & 0o777, 0o600);
+  const dittoImport = await store.exportDittoImport();
+  assert.equal(dittoImport.records, 5);
+  assert.equal(dittoImport.files.length, 1);
+  const entries = execFileSync('unzip', ['-Z', '-1', dittoImport.files[0]], { encoding: 'utf8' }).trim().split('\n');
+  assert.equal(entries.length, 5);
+  assert.ok(entries.every(entry => /^notes\/(code|codex|cursor)\/[a-f0-9]{64}\.md$/.test(entry)));
+  assert.equal(fs.statSync(dittoImport.files[0]).mode & 0o777, 0o600);
 });

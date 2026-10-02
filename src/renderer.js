@@ -3,6 +3,22 @@ let state = null;
 let chatRunning = false;
 let scanRunning = false;
 let linkTimer = null;
+const appearanceKey = 'hey-ditto-local:appearance';
+
+function renderAppearance() {
+  const root = document.documentElement;
+  $('#palette-select').value = root.dataset.dittoTheme;
+  const next = root.dataset.dittoMode === 'dark' ? 'Light' : 'Dark';
+  $('#mode-toggle').textContent = `${next} mode`;
+  $('#mode-toggle').setAttribute('aria-label', `Switch to ${next.toLowerCase()} mode`);
+}
+
+function saveAppearance(palette, mode) {
+  document.documentElement.dataset.dittoTheme = palette;
+  document.documentElement.dataset.dittoMode = mode;
+  localStorage.setItem(appearanceKey, JSON.stringify({ palette, mode }));
+  renderAppearance();
+}
 
 function notify(message) {
   const box = $('#notice');
@@ -152,10 +168,22 @@ $('#chat-form').addEventListener('submit', chat);
 $('#chat-cancel').addEventListener('click', () => window.ditto.cancelChat());
 $('#add-root').addEventListener('click', async () => { try { const roots = await window.ditto.chooseRoot(); if (roots) renderRoots(roots); } catch (error) { notify(error.message); } });
 $('#choose-workspace').addEventListener('click', async () => { try { const folder = await window.ditto.chooseWorkspace(); if (folder) $('#workspace-path').textContent = folder; } catch (error) { notify(error.message); } });
-$('#export-bundle').addEventListener('click', async () => { try { const file = await window.ditto.exportBundle(); notify(`Cloud-ready bundle saved locally: ${file}`); } catch (error) { notify(error.message); } });
+$('#export-bundle').addEventListener('click', async () => {
+  const button = $('#export-bundle');
+  button.disabled = true;
+  button.textContent = 'Preparing import files…';
+  try {
+    const result = await window.ditto.exportBundle();
+    notify(`${number(result.records)} records prepared in ${result.files.length} Ditto import files. Finder opened the folder.`);
+  } catch (error) { notify(error.message); }
+  finally { button.disabled = false; button.textContent = 'Prepare Ditto import files'; }
+});
 $('#link-start').addEventListener('click', startLink);
 $('#sign-out').addEventListener('click', async () => { try { await window.ditto.signOut(); await refresh(); notify('Signed out of Ditto.'); } catch (error) { notify(error.message); } });
 $('#pi-login').addEventListener('click', async () => { try { await window.ditto.piLogin(); notify('Pi sign-in opened in Terminal. Choose /login there.'); } catch (error) { notify(error.message); } });
+$('#palette-select').addEventListener('change', event => saveAppearance(event.target.value, document.documentElement.dataset.dittoMode));
+$('#mode-toggle').addEventListener('click', () => saveAppearance(document.documentElement.dataset.dittoTheme, document.documentElement.dataset.dittoMode === 'dark' ? 'light' : 'dark'));
 window.ditto.onProgress(message => { $('#scan-progress').textContent = message; });
 window.ditto.onScanFinished(() => { void refresh(); });
+renderAppearance();
 refresh().catch(error => notify(`Could not load Ditto: ${error.message}`));

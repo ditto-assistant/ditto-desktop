@@ -4,6 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const readline = require('node:readline');
+const yazl = require('yazl');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { DatabaseSync } = require('node:sqlite');
@@ -195,19 +196,42 @@ class MemoryStore {
   }
 
   search(query, limit = 12) {
-    const words = query.match(/[\p{L}\p{N}_-]{2,}/gu)?.slice(0, 12) || [];
+    const stopWords = new Set(['a', 'about', 'and', 'are', 'built', 'can', 'did', 'do', 'does',
+      'for', 'from', 'have', 'how', 'in', 'into', 'is', 'it', 'its', 'me', 'my', 'of', 'on',
+      'one', 'our', 'please', 'sentence', 'the', 'this', 'to', 'use', 'was', 'what',
+      'when', 'where', 'which', 'who', 'with', 'would', 'you', 'your']);
+    const words = [...new Set((query.toLowerCase().match(/[\p{L}\p{N}_-]{2,}/gu) || [])
+      .filter(word => !stopWords.has(word)))].slice(0, 12);
     if (!words.length) return [];
-    const match = words.map(word => `"${word.replaceAll('"', '')}"`).join(' OR ');
-    const candidates = this.db.prepare(`SELECT d.id,d.source,d.path,d.part,d.role,d.title,d.body,d.digest,
-      snippet(docs_fts,1,'','', ' … ', 35) AS excerpt,d.modified_at
+    const quoted = words.map(word => `"${word.replaceAll('"', '')}"`);
+    const candidateLimit = Math.min(600, Math.max(100, limit * 40));
+    const statement = this.db.prepare(`SELECT d.id,d.source,d.path,d.part,d.role,d.title,d.body,d.digest,
+      snippet(docs_fts,1,'','', ' … ', 35) AS excerpt,d.modified_at,
+      bm25(docs_fts,1,5) AS relevance
       FROM docs_fts JOIN docs d ON d.id=docs_fts.rowid WHERE docs_fts MATCH ?
-      ORDER BY rank LIMIT ?`).all(match, Math.min(500, Math.max(50, limit * 25)));
+      ORDER BY relevance LIMIT ?`);
+    const candidatesById = new Map();
+    const matches = [];
+    if (quoted.length >= 3) matches.push(quoted.slice(0, 3).join(' AND '));
+    if (quoted.length >= 2) matches.push(quoted.slice(0, 2).join(' AND '));
+    matches.push(quoted.join(' OR '));
+    for (const match of matches) {
+      for (const candidate of statement.all(match, candidateLimit)) candidatesById.set(candidate.id, candidate);
+      if (candidatesById.size >= candidateLimit) break;
+    }
+    const candidates = [...candidatesById.values()].map(candidate => {
+      const title = candidate.title.toLowerCase();
+      const body = candidate.body.toLowerCase();
+      const coverage = words.reduce((score, word) =>
+        score + (body.includes(word) ? 2 : 0) + (title.includes(word) ? 0.5 : 0), 0);
+      return { ...candidate, coverage };
+    }).sort((a, b) => b.coverage - a.coverage || a.relevance - b.relevance);
     const seen = new Set();
     const results = [];
     for (const candidate of candidates) {
       if (seen.has(candidate.digest)) continue;
       seen.add(candidate.digest);
-      const { digest: _digest, ...result } = candidate;
+      const { digest: _digest, coverage: _coverage, relevance: _relevance, ...result } = candidate;
       results.push(result);
       if (results.length >= limit) break;
     }
@@ -321,6 +345,68 @@ class MemoryStore {
     await new Promise((resolve, reject) => { out.on('error', reject); out.end(resolve); });
     await fsp.rename(temp, destination);
     return destination;
+  }
+
+  async exportDittoImport() {
+    const folder = path.join(this.dataDir, `ditto-import-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+    await fsp.mkdir(folder, { recursive: true, mode: 0o700 });
+    const files = [];
+    const seenCode = new Set();
+    const maxRecordsPerArchive = 15000;
+    let zip = null;
+    let output = null;
+    let finished = null;
+    let count = 0;
+    let rawBytes = 0;
+    let records = 0;
+    const startArchive = () => {
+      const archive = path.join(folder, `ditto-import-${String(files.length + 1).padStart(3, '0')}.zip`);
+      zip = new yazl.ZipFile();
+      output = fs.createWriteStream(archive, { mode: 0o600 });
+      finished = new Promise((resolve, reject) => {
+        output.on('finish', resolve);
+        output.on('error', reject);
+        zip.outputStream.on('error', reject);
+      });
+      zip.outputStream.pipe(output);
+      files.push(archive);
+      count = 0;
+      rawBytes = 0;
+    };
+    const finishArchive = async () => {
+      if (!zip) return;
+      zip.end();
+      await finished;
+      zip = null;
+    };
+    try {
+      for (const doc of this.db.prepare('SELECT source,path,part,role,title,body,modified_at,digest FROM docs ORDER BY source,path,part').iterate()) {
+        if (doc.source === 'code') {
+          if (seenCode.has(doc.digest)) continue;
+          seenCode.add(doc.digest);
+        }
+        const id = crypto.createHash('sha256').update(`${doc.source}\0${doc.path}\0${doc.part}`).digest('hex');
+        const title = doc.title.replace(/\s+/g, ' ').slice(0, 250);
+        const note = `# ${title}\n\nSource: ${doc.source}\nRole: ${doc.role || 'file'}\nOriginal path: ${doc.path}\nCaptured: ${doc.modified_at || 'unknown'}\n\n---\n\n${doc.body}\n`;
+        const data = Buffer.from(note);
+        if (!zip) startArchive();
+        if (count >= maxRecordsPerArchive || rawBytes + data.length > 100 * 1024 * 1024) {
+          await finishArchive(); startArchive();
+        }
+        const mtime = new Date(doc.modified_at || Date.now());
+        zip.addBuffer(data, `notes/${doc.source}/${id}.md`, {
+          mtime: Number.isNaN(mtime.getTime()) ? new Date() : mtime, mode: 0o600,
+        });
+        count++;
+        rawBytes += data.length;
+        records++;
+      }
+      await finishArchive();
+      return { folder, files, records };
+    } catch (error) {
+      if (output) output.destroy();
+      throw error;
+    }
   }
 }
 
