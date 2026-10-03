@@ -12,11 +12,30 @@ body { margin: 0; }
 .ditto-desktop-chat-group .v2-studio-recent small { display: block; opacity: .65; font-size: 10px; }
 body.ditto-inbox-open .v2-studio-panel,
 body.ditto-local-open .v2-shell-stage,
-body.ditto-inbox-open .v2-shell-stage { visibility: hidden; }
+body.ditto-inbox-open .v2-shell-stage,
+body.ditto-browser-open .v2-shell-stage { visibility: hidden; }
 .ditto-local-page { display: none; position: fixed; inset: 0 0 0 var(--ditto-desktop-sidebar-width); z-index: 2147483000; overflow: auto; background: #f7f8fa; color: #172238; font: 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
 body.ditto-local-from-chat .ditto-local-page { left: var(--ditto-desktop-rail-width); }
 body.ditto-local-from-chat .v2-studio-panel { visibility: hidden; }
 body.ditto-local-open .ditto-local-page { display: block; }
+.ditto-browser-page { display: none; position: fixed; inset: 0 0 0 var(--ditto-desktop-sidebar-width); z-index: 2147483000; background: var(--ditto-surface, #f7f8fa); color: var(--ditto-ink, #172238); font: 14px/1.5 "Ditto Brand Local", -apple-system, system-ui, sans-serif; flex-direction: column; padding: 18px 22px 16px; box-sizing: border-box; }
+body.ditto-browser-open .ditto-browser-page { display: flex; }
+.ditto-browser-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.ditto-browser-head h1 { font-family: inherit; font-size: 30px; font-weight: 730; letter-spacing: -.045em; line-height: 1.1; margin: 3px 0; }
+.ditto-browser-head p { margin: 0; color: #718199; }
+.ditto-browser-actions, .ditto-browser-address, .ditto-browser-inspect { display: flex; gap: 8px; align-items: center; }
+.ditto-browser-page button { font: inherit; cursor: pointer; border: 1px solid #d6e0ed; border-radius: 9px; color: #35506f; background: #f9fbfd; padding: 9px 13px; }
+.ditto-browser-page button.primary { color: white; background: #2b75d0; border-color: #2b75d0; }
+.ditto-browser-page button:disabled { opacity: .5; }
+.ditto-browser-address { margin-top: 15px; }
+.ditto-browser-address input { flex: 1; min-width: 0; border: 1px solid #d5e0ed; border-radius: 9px; padding: 10px 12px; background: var(--ditto-raised, #fff); color: var(--ditto-ink, #172238); font: inherit; }
+.ditto-browser-viewport { flex: 1; min-height: 180px; border: 1px solid #dfe5ee; border-radius: 12px; background: #fff; overflow: hidden; }
+.ditto-browser-inspect { margin-top: 9px; color: #718199; font-size: 12px; overflow: hidden; }
+.ditto-browser-inspect span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+html.dark .ditto-browser-page button, html[data-ditto-mode="dark"] .ditto-browser-page button { background: #1c2b3b; border-color: #344960; color: #c9dcf3; }
+html.dark .ditto-browser-page button.primary, html[data-ditto-mode="dark"] .ditto-browser-page button.primary { background: #2b75d0; border-color: #2b75d0; color: #fff; }
+html.dark .ditto-browser-address input, html[data-ditto-mode="dark"] .ditto-browser-address input { background: #101924; color: #eaf0f8; border-color: #344960; }
+html.dark .ditto-browser-viewport, html[data-ditto-mode="dark"] .ditto-browser-viewport { border-color: #344960; }
 .ditto-inbox-page { display: none; position: fixed; inset: 0 0 0 var(--ditto-desktop-rail-width); z-index: 2147483000; background: #f7f8fa; color: #172238; font: 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
 body.ditto-inbox-open .ditto-inbox-page { display: grid; grid-template-columns: 264px minmax(0,1fr); }
 .ditto-inbox-sidebar { overflow: auto; border-right: 1px solid #dfe5ee; background: #fff; padding: 22px 16px; }
@@ -73,6 +92,8 @@ body.ditto-inbox-open .ditto-inbox-page { display: grid; grid-template-columns: 
 .ditto-local-page button.primary:hover { background: #1d61b6; }
 .ditto-local-page input, .ditto-local-page textarea, .ditto-local-page select { box-sizing: border-box; width: 100%; border: 1px solid #d5e0ed; border-radius: 10px; background: #fff; color: #172238; padding: 11px 12px; font: inherit; }
 .ditto-local-page select { width: auto; min-width: 230px; }
+.ditto-computer-control label { display: inline-flex; align-items: center; gap: 8px; color: #536b88; font-size: 12px; }
+.ditto-local-page .ditto-computer-control input[type="checkbox"] { width: auto; margin: 0; accent-color: #2b75d0; }
 .ditto-local-page textarea { resize: vertical; min-height: 96px; }
 .ditto-local-form { display: flex; gap: 9px; margin-top: 14px; }
 .ditto-local-form input { flex: 1; }

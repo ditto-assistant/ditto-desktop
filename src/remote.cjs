@@ -49,11 +49,14 @@ class RemoteHost {
 
   status() { return this.state; }
 
-  start(provider, { key, cwd }) {
+  start(provider, { key, cwd, endpoint }) {
     if (!['codex', 'claude', 'grok'].includes(provider)) throw new Error('Choose Codex, Claude Code, or Grok for Remote Control.');
     if (!cliAvailable()) throw new Error('Ditto Remote Control is not bundled in this app.');
     if (this.child) throw new Error('Remote Control is already running.');
-    const child = spawn(process.execPath, [CLI_SCRIPT, provider, '--headless'], {
+    if (endpoint !== undefined && (typeof endpoint !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(endpoint))) {
+      throw new Error('Choose a Ditto endpoint.');
+    }
+    const child = spawn(process.execPath, [CLI_SCRIPT, provider, '--headless', ...(endpoint ? ['--endpoint', endpoint] : [])], {
       cwd, env: cliEnvironment(key, this.stateDir), stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.child = child;

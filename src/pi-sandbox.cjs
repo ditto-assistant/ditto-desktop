@@ -18,7 +18,7 @@ function sandboxProfile(workspace, agentDir, tempDir) {
 (allow network*)`;
 }
 
-function spawnSandboxedPi(executable, script, args, { workspace, agentDir, dataDir }) {
+function spawnSandboxedPi(executable, script, args, { workspace, agentDir, dataDir, extraEnv = {} }) {
   if (process.platform !== 'darwin' || !fs.existsSync(SANDBOX)) {
     throw new Error('The local Pi filesystem sandbox is unavailable on this Mac.');
   }
@@ -28,7 +28,7 @@ function spawnSandboxedPi(executable, script, args, { workspace, agentDir, dataD
   const child = spawn(SANDBOX, ['-p', profile, executable, script, ...args], {
     cwd: workspace,
     env: {
-      ...process.env, ELECTRON_RUN_AS_NODE: '1', PI_CODING_AGENT_DIR: agentDir,
+      ...process.env, ELECTRON_RUN_AS_NODE: '1', PI_CODING_AGENT_DIR: agentDir, ...extraEnv,
       TMPDIR: tempDir, TMP: tempDir, TEMP: tempDir,
       XDG_CACHE_HOME: tempDir, npm_config_cache: tempDir,
     },

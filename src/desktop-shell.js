@@ -12,7 +12,7 @@
   let cloudCodeMode = false;
   let defaultCodeOpenPending = false;
   function markActive() {
-    const target = activePanel === 'Inbox' ? 'Chats' : activePanel === 'Local' ? 'Code'
+    const target = activePanel === 'Inbox' ? 'Chats' : ['Local', 'Browser'].includes(activePanel) ? 'Code'
       : location.pathname.startsWith('/code') ? 'Code' : location.pathname === '/' ? 'Chats' : null;
     if (!target) return;
     for (const button of document.querySelectorAll('nav.v2-studio-rail a.v2-sidebar-nav-button')) {
@@ -22,7 +22,7 @@
       else button.removeAttribute('aria-current');
     }
     for (const button of document.querySelectorAll('[data-ditto-code-mode]')) {
-      button.classList.toggle('is-selected', button.dataset.dittoCodeMode === (activePanel === 'Local' ? 'local' : 'cloud'));
+      button.classList.toggle('is-selected', button.dataset.dittoCodeMode === (activePanel === 'Local' ? 'local' : activePanel === 'Browser' ? 'browser' : 'cloud'));
     }
   }
   function openPanel(name) {
@@ -30,16 +30,21 @@
     document.body.classList.remove('ditto-local-from-chat');
     document.body.classList.toggle('ditto-local-open', name === 'Local');
     document.body.classList.toggle('ditto-inbox-open', name === 'Inbox');
+    document.body.classList.toggle('ditto-browser-open', name === 'Browser');
+    if (name !== 'Browser') void window.ditto.browserHide();
     markActive();
     if (name === 'Local') void refresh();
-    else void selectService(selectedService);
+    else if (name === 'Inbox') void selectService(selectedService);
+    else if (name === 'Browser') void showBrowser();
   }
   function mountSidebars() {
     if ((activePanel === 'Local' && location.pathname !== '/code' &&
       !(location.pathname === '/' && document.body.classList.contains('ditto-local-from-chat'))) ||
-      (activePanel === 'Inbox' && location.pathname !== '/')) {
+      (activePanel === 'Inbox' && location.pathname !== '/') ||
+      (activePanel === 'Browser' && location.pathname !== '/code')) {
       activePanel = null;
-      document.body.classList.remove('ditto-local-open', 'ditto-inbox-open', 'ditto-local-from-chat');
+      document.body.classList.remove('ditto-local-open', 'ditto-inbox-open', 'ditto-browser-open', 'ditto-local-from-chat');
+      void window.ditto.browserHide();
     }
     const rail = document.querySelector('nav.v2-studio-rail');
     if (!rail) return;
@@ -95,12 +100,13 @@
     for (const [mode, title, description, glyph] of [
       ['local', 'Local · Pi', 'Codex and Claude available', '⌂'],
       ['cloud', 'Cloud · Ditto', 'Ditto cloud tasks and projects', '☁'],
+      ['browser', 'Browser · Local', 'Shared with Ditto Code', '◎'],
     ]) {
       const row = element('div', 'v2-studio-recent-row');
       const button = element('button', 'v2-studio-recent ditto-desktop-code-mode');
       button.type = 'button';
       button.dataset.dittoCodeMode = mode;
-      button.setAttribute('aria-label', mode === 'local' ? 'Run Ditto Code locally' : 'Run Ditto Code in the cloud');
+      button.setAttribute('aria-label', mode === 'local' ? 'Run Ditto Code locally' : mode === 'cloud' ? 'Run Ditto Code in the cloud' : 'Open local browser');
       button.append(element('span', 'ditto-desktop-local-mark', glyph));
       const copy = element('span');
       copy.append(element('strong', '', title), element('small', '', description));
@@ -111,10 +117,14 @@
           $('#dl-provider').value = 'pi';
           $('#dl-provider').dispatchEvent(new Event('change'));
           openPanel('Local');
+        } else if (mode === 'browser') {
+          cloudCodeMode = false;
+          openPanel('Browser');
         } else {
           cloudCodeMode = true;
           activePanel = null;
           document.body.classList.remove('ditto-local-open', 'ditto-local-from-chat');
+          void window.ditto.browserHide();
           markActive();
         }
       });
@@ -142,7 +152,8 @@
     if (railLink) {
       cloudCodeMode = false;
       activePanel = null;
-      document.body.classList.remove('ditto-local-open', 'ditto-inbox-open', 'ditto-local-from-chat');
+      document.body.classList.remove('ditto-local-open', 'ditto-inbox-open', 'ditto-browser-open', 'ditto-local-from-chat');
+      void window.ditto.browserHide();
       markActive();
       return;
     }
@@ -179,6 +190,7 @@
         <div class="ditto-local-row" style="margin-top:12px"><label for="dl-provider" class="ditto-local-muted">Coding engine</label><select id="dl-provider" aria-label="Coding engine">
           <option value="pi">Ditto Code · Pi (default)</option><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="cursor">Cursor Agent</option><option value="grok">Grok</option>
         </select><button id="dl-provider-login" type="button" hidden>Sign in to provider</button></div>
+        <div class="ditto-local-row ditto-computer-control" style="margin-top:12px"><label><input id="dl-computer-enable" type="checkbox"> Allow Mac computer control for the next Pi task</label><span id="dl-computer-status" class="ditto-local-muted"></span></div>
         <form id="dl-chat-form" style="margin-top:13px"><textarea id="dl-prompt" placeholder="Ask Pi to use your local memory and work on a project…" aria-label="Ask Pi"></textarea>
           <div class="ditto-local-row" style="margin-top:9px"><button id="dl-run" class="primary">Run locally with Pi</button><button id="dl-cancel" type="button" hidden>Stop</button><span id="dl-context" class="ditto-local-muted"></span></div></form>
         <div id="dl-output" class="ditto-local-output" aria-live="polite"></div></section>
@@ -186,11 +198,13 @@
       <section class="ditto-local-card"><h2>Remote Control</h2><p>Keep a coding session on this Mac available from your signed-in Ditto apps.</p>
         <div class="ditto-local-row" style="margin-top:12px"><label for="dl-remote-provider" class="ditto-local-muted">Host engine</label>
           <select id="dl-remote-provider" aria-label="Remote Control engine"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="grok">Grok</option></select>
+          <label for="dl-endpoint" class="ditto-local-muted">Endpoint</label><select id="dl-endpoint" aria-label="Ditto endpoint"><option value="">Loading…</option></select>
           <button id="dl-remote-start" class="primary">Start Remote Control</button><button id="dl-remote-stop" hidden>Stop</button></div>
         <div id="dl-remote-status" class="ditto-local-status" role="status">Checking this Mac…</div>
         <div class="ditto-local-row" style="margin-top:10px"><button id="dl-remote-refresh">Refresh devices</button></div>
         <div id="dl-remote-devices" class="ditto-local-list"></div></section>
       <section class="ditto-local-card"><h2>Ditto Teleport</h2><p>Preview this project, save a capsule, or continue it in Ditto Cloud. Upload happens only when you choose a push action.</p>
+        <div class="ditto-local-row" style="margin-top:12px"><label for="dl-cloud-endpoint" class="ditto-local-muted">Cloud endpoint</label><select id="dl-cloud-endpoint" aria-label="Personal Ditto cloud endpoint"><option value="">Loading…</option></select><span class="ditto-local-muted">Personal Ditto endpoint</span></div>
         <div class="ditto-local-row" style="margin-top:12px"><button id="dl-teleport-plan">Preview project</button>
           <button id="dl-teleport-push" class="primary">Save capsule</button><button id="dl-teleport-cloud">Continue in cloud</button>
           <button id="dl-teleport-list">Refresh capsules</button></div>
@@ -200,6 +214,57 @@
   executionCard.classList.add('ditto-local-execution-card');
   local.querySelector('.ditto-local-hero').after(executionCard, local.querySelector('#dl-runs').closest('.ditto-local-card'));
   document.body.append(local);
+
+  const browserPage = element('section', 'ditto-browser-page');
+  browserPage.setAttribute('aria-label', 'Ditto local browser');
+  browserPage.innerHTML = `<div class="ditto-browser-head"><div><div class="ditto-local-eyebrow">On this Mac</div>
+      <h1>Browser</h1><p>Browse with Ditto Code. The page stays in this desktop app.</p></div>
+      <div class="ditto-browser-actions"><button id="db-back" title="Back">←</button><button id="db-forward" title="Forward">→</button><button id="db-reload" title="Reload">↻</button></div></div>
+    <form id="db-address-form" class="ditto-browser-address"><input id="db-address" type="url" placeholder="https://example.com" aria-label="Web address"><button class="primary">Go</button></form>
+    <div id="db-status" class="ditto-local-status" role="status">Enter a web address to open a local browser tab.</div>
+    <div id="db-viewport" class="ditto-browser-viewport"></div>
+    <div class="ditto-browser-inspect"><button id="db-inspect">Inspect page</button><span id="db-inspect-output"></span></div>`;
+  document.body.append(browserPage);
+  const browserBounds = () => {
+    const rect = browserPage.querySelector('#db-viewport').getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  };
+  async function showBrowser() {
+    try {
+      const state = await window.ditto.browserStatus();
+      if (state.url) await window.ditto.browserShow(browserBounds());
+      browserState(state);
+    } catch (error) { browserPage.querySelector('#db-status').textContent = error.message; }
+  }
+  function browserState(state) {
+    if (state.url && document.activeElement !== browserPage.querySelector('#db-address')) browserPage.querySelector('#db-address').value = state.url;
+    browserPage.querySelector('#db-back').disabled = !state.canGoBack;
+    browserPage.querySelector('#db-forward').disabled = !state.canGoForward;
+    if (state.url) browserPage.querySelector('#db-status').textContent = state.title || state.url;
+  }
+  new ResizeObserver(() => { if (activePanel === 'Browser') void showBrowser(); }).observe(browserPage.querySelector('#db-viewport'));
+  browserPage.querySelector('#db-address-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    try {
+      const state = await window.ditto.browserNavigate(browserPage.querySelector('#db-address').value);
+      await window.ditto.browserShow(browserBounds());
+      browserState(state);
+    } catch (error) { browserPage.querySelector('#db-status').textContent = error.message; }
+  });
+  for (const [id, action] of [['db-back', 'browserBack'], ['db-forward', 'browserForward'], ['db-reload', 'browserReload']]) {
+    browserPage.querySelector(`#${id}`).addEventListener('click', async () => {
+      try { browserState(await window.ditto[action]()); }
+      catch (error) { browserPage.querySelector('#db-status').textContent = error.message; }
+    });
+  }
+  browserPage.querySelector('#db-inspect').addEventListener('click', async () => {
+    try {
+      const snapshot = await window.ditto.browserSnapshot();
+      browserPage.querySelector('#db-inspect-output').textContent = `${number(snapshot.controls.length)} controls · ${snapshot.text.slice(0, 240)}`;
+    } catch (error) { browserPage.querySelector('#db-inspect-output').textContent = error.message; }
+  });
+  window.ditto.onBrowserState(browserState);
+  window.ditto.onBrowserOpen(() => { if (location.pathname === '/code') openPanel('Browser'); });
 
   let running = false;
   let workspaceReady = false;
@@ -291,6 +356,7 @@
   });
   $('#dl-provider').addEventListener('change', () => {
     const provider = $('#dl-provider').value;
+    $('#dl-computer-enable').disabled = provider !== 'pi';
     $('#dl-provider-login').hidden = provider === 'pi';
     if (provider !== 'pi') {
       const label = $('#dl-provider').selectedOptions[0]?.textContent || provider;
@@ -329,17 +395,65 @@
     finally { running = false; $('#dl-run').disabled = false; $('#dl-cancel').hidden = true; void refresh(); }
   });
   $('#dl-cancel').addEventListener('click', () => { void window.ditto.cancelChat(); });
+  void window.ditto.computerStatus().then(status => {
+    show('#dl-computer-status', status.locked ? 'Unlock this Mac to use computer control.' :
+      status.trusted ? 'Accessibility is ready.' : 'Grant Ditto Desktop Accessibility in macOS Settings.');
+  }).catch(error => show('#dl-computer-status', error.message));
+  $('#dl-computer-enable').addEventListener('change', async () => {
+    try { await window.ditto.computerEnable($('#dl-computer-enable').checked); }
+    catch (error) { $('#dl-computer-enable').checked = false; show('#dl-computer-status', error.message); }
+  });
+  window.ditto.onComputerEnabled(enabled => { $('#dl-computer-enable').checked = enabled; });
   const remoteStatus = status => {
     show('#dl-remote-status', status.detail || (status.running ? 'Connected to Ditto.' : 'Remote Control is off.'));
     $('#dl-remote-start').hidden = Boolean(status.running);
     $('#dl-remote-stop').hidden = !status.running;
     $('#dl-remote-provider').disabled = Boolean(status.running);
   };
+  async function loadEndpoints() {
+    const select = $('#dl-endpoint');
+    const cloudSelect = $('#dl-cloud-endpoint');
+    try {
+      const endpoints = (await window.ditto.remoteEndpoints())
+        .filter(endpoint => endpoint.status === 'active' && endpoint.access?.use !== false)
+        .sort((left, right) => Number(Boolean(right.codeMode)) - Number(Boolean(left.codeMode)));
+      select.replaceChildren();
+      const placeholder = document.createElement('option');
+      placeholder.value = ''; placeholder.textContent = 'Choose endpoint'; select.append(placeholder);
+      for (const endpoint of endpoints) {
+        const option = document.createElement('option');
+        option.value = endpoint.slug || endpoint.id;
+        option.textContent = `${endpoint.name || endpoint.slug || endpoint.id}${endpoint.codeMode ? ' · Code' : ''}`;
+        select.append(option);
+        if (endpoint.isDefault || endpoint.default) select.value = option.value;
+      }
+      if (!endpoints.length) {
+        placeholder.textContent = 'No Ditto endpoint';
+        show('#dl-remote-status', 'Create a Ditto inference endpoint in Settings → Developer to use Remote Control or cloud execution.');
+      }
+      cloudSelect.replaceChildren();
+      const personal = endpoints.filter(endpoint => !endpoint.companyId);
+      for (const endpoint of personal) {
+        const option = document.createElement('option');
+        option.value = endpoint.slug || endpoint.id;
+        option.textContent = endpoint.name || endpoint.slug || endpoint.id;
+        cloudSelect.append(option);
+      }
+      if (!personal.length) {
+        const option = document.createElement('option');
+        option.value = ''; option.textContent = 'No personal endpoint'; cloudSelect.append(option);
+      }
+    } catch (error) { select.replaceChildren(); cloudSelect.replaceChildren(); show('#dl-remote-status', error.message); }
+  }
+  void loadEndpoints();
   void window.ditto.remoteStatus().then(remoteStatus).catch(error => show('#dl-remote-status', error.message));
   window.ditto.onRemoteStatus(remoteStatus);
   $('#dl-remote-start').addEventListener('click', async () => {
     const button = $('#dl-remote-start'); button.disabled = true;
-    try { remoteStatus(await window.ditto.remoteStart($('#dl-remote-provider').value)); }
+    try {
+      if (!$('#dl-endpoint').value) throw new Error('Choose a Ditto endpoint for Remote Control.');
+      remoteStatus(await window.ditto.remoteStart($('#dl-remote-provider').value, $('#dl-endpoint').value));
+    }
     catch (error) { show('#dl-remote-status', error.message); }
     finally { button.disabled = false; }
   });
@@ -376,8 +490,9 @@
     teleportStatus('Preview complete. Nothing was uploaded.');
   }));
   const push = (button, cloud) => teleportBusy(button, async () => {
+    if (cloud && !$('#dl-cloud-endpoint').value) throw new Error('Choose a personal Ditto endpoint before continuing in cloud.');
     teleportStatus(cloud ? 'Sending this project to Ditto Cloud…' : 'Saving this project as a Ditto capsule…');
-    const result = await window.ditto.teleportPush(cloud);
+    const result = await window.ditto.teleportPush(cloud, cloud ? $('#dl-cloud-endpoint').value : undefined);
     teleportStatus(cloud ? 'Cloud session started. Find it in Code.' : `Capsule saved: ${result.name || result.capsuleId || 'project'}.`);
     void listCapsules();
   });
@@ -400,6 +515,7 @@
     if (event.type === 'start') show('#dl-context', `${event.memoryCount} local sources`);
     if (event.type === 'text') { const box = $('#dl-output'); box.textContent += event.text; box.scrollTop = box.scrollHeight; }
     if (event.type === 'tool') show('#dl-context', `Pi used ${event.name}`);
+    if (event.type === 'tool-error') show('#dl-context', `${event.name}: ${event.message}`);
     if (event.type === 'error') show('#dl-context', event.message);
     if (event.type === 'done') show('#dl-context', 'Complete');
   });
