@@ -89,3 +89,18 @@ test('indexes Git code and both trajectory formats, then exports Ditto import ZI
   assert.ok(entries.every(entry => /^notes\/(code|codex|cursor)\/[a-f0-9]{64}\.md$/.test(entry)));
   assert.equal(fs.statSync(dittoImport.files[0]).mode & 0o777, 0o600);
 });
+
+test('Pi conversations retain their engine and workspace separately from other executions', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'ditto-session-test-'));
+  const store = new MemoryStore(root);
+  try {
+    const id = store.startPiRun('/tmp/pi-project', 'Pi turn', 'pi', 'local-session');
+    store.finishPiRun(id, 'done', 'Pi answer');
+    const other = store.startPiRun('/tmp/other-project', 'Codex turn', 'codex');
+    store.finishPiRun(other, 'done', 'Codex answer');
+    assert.equal(store.piSession('local-session').workspace, '/tmp/pi-project');
+    assert.equal(store.piSession('local-session').provider, 'pi');
+    assert.equal(store.piSession('unknown-session'), undefined);
+    assert.equal(store.recentPiRuns()[0].session_id, null);
+  } finally { store.close(); await fsp.rm(root, { recursive: true, force: true }); }
+});

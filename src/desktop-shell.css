@@ -155,3 +155,36 @@ html[data-ditto-mode="dark"] .ditto-local-card, html[data-ditto-mode="dark"] .di
 .ditto-inbox-qr[hidden], .ditto-inbox-login[hidden], .ditto-inbox-page button[hidden] { display: none; }
 #di-refresh { margin: 8px 0; }
 #di-identity { font-size: 12px; }
+/* Keep the exact web composer mounted for either execution location. */
+body.ditto-local-open:not(.ditto-desktop-settings) .v2-shell-stage { visibility: visible; }
+body.ditto-local-open .ditto-local-page { display: none; }
+body.ditto-desktop-settings.ditto-local-open .ditto-local-page { display: block; }
+.ditto-desktop-code-chat { display: none; }
+body.ditto-local-open:not(.ditto-desktop-settings) .v2-code-surface-main > :not(.ditto-desktop-code-chat) { display: none; }
+body.ditto-local-open:not(.ditto-desktop-settings) .ditto-desktop-code-chat { display: flex; flex-direction: column; min-height: 100%; max-width: 840px; margin: 0 auto; padding: 28px 24px 18px; box-sizing: border-box; }
+.ditto-desktop-code-chat .v2-code-start-header { margin: auto 0; text-align: center; }
+.ditto-desktop-code-chat.has-turns .v2-code-start-header { display: none; }
+#dl-transcript { display: flex; flex-direction: column; gap: 24px; }
+.ditto-desktop-code-question { align-self: flex-end; max-width: 85%; padding: 12px 18px; border-radius: 20px; background: var(--ditto-raised); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ditto-desktop-code-response { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; border: 0; padding: 0; background: transparent; color: var(--ditto-ink); min-height: 0; font: inherit; max-height: none; }
+.ditto-desktop-code-response:empty { display: none; }
+#dl-chat-status { font-size: 12px; color: var(--ditto-muted); margin-top: 18px; }
+.ditto-desktop-local-actions { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; }
+.ditto-desktop-local-actions label { font-size: 11px; color: var(--ditto-muted); }
+.ditto-desktop-local-actions select { font: inherit; width: 100%; border: 1px solid color-mix(in oklch, var(--ditto-ink) 15%, transparent); background: var(--ditto-raised); color: var(--ditto-ink); border-radius: 9px; padding: 8px; }
+.ditto-desktop-workspace { display: none; }
+body.ditto-local-open .ditto-desktop-workspace { display: inline-flex; }
+body.ditto-local-open .v2-code-workspace-chip { display: none; }
+body.ditto-desktop-settings #dl-chat-form { display: none; }
+.ditto-desktop-workspace { display: none !important; }
+body.ditto-local-open .ditto-desktop-workspace { display: inline-flex !important; }
+body.ditto-local-open .v2-code-panel > .v2-code-panel-toolbar,
+body.ditto-local-open .v2-code-panel > .v2-code-repo-section,
+body.ditto-local-open .v2-code-panel > .v2-studio-section:not(.ditto-desktop-code-group),
+body.ditto-local-open .v2-code-panel > .v2-studio-sidebar-status { display: none; }
+.ditto-desktop-local-history { display: grid; gap: 3px; padding: 10px; }
+.ditto-desktop-local-history button { display: block; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ditto-desktop-local-actions > [hidden] { display: none; }
+/* Sources remain in the existing web sidebar while local conversations are open. */
+body.ditto-inbox-open .v2-studio-panel { visibility: visible; }
+.ditto-inbox-page { left: var(--ditto-desktop-sidebar-width); }

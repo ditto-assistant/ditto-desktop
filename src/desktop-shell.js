@@ -1,6 +1,7 @@
 (() => {
   if (!window.ditto) return;
-  const $ = selector => document.querySelector(selector);
+  const movableNodes = new Map();
+  const $ = selector => document.querySelector(selector) || movableNodes.get(selector);
   const element = (tag, className, text) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -27,6 +28,7 @@
   }
   function openPanel(name) {
     activePanel = name;
+    desktopMode(name === 'Local');
     document.body.classList.remove('ditto-local-from-chat');
     document.body.classList.toggle('ditto-local-open', name === 'Local');
     document.body.classList.toggle('ditto-inbox-open', name === 'Inbox');
@@ -43,7 +45,9 @@
       (activePanel === 'Inbox' && location.pathname !== '/') ||
       (activePanel === 'Browser' && location.pathname !== '/code')) {
       activePanel = null;
+      desktopMode(false);
       document.body.classList.remove('ditto-local-open', 'ditto-inbox-open', 'ditto-browser-open', 'ditto-local-from-chat');
+      desktopMode(false);
       void window.ditto.browserHide();
     }
     const rail = document.querySelector('nav.v2-studio-rail');
@@ -56,6 +60,7 @@
     markActive();
     mountChatSources();
     mountCodeSource();
+    mountLocalCode();
     if (location.pathname === '/code' && !activePanel && !cloudCodeMode && !defaultCodeOpenPending) {
       defaultCodeOpenPending = true;
       setTimeout(() => {
@@ -98,7 +103,7 @@
     heading.append(element('span', 'ditto-desktop-code-heading', 'Execution'));
     group.append(heading);
     for (const [mode, title, description, glyph] of [
-      ['local', 'Local · Pi', 'Codex and Claude available', '⌂'],
+      ['local', 'Local · Ditto Code', 'Pi agent on this Mac', '⌂'],
       ['cloud', 'Cloud · Ditto', 'Ditto cloud tasks and projects', '☁'],
       ['browser', 'Browser · Local', 'Shared with Ditto Code', '◎'],
     ]) {
@@ -123,7 +128,8 @@
         } else {
           cloudCodeMode = true;
           activePanel = null;
-          document.body.classList.remove('ditto-local-open', 'ditto-local-from-chat');
+          desktopMode(false);
+          document.body.classList.remove('ditto-local-open', 'ditto-local-from-chat', 'ditto-browser-open', 'ditto-desktop-settings');
           void window.ditto.browserHide();
           markActive();
         }
@@ -152,6 +158,7 @@
     if (railLink) {
       cloudCodeMode = false;
       activePanel = null;
+      desktopMode(false);
       document.body.classList.remove('ditto-local-open', 'ditto-inbox-open', 'ditto-browser-open', 'ditto-local-from-chat');
       void window.ditto.browserHide();
       markActive();
@@ -161,18 +168,19 @@
     if (cloudCode && !cloudCode.closest('.ditto-desktop-code-group') && activePanel === 'Local') {
       cloudCodeMode = true;
       activePanel = null;
+      desktopMode(false);
       document.body.classList.remove('ditto-local-open', 'ditto-local-from-chat');
       markActive();
     }
   }, true);
 
   const local = element('main', 'ditto-local-page');
-  local.setAttribute('aria-label', 'Local memory and Pi');
+  local.setAttribute('aria-label', 'Desktop settings');
   local.innerHTML = `
     <div class="ditto-local-inner">
       <div class="ditto-local-hero"><div class="ditto-local-eyebrow">On this Mac</div>
-        <h1>Ditto Code</h1>
-        <p>Pi runs coding tasks locally on this Mac, grounded in your private code and agent memory. Choose another engine only when you want to dispatch elsewhere.</p></div>
+        <h1>Desktop settings</h1>
+        <p>Local memory, permissions, connected devices, and Teleport.</p><button id="dl-back-chat" type="button">Back to Ditto Code</button></div>
       <div class="ditto-local-grid">
         <div class="ditto-local-stat"><strong id="dl-code">0</strong><span>Code chunks</span></div>
         <div class="ditto-local-stat"><strong id="dl-codex">0</strong><span>Codex messages</span></div>
@@ -214,6 +222,7 @@
   executionCard.classList.add('ditto-local-execution-card');
   local.querySelector('.ditto-local-hero').after(executionCard, local.querySelector('#dl-runs').closest('.ditto-local-card'));
   document.body.append(local);
+  for (const id of ['dl-provider', 'dl-cancel']) movableNodes.set(`#${id}`, $(`#${id}`));
 
   const browserPage = element('section', 'ditto-browser-page');
   browserPage.setAttribute('aria-label', 'Ditto local browser');
@@ -268,6 +277,83 @@
 
   let running = false;
   let workspaceReady = false;
+  let localSessionId = crypto.randomUUID();
+  let localTurns = [];
+  let localWorkspace = '';
+  const localChat = element('div', 'ditto-desktop-code-chat');
+  localChat.setAttribute('aria-label', 'Local Ditto Code conversation');
+  localChat.innerHTML = '<header class="v2-code-start-header"><h1>What should Ditto Code do?</h1><p>Describe the task. Ditto Code uses Pi and your private memory to work on this Mac.</p></header><div id="dl-transcript" aria-live="polite"></div><div id="dl-chat-status" role="status"></div>';
+  const sharedOutput = $('#dl-output');
+  sharedOutput.classList.add('ditto-desktop-code-response');
+  localChat.querySelector('#dl-transcript').append(sharedOutput);
+  function desktopMode(localMode, prompt) {
+    document.body.classList.remove('ditto-desktop-settings');
+    window.dispatchEvent(new CustomEvent('ditto-desktop-execution-mode', { detail: { local: localMode, ...(prompt === undefined ? {} : { prompt }) } }));
+  }
+  function mountLocalCode() {
+    const main = document.querySelector('.v2-code-surface-main');
+    if (main && !main.contains(localChat)) main.append(localChat);
+    const context = document.querySelector('.v2-composer-context-panel');
+    if (main && context && !context.querySelector('.ditto-desktop-workspace')) {
+      const button = element('button', 'v2-composer-context-chip ditto-desktop-workspace', localWorkspace ? localWorkspace.split('/').at(-1) : 'Choose local folder');
+      button.type = 'button'; button.setAttribute('aria-label', 'Choose local working folder');
+      button.addEventListener('click', () => { $('#dl-choose-workspace').click(); });
+      context.append(button);
+    }
+    const group = document.querySelector('.ditto-desktop-code-group');
+    if (group && !group.querySelector('.ditto-desktop-local-actions')) {
+      const actions = element('div', 'ditto-desktop-local-actions');
+      const label = element('label', '', 'Local engine'); label.htmlFor = 'dl-provider';
+      actions.append(label, $('#dl-provider'));
+      const fresh = element('button', 'v2-studio-create', 'New local task'); fresh.type = 'button';
+      fresh.addEventListener('click', () => { if (!running) { newLocalTask(); cloudCodeMode = false; openPanel('Local'); } });
+      const settings = element('button', 'v2-studio-create', 'Desktop settings'); settings.type = 'button';
+      settings.addEventListener('click', () => { openPanel('Local'); document.body.classList.add('ditto-desktop-settings'); });
+      actions.append(fresh, settings, $('#dl-cancel')); group.append(actions);
+      const history = element('div', 'ditto-desktop-local-history'); history.setAttribute('aria-label', 'Local tasks'); group.append(history);
+    }
+    const status = localChat.querySelector('#dl-chat-status');
+    if (status.textContent !== $('#dl-context').textContent) status.textContent = $('#dl-context').textContent;
+  }
+  function newLocalTask() {
+    localSessionId = crypto.randomUUID(); localTurns = [];
+    localChat.querySelector('#dl-transcript').replaceChildren(sharedOutput);
+    sharedOutput.textContent = '';
+    localChat.classList.remove('has-turns');
+    desktopMode(true, '');
+  }
+  function addLocalTurn(prompt, provider) {
+    const transcript = localChat.querySelector('#dl-transcript');
+    if (sharedOutput.textContent) transcript.append(element('div', 'ditto-desktop-code-response', sharedOutput.textContent));
+    const question = element('article', 'ditto-desktop-code-question', prompt);
+    question.setAttribute('aria-label', 'Your task');
+    transcript.append(question, sharedOutput); sharedOutput.textContent = '';
+    localChat.classList.add('has-turns');
+    localTurns.push({ prompt, provider });
+  }
+  async function runLocalTask(prompt) {
+    const provider = $('#dl-provider').value;
+    running = true; $('#dl-provider').disabled = true; $('#dl-run').disabled = true; $('#dl-cancel').hidden = false;
+    addLocalTurn(prompt, provider);
+    show('#dl-context', 'Working on this Mac…'); mountLocalCode();
+    try {
+      if (provider === 'pi') await window.ditto.chat(prompt, localSessionId);
+      else await window.ditto.runProvider(provider, prompt);
+    } catch (error) { show('#dl-context', error.message); }
+    finally { running = false; $('#dl-provider').disabled = false; $('#dl-run').disabled = false; $('#dl-cancel').hidden = true; mountLocalCode(); void refresh(); }
+  }
+  window.dittoDesktopStartCode = async input => {
+    if (activePanel !== 'Local') return null;
+    if (running) return { status: 'blocked', reason: 'A local task is still running. Stop it or wait for it to finish.' };
+    if (!workspaceReady) {
+      const folder = await window.ditto.chooseWorkspace();
+      if (!folder) return { status: 'blocked', reason: 'Choose a local project folder first.' };
+      workspaceReady = true; localWorkspace = folder; show('#dl-workspace', folder);
+    }
+    void runLocalTask(input.prompt);
+    return { status: 'started', jobId: localSessionId };
+  };
+  $('#dl-back-chat').addEventListener('click', () => { document.body.classList.remove('ditto-desktop-settings'); });
   const show = (target, message) => { $(target).textContent = message; };
   const item = (title, subtitle, body) => {
     const card = element('div', 'ditto-local-item');
@@ -302,7 +388,9 @@
         if (remoteOption) remoteOption.disabled = !provider.available;
       }
       workspaceReady = Boolean(status.workspace);
+      localWorkspace = status.workspace || '';
       show('#dl-workspace', status.workspace || 'Choose a project folder');
+      for (const button of document.querySelectorAll('.ditto-desktop-workspace')) button.textContent = status.workspace ? status.workspace.split('/').at(-1) : 'Choose local folder';
       roots(status.roots);
       const list = $('#dl-runs');
       list.replaceChildren();
@@ -310,6 +398,38 @@
         list.append(item(run.prompt, `${new Date(run.started_at).toLocaleString()} · ${run.provider || 'pi'} · ${run.status} · ${run.workspace}`, run.response || run.error));
       }
       if (!runs.length) list.append(element('p', 'ditto-local-muted', 'No local executions yet.'));
+      mountLocalCode();
+      const history = document.querySelector('.ditto-desktop-local-history');
+      if (history) {
+        history.replaceChildren();
+        const seenSessions = new Set();
+        for (const run of runs) {
+          if ((run.provider || 'pi') !== $('#dl-provider').value) continue;
+          if (run.session_id && seenSessions.has(run.session_id)) continue;
+          if (run.session_id) seenSessions.add(run.session_id);
+          const button = element('button', 'v2-studio-recent', run.prompt.slice(0, 70)); button.type = 'button';
+          button.title = `${run.provider || 'pi'} · ${run.status}`;
+          button.addEventListener('click', () => {
+            if (running) return;
+            cloudCodeMode = false; openPanel('Local');
+            const resumable = run.provider === 'pi' && run.session_id && run.workspace === localWorkspace;
+            localSessionId = resumable ? run.session_id : crypto.randomUUID();
+            localTurns = [{ prompt: run.prompt, provider: run.provider }];
+            $('#dl-provider').value = run.provider || 'pi';
+            const transcript = localChat.querySelector('#dl-transcript');
+            transcript.replaceChildren();
+            const turns = run.session_id ? runs.filter(turn => turn.session_id === run.session_id).reverse() : [run];
+            for (const turn of turns) {
+              transcript.append(element('article', 'ditto-desktop-code-question', turn.prompt), element('div', 'ditto-desktop-code-response', turn.response || turn.error || ''));
+            }
+            sharedOutput.textContent = ''; transcript.append(sharedOutput);
+            localChat.classList.add('has-turns');
+            desktopMode(true, '');
+            show('#dl-context', resumable ? 'Continue this local Pi conversation' : 'Saved execution · A new task will start on this Mac');
+          });
+          history.append(button);
+        }
+      }
     } catch (error) { show('#dl-progress', `Could not load local memory: ${error.message}`); }
   }
   $('#dl-scan').addEventListener('click', async () => {
@@ -347,7 +467,7 @@
     } catch (error) { list.textContent = error.message; }
   });
   $('#dl-choose-workspace').addEventListener('click', async () => {
-    try { const folder = await window.ditto.chooseWorkspace(); if (folder) { workspaceReady = true; show('#dl-workspace', folder); } }
+    try { const folder = await window.ditto.chooseWorkspace(); if (folder) { workspaceReady = true; if (localWorkspace !== folder) newLocalTask(); localWorkspace = folder; show('#dl-workspace', folder); void refresh(); } }
     catch (error) { show('#dl-pi-status', error.message); }
   });
   $('#dl-pi-login').addEventListener('click', async () => {
@@ -356,6 +476,9 @@
   });
   $('#dl-provider').addEventListener('change', () => {
     const provider = $('#dl-provider').value;
+    const localLabel = document.querySelector('[data-ditto-code-mode="local"] strong');
+    if (localLabel) localLabel.textContent = provider === 'pi' ? 'Local · Ditto Code' : `Local · ${$('#dl-provider').selectedOptions[0]?.textContent || provider}`;
+    if (localTurns.length && localTurns.at(-1).provider !== provider) newLocalTask();
     $('#dl-computer-enable').disabled = provider !== 'pi';
     $('#dl-provider-login').hidden = provider === 'pi';
     if (provider !== 'pi') {
@@ -365,8 +488,9 @@
       show('#dl-context', `${label} runs through its installed local CLI. Sign in here if needed.`);
     } else {
       $('#dl-run').textContent = 'Run locally with Pi';
-      show('#dl-context', 'Pi runs locally with your selected model.');
+      show('#dl-context', 'Ditto Code · Pi · On this Mac');
     }
+    void refresh();
   });
   $('#dl-provider-login').addEventListener('click', async () => {
     try { await window.ditto.providerLogin($('#dl-provider').value); show('#dl-context', 'Provider sign-in opened in Terminal.'); }
@@ -518,6 +642,7 @@
     if (event.type === 'tool-error') show('#dl-context', `${event.name}: ${event.message}`);
     if (event.type === 'error') show('#dl-context', event.message);
     if (event.type === 'done') show('#dl-context', 'Complete');
+    mountLocalCode();
   });
 
   const inbox = element('section', 'ditto-inbox-page');
@@ -627,7 +752,7 @@
         show('#di-login-progress', '');
         if (status.loginPending) {
           if (status.qrDataUrl) { $('#di-qr').src = status.qrDataUrl; $('#di-qr').hidden = false; }
-          loginDeadline = Date.now() + 180000;
+          loginDeadline = status.qrExpiresAt ? Date.parse(status.qrExpiresAt) : Date.now() + 180000;
           loginPoll = setTimeout(() => { void pollLogin(service); }, 2500);
         }
       }
@@ -744,13 +869,11 @@
       cloudCodeMode = false;
       $('#dl-provider').value = 'pi';
       $('#dl-provider').dispatchEvent(new Event('change'));
-      activePanel = 'Local';
-      document.body.classList.remove('ditto-inbox-open');
-      document.body.classList.add('ditto-local-open', 'ditto-local-from-chat');
-      markActive();
+      document.querySelector('nav.v2-studio-rail a[aria-label="Code"]').click();
+      openPanel('Local');
       await refresh();
-      $('#dl-prompt').value = `Use the local knowledge packet at ${packet.path} as context for this task.\n\n`;
-      $('#dl-prompt').focus();
+      desktopMode(true, `Use the local knowledge packet at ${packet.path} as context for this task.\n\n`);
+      document.querySelector('[data-testid="chat-composer-textarea"]')?.focus();
       show('#dl-context', `${packet.messageCount} chat messages ready for Ditto Code`);
     } catch (error) { if (selectedService === service) show('#di-status', channelError(error)); }
     finally { button.disabled = false; }

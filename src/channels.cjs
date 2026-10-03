@@ -42,6 +42,7 @@ class Sidecar {
         outcome: message.error ? 'error' : 'ok', code: message.error?.code,
         ...(typeof message.result?.connected === 'boolean' ? { connected: message.result.connected } : {}),
         ...(typeof message.result?.configured === 'boolean' ? { configured: message.result.configured } : {}),
+        ...(typeof message.result?.loginPending === 'boolean' ? { loginPending: message.result.loginPending } : {}),
         ...(Array.isArray(message.result) ? { count: message.result.length } : {}) });
       if (message.error) request.reject(new Error(message.error.message || 'Channel request failed.'));
       else request.resolve(message.result);
@@ -117,6 +118,7 @@ class LocalChannels {
     this.telegramRestore = null;
     this.telegramRestoreSettled = false;
     this.statusRequests = new Map();
+    this.loginCodes = new Map();
   }
 
   client(service) {
@@ -127,6 +129,12 @@ class LocalChannels {
   async status(service) {
     if (this.statusRequests.has(service)) return this.statusRequests.get(service);
     const request = this.readStatus(service).then(async result => {
+      if (result.loginPending) {
+        const code = this.loginCodes.get(service);
+        if (!result.qrUrl && code && Date.now() < code.expiresAt) {
+          result = { ...result, qrUrl: code.qrUrl, qrExpiresAt: new Date(code.expiresAt).toISOString() };
+        }
+      } else this.loginCodes.delete(service);
       if (result.qrUrl) result.qrDataUrl = await QRCode.toDataURL(result.qrUrl, { width: 220, margin: 1 });
       return result;
     });
@@ -166,12 +174,16 @@ class LocalChannels {
       if (status.loginPending) await client.request('login.cancel');
     }
     const result = await client.request('login.start', undefined, 30000);
-    if (!result.connected && result.qrUrl) result.qrDataUrl = await QRCode.toDataURL(result.qrUrl, { width: 220, margin: 1 });
+    if (!result.connected && result.qrUrl) {
+      this.loginCodes.set(service, { qrUrl: result.qrUrl, expiresAt: Date.now() + (result.expiresInSeconds || 180) * 1000 });
+      result.qrDataUrl = await QRCode.toDataURL(result.qrUrl, { width: 220, margin: 1 });
+    }
     return result;
   }
 
   async logout(service) {
     this.cache.delete(service);
+    this.loginCodes.delete(service);
     return this.client(service).request('logout');
   }
 

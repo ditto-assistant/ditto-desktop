@@ -156,6 +156,9 @@ class MemoryStore {
     if (!this.db.prepare('PRAGMA table_info(pi_runs)').all().some(column => column.name === 'provider')) {
       this.db.exec("ALTER TABLE pi_runs ADD COLUMN provider TEXT NOT NULL DEFAULT 'pi'");
     }
+    if (!this.db.prepare('PRAGMA table_info(pi_runs)').all().some(column => column.name === 'session_id')) {
+      this.db.exec('ALTER TABLE pi_runs ADD COLUMN session_id TEXT');
+    }
     this.upsert = this.db.prepare(`INSERT INTO docs(source,path,part,role,title,body,digest,modified_at,indexed_at)
       VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(source,path,part) DO UPDATE SET
       role=excluded.role,title=excluded.title,body=excluded.body,digest=excluded.digest,
@@ -169,9 +172,9 @@ class MemoryStore {
 
   close() { this.db.close(); }
 
-  startPiRun(workspace, prompt, provider = 'pi') {
-    return Number(this.db.prepare('INSERT INTO pi_runs(started_at,workspace,prompt,status,provider) VALUES(?,?,?,?,?)')
-      .run(new Date().toISOString(), workspace, prompt, 'running', provider).lastInsertRowid);
+  startPiRun(workspace, prompt, provider = 'pi', sessionId = null) {
+    return Number(this.db.prepare('INSERT INTO pi_runs(started_at,workspace,prompt,status,provider,session_id) VALUES(?,?,?,?,?,?)')
+      .run(new Date().toISOString(), workspace, prompt, 'running', provider, sessionId ?? null).lastInsertRowid);
   }
 
   finishPiRun(id, status, response, error = '') {
@@ -180,8 +183,16 @@ class MemoryStore {
   }
 
   recentPiRuns(limit = 20) {
-    return this.db.prepare('SELECT id,started_at,finished_at,workspace,prompt,response,status,error,provider FROM pi_runs ORDER BY id DESC LIMIT ?')
+    return this.db.prepare('SELECT id,started_at,finished_at,workspace,prompt,response,status,error,provider,session_id FROM pi_runs ORDER BY id DESC LIMIT ?')
       .all(Math.max(1, Math.min(100, limit)));
+  }
+
+  piSession(sessionId) {
+    return this.db.prepare('SELECT workspace,provider FROM pi_runs WHERE session_id=? ORDER BY id DESC LIMIT 1').get(sessionId);
+  }
+
+  piSessionTurns(sessionId) {
+    return this.db.prepare('SELECT prompt,response FROM pi_runs WHERE session_id=? ORDER BY id DESC LIMIT 6').all(sessionId).reverse();
   }
 
   getSetting(key, fallback) {

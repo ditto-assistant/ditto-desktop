@@ -340,7 +340,9 @@ func (s *sidecar) finishLogin(generation uint64, cancel context.CancelFunc, resu
 	s.clearPendingLogin(generation)
 	if !ok || result.err != nil {
 		message := "Discord login ended before approval."
-		if result.err != nil && !errors.Is(result.err, context.Canceled) {
+		if errors.Is(result.err, context.DeadlineExceeded) {
+			message = "QR code expired. Connect again for a new code."
+		} else if result.err != nil && !errors.Is(result.err, context.Canceled) {
 			message = result.err.Error()
 		}
 		s.setConnectionError(message)

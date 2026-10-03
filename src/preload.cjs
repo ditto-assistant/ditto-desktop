@@ -12,7 +12,7 @@ contextBridge.exposeInMainWorld('ditto', {
   linkPoll: () => ipcRenderer.invoke('ditto:link-poll'),
   signOut: () => ipcRenderer.invoke('ditto:sign-out'),
   piLogin: () => ipcRenderer.invoke('ditto:pi-login'),
-  chat: question => ipcRenderer.invoke('ditto:chat', question),
+  chat: (question, sessionId) => ipcRenderer.invoke('ditto:chat', question, sessionId),
   providerStatus: () => ipcRenderer.invoke('ditto:provider-status'),
   providerLogin: provider => ipcRenderer.invoke('ditto:provider-login', provider),
   runProvider: (provider, question) => ipcRenderer.invoke('ditto:run-provider', provider, question),

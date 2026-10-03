@@ -35,3 +35,16 @@ test('disconnect clears cached conversations so the next account cannot see them
   await channels.logout('discord');
   assert.equal(channels.cache.has('discord'), false);
 });
+
+test('a pending Discord QR survives switching away from the connection screen', async () => {
+  const channels = new LocalChannels('/unused', '/unused');
+  let pending = false;
+  channels.clients.discord.request = async method => {
+    if (method === 'login.start') { pending = true; return { qrUrl: 'https://discord.com/ra/qa', expiresInSeconds: 180 }; }
+    return { connected: false, loginPending: pending };
+  };
+  await channels.startLogin('discord');
+  const status = await channels.status('discord');
+  assert.equal(status.qrUrl, 'https://discord.com/ra/qa');
+  assert.ok(status.qrDataUrl.startsWith('data:image/png;base64,'));
+});
