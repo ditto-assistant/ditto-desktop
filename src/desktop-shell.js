@@ -224,7 +224,7 @@
       for (const run of runs) {
         list.append(item(run.prompt, `${new Date(run.started_at).toLocaleString()} · ${run.provider || 'pi'} · ${run.status} · ${run.workspace}`, run.response || run.error));
       }
-      if (!runs.length) list.append(element('p', 'ditto-local-muted', 'No local Pi executions yet.'));
+      if (!runs.length) list.append(element('p', 'ditto-local-muted', 'No local executions yet.'));
     } catch (error) { show('#dl-progress', `Could not load local memory: ${error.message}`); }
   }
   $('#dl-scan').addEventListener('click', async () => {
@@ -250,7 +250,13 @@
     try {
       const results = await window.ditto.search(query);
       list.replaceChildren();
-      for (const memory of results.memories) list.append(item(memory.title || 'Ditto memory', 'Memory', memory.summary || memory.prompt || ''));
+      for (const memory of results.memories) {
+        const prompt = memory.prompt?.trim();
+        const answer = memory.response?.trim();
+        list.append(item(prompt?.slice(0, 160) || memory.summary || 'Ditto memory',
+          `${memory.source || 'Memory'} · ${memory.sourceContext || 'Local trajectory'}`,
+          answer?.slice(0, 500) || memory.summary || ''));
+      }
       for (const match of results.matches) list.append(item(match.title || 'Source', `${match.source} · ${match.path}`, match.excerpt || ''));
       if (!list.children.length) list.append(element('p', 'ditto-local-muted', 'No matching local memory.'));
     } catch (error) { list.textContent = error.message; }
@@ -392,7 +398,7 @@
       const status = await window.ditto.channelStatus(service);
       if (selectedService !== service) return;
       show('#di-status', status.detail || (status.connected ? 'Connected' : 'Not connected'));
-      $('#di-connect').hidden = service === 'imessage' || status.connected;
+      $('#di-connect').hidden = service === 'imessage' || status.connected || status.restoring;
       $('#di-disconnect').hidden = service === 'imessage' || !status.connected;
       if (status.connected) void loadConversations(service);
       else if (status.restoring) loginPoll = setTimeout(() => { void selectService(service); }, 3500);

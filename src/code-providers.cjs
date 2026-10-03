@@ -5,6 +5,7 @@ const { spawn } = require('node:child_process');
 const readline = require('node:readline');
 
 const names = { codex: 'Codex', claude: 'Claude Code', cursor: 'Cursor Agent', grok: 'Grok' };
+const MAX_RESPONSE_CHARS = 200000;
 function binaryFor(provider) {
   const home = os.homedir();
   const bundledGrok = process.resourcesPath
@@ -53,25 +54,30 @@ function startProvider(provider, prompt, workspace, onText) {
   child.stdin.end(stdinPrompt);
   let answer = '';
   let stderr = '';
+  const appendAnswer = text => {
+    if (!text || answer.length >= MAX_RESPONSE_CHARS) return;
+    const available = MAX_RESPONSE_CHARS - answer.length;
+    const part = text.slice(0, available);
+    answer += part;
+    onText(part);
+  };
   if (provider === 'codex') {
     readline.createInterface({ input: child.stdout }).on('line', line => {
       try {
         const event = JSON.parse(line);
         if (event.type === 'item.completed' && event.item?.type === 'agent_message' && event.item.text) {
-          answer += `${answer ? '\n\n' : ''}${event.item.text}`;
-          onText(event.item.text);
+          appendAnswer(`${answer ? '\n\n' : ''}${event.item.text}`);
         }
       } catch { /* Ignore non-protocol lines. */ }
     });
   } else child.stdout.on('data', chunk => {
     const text = chunk.toString().replace(/\x1b\[[0-9;]*m/g, '');
-    answer += text;
-    if (answer.length <= 200000) onText(text);
+    appendAnswer(text);
   });
   child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-5000); });
   const result = new Promise((resolve, reject) => {
     child.once('error', reject);
-    child.once('exit', code => {
+    child.once('close', code => {
       if (code === 0) resolve({ text: answer.trim() });
       else reject(new Error(stderr.trim() || answer.trim().slice(-1000) || `${names[provider]} exited with code ${code}.`));
     });

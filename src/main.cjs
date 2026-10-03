@@ -10,6 +10,7 @@ const { LocalChannels } = require('./channels.cjs');
 const { createKnowledgePacket } = require('./packets.cjs');
 const { binaryFor, providerAvailability, startProvider } = require('./code-providers.cjs');
 const { spawnSandboxedPi } = require('./pi-sandbox.cjs');
+const { projectFolder } = require('./workspace.cjs');
 
 const API_BASE = 'https://api.heyditto.ai';
 const WEB_ORIGIN = 'https://assistant.heyditto.ai';
@@ -28,9 +29,7 @@ let piProcess = null;
 
 function dataDir() { return app.getPath('userData'); }
 function selectedWorkspace() {
-  const folder = store?.getSetting('workspace', null);
-  return typeof folder === 'string' && path.resolve(folder) !== os.homedir() &&
-    fs.existsSync(folder) && fs.statSync(folder).isDirectory() ? folder : null;
+  return projectFolder(store?.getSetting('workspace', null));
 }
 function accountPath() { return path.join(dataDir(), 'ditto-account.json'); }
 function emit(channel, value) { if (win && !win.isDestroyed()) win.webContents.send(channel, value); }
@@ -305,9 +304,10 @@ function registerIpc() {
       properties: ['openDirectory'],
     });
     if (result.canceled || !result.filePaths.length) return null;
-    if (path.resolve(result.filePaths[0]) === os.homedir()) throw new Error('Choose a project folder instead of your entire home directory.');
-    store.setSetting('workspace', result.filePaths[0]);
-    return result.filePaths[0];
+    const folder = projectFolder(result.filePaths[0]);
+    if (!folder) throw new Error('Choose an existing project folder instead of your entire home directory.');
+    store.setSetting('workspace', folder);
+    return folder;
   });
 
   ipcMain.handle('ditto:export', async () => {
