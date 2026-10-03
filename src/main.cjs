@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, session, shell } = require('electron');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
@@ -564,6 +564,14 @@ function registerIpc() {
 app.whenReady().then(async () => {
   app.setName('Ditto Desktop');
   app.setAppUserModelId('ai.heyditto.local');
+  if (process.platform === 'darwin') Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'Ditto Desktop', submenu: [
+      { role: 'about', label: 'About Ditto Desktop' }, { type: 'separator' }, { role: 'services' },
+      { type: 'separator' }, { role: 'hide', label: 'Hide Ditto Desktop' }, { role: 'hideOthers' },
+      { role: 'unhide' }, { type: 'separator' }, { role: 'quit', label: 'Quit Ditto Desktop' },
+    ] },
+    { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+  ]));
   const dockIcon = path.join(process.resourcesPath, 'dock-icon.png');
   if (app.dock && fs.existsSync(dockIcon)) app.dock.setIcon(dockIcon);
   store = new MemoryStore(dataDir());
