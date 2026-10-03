@@ -35,6 +35,12 @@
     else void selectService(selectedService);
   }
   function mountSidebars() {
+    if ((activePanel === 'Local' && location.pathname !== '/code' &&
+      !(location.pathname === '/' && document.body.classList.contains('ditto-local-from-chat'))) ||
+      (activePanel === 'Inbox' && location.pathname !== '/')) {
+      activePanel = null;
+      document.body.classList.remove('ditto-local-open', 'ditto-inbox-open', 'ditto-local-from-chat');
+    }
     const rail = document.querySelector('nav.v2-studio-rail');
     if (!rail) return;
     const width = Math.round(rail.getBoundingClientRect().right);
@@ -177,6 +183,18 @@
           <div class="ditto-local-row" style="margin-top:9px"><button id="dl-run" class="primary">Run locally with Pi</button><button id="dl-cancel" type="button" hidden>Stop</button><span id="dl-context" class="ditto-local-muted"></span></div></form>
         <div id="dl-output" class="ditto-local-output" aria-live="polite"></div></section>
       <section class="ditto-local-card"><h2>Recent local executions</h2><p>Saved privately on this Mac.</p><div id="dl-runs" class="ditto-local-list"></div></section>
+      <section class="ditto-local-card"><h2>Remote Control</h2><p>Keep a coding session on this Mac available from your signed-in Ditto apps.</p>
+        <div class="ditto-local-row" style="margin-top:12px"><label for="dl-remote-provider" class="ditto-local-muted">Host engine</label>
+          <select id="dl-remote-provider" aria-label="Remote Control engine"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="grok">Grok</option></select>
+          <button id="dl-remote-start" class="primary">Start Remote Control</button><button id="dl-remote-stop" hidden>Stop</button></div>
+        <div id="dl-remote-status" class="ditto-local-status" role="status">Checking this Mac…</div>
+        <div class="ditto-local-row" style="margin-top:10px"><button id="dl-remote-refresh">Refresh devices</button></div>
+        <div id="dl-remote-devices" class="ditto-local-list"></div></section>
+      <section class="ditto-local-card"><h2>Ditto Teleport</h2><p>Preview this project, save a capsule, or continue it in Ditto Cloud. Upload happens only when you choose a push action.</p>
+        <div class="ditto-local-row" style="margin-top:12px"><button id="dl-teleport-plan">Preview project</button>
+          <button id="dl-teleport-push" class="primary">Save capsule</button><button id="dl-teleport-cloud">Continue in cloud</button>
+          <button id="dl-teleport-list">Refresh capsules</button></div>
+        <div id="dl-teleport-status" class="ditto-local-status" role="status"></div><div id="dl-teleport-results" class="ditto-local-list"></div></section>
     </div>`;
   const executionCard = local.querySelector('#dl-chat-form').closest('.ditto-local-card');
   executionCard.classList.add('ditto-local-execution-card');
@@ -215,6 +233,8 @@
       for (const provider of status.providers) {
         const option = $('#dl-provider').querySelector(`[value="${provider.id}"]`);
         if (option) { option.disabled = !provider.available; option.title = provider.detail; }
+        const remoteOption = $('#dl-remote-provider').querySelector(`[value="${provider.id}"]`);
+        if (remoteOption) remoteOption.disabled = !provider.available;
       }
       workspaceReady = Boolean(status.workspace);
       show('#dl-workspace', status.workspace || 'Choose a project folder');
@@ -309,6 +329,71 @@
     finally { running = false; $('#dl-run').disabled = false; $('#dl-cancel').hidden = true; void refresh(); }
   });
   $('#dl-cancel').addEventListener('click', () => { void window.ditto.cancelChat(); });
+  const remoteStatus = status => {
+    show('#dl-remote-status', status.detail || (status.running ? 'Connected to Ditto.' : 'Remote Control is off.'));
+    $('#dl-remote-start').hidden = Boolean(status.running);
+    $('#dl-remote-stop').hidden = !status.running;
+    $('#dl-remote-provider').disabled = Boolean(status.running);
+  };
+  void window.ditto.remoteStatus().then(remoteStatus).catch(error => show('#dl-remote-status', error.message));
+  window.ditto.onRemoteStatus(remoteStatus);
+  $('#dl-remote-start').addEventListener('click', async () => {
+    const button = $('#dl-remote-start'); button.disabled = true;
+    try { remoteStatus(await window.ditto.remoteStart($('#dl-remote-provider').value)); }
+    catch (error) { show('#dl-remote-status', error.message); }
+    finally { button.disabled = false; }
+  });
+  $('#dl-remote-stop').addEventListener('click', async () => {
+    try { remoteStatus(await window.ditto.remoteStop()); }
+    catch (error) { show('#dl-remote-status', error.message); }
+  });
+  $('#dl-remote-refresh').addEventListener('click', async () => {
+    const button = $('#dl-remote-refresh'); button.disabled = true;
+    try {
+      const hosts = await window.ditto.remoteHosts();
+      const list = $('#dl-remote-devices'); list.replaceChildren();
+      for (const host of hosts) list.append(item(host.name || 'Ditto device',
+        `${host.online ? 'Online' : 'Offline'} · ${host.kind || 'host'} · ${host.platform || 'Mac'}`,
+        `${number(host.sessions)} coding sessions`));
+      if (!hosts.length) list.append(element('p', 'ditto-local-muted', 'No linked devices yet.'));
+    } catch (error) { show('#dl-remote-status', error.message); }
+    finally { button.disabled = false; }
+  });
+  const teleportStatus = message => show('#dl-teleport-status', message);
+  const teleportBusy = async (button, action) => {
+    button.disabled = true;
+    try { await action(); }
+    catch (error) { teleportStatus(error.message); }
+    finally { button.disabled = false; }
+  };
+  $('#dl-teleport-plan').addEventListener('click', () => teleportBusy($('#dl-teleport-plan'), async () => {
+    teleportStatus('Inspecting this project…');
+    const plan = await window.ditto.teleportPlan();
+    const projects = plan.repos?.flatMap(repo => repo.projects || []) || [];
+    const list = $('#dl-teleport-results'); list.replaceChildren();
+    list.append(item(`${number(plan.repos?.length)} repositories · ${number(projects.length)} projects`,
+      plan.root || 'Selected project', projects.map(project => `${project.relPath}: ${(project.labels || []).join(', ')}`).join('\n') || 'Ready to save.'));
+    teleportStatus('Preview complete. Nothing was uploaded.');
+  }));
+  const push = (button, cloud) => teleportBusy(button, async () => {
+    teleportStatus(cloud ? 'Sending this project to Ditto Cloud…' : 'Saving this project as a Ditto capsule…');
+    const result = await window.ditto.teleportPush(cloud);
+    teleportStatus(cloud ? 'Cloud session started. Find it in Code.' : `Capsule saved: ${result.name || result.capsuleId || 'project'}.`);
+    void listCapsules();
+  });
+  $('#dl-teleport-push').addEventListener('click', () => push($('#dl-teleport-push'), false));
+  $('#dl-teleport-cloud').addEventListener('click', () => push($('#dl-teleport-cloud'), true));
+  async function listCapsules() {
+    const result = await window.ditto.teleportList();
+    const list = $('#dl-teleport-results'); list.replaceChildren();
+    for (const capsule of result.capsules || []) list.append(item(capsule.name,
+      `Generation ${capsule.headGeneration || 0} · ${capsule.status || 'active'}`, capsule.id));
+    if (!list.children.length) list.append(element('p', 'ditto-local-muted', 'No capsules yet.'));
+  }
+  $('#dl-teleport-list').addEventListener('click', () => teleportBusy($('#dl-teleport-list'), async () => {
+    await listCapsules(); teleportStatus('Capsules refreshed.');
+  }));
+  window.ditto.onTeleportProgress(progress => teleportStatus(progress.trim().slice(-250)));
   window.ditto.onProgress(message => { show('#dl-progress', message); });
   window.ditto.onScanFinished(() => { if (activePanel === 'Local') void refresh(); });
   window.ditto.onChatEvent(event => {

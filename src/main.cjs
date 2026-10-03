@@ -11,6 +11,7 @@ const { createKnowledgePacket } = require('./packets.cjs');
 const { binaryFor, providerAvailability, startProvider } = require('./code-providers.cjs');
 const { spawnSandboxedPi } = require('./pi-sandbox.cjs');
 const { projectFolder } = require('./workspace.cjs');
+const { cliAvailable, runCli, RemoteHost } = require('./remote.cjs');
 
 const API_BASE = 'https://api.heyditto.ai';
 const WEB_ORIGIN = 'https://assistant.heyditto.ai';
@@ -26,6 +27,7 @@ let harness;
 let scanPromise = null;
 let pendingLink = null;
 let piProcess = null;
+let remoteHost;
 
 function dataDir() { return app.getPath('userData'); }
 function selectedWorkspace() {
@@ -205,6 +207,46 @@ function createWindow() {
 }
 
 function registerIpc() {
+  const linkedKey = () => {
+    const account = loadAccount();
+    if (!account?.key) throw new Error('Sign in with Ditto before using Teleport or Remote Control.');
+    return account.key;
+  };
+  ipcMain.handle('ditto:remote-status', async () => ({ ...remoteHost.status(), available: cliAvailable() }));
+  ipcMain.handle('ditto:remote-start', async (_event, provider) => {
+    const workspace = selectedWorkspace();
+    if (!workspace) throw new Error('Choose a project folder before starting Remote Control.');
+    if (!binaryFor(provider)) throw new Error(`${provider} is not installed on this Mac.`);
+    return remoteHost.start(provider, { key: linkedKey(), cwd: workspace });
+  });
+  ipcMain.handle('ditto:remote-stop', async () => remoteHost.stop());
+  ipcMain.handle('ditto:remote-hosts', async () => {
+    const response = await fetch(`${API_BASE}/api/v5/hosts`, {
+      headers: { Authorization: `Bearer ${linkedKey()}` }, signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error(`Could not load Ditto devices (HTTP ${response.status}).`);
+    const data = await response.json();
+    return Array.isArray(data.hosts) ? data.hosts.map(host => ({
+      id: host.id, name: host.name, kind: host.kind, platform: host.platform,
+      online: Boolean(host.online), sessions: Array.isArray(host.sessions) ? host.sessions.length : 0,
+    })) : [];
+  });
+  ipcMain.handle('ditto:teleport-plan', async () => {
+    const workspace = selectedWorkspace();
+    if (!workspace) throw new Error('Choose a project folder before planning Teleport.');
+    return JSON.parse(await runCli(['teleport', 'plan', workspace, '--json'], { key: linkedKey(), cwd: workspace, stateDir: path.join(dataDir(), 'cli') }));
+  });
+  ipcMain.handle('ditto:teleport-list', async () => {
+    return JSON.parse(await runCli(['teleport', 'list', '--json'], { key: linkedKey(), cwd: os.homedir(), stateDir: path.join(dataDir(), 'cli') }));
+  });
+  ipcMain.handle('ditto:teleport-push', async (_event, launchCloud) => {
+    const workspace = selectedWorkspace();
+    if (!workspace) throw new Error('Choose a project folder before using Teleport.');
+    const args = launchCloud ? ['teleport', workspace, '--cloud', '--json'] : ['teleport', 'push', workspace, '--json'];
+    const output = await runCli(args, { key: linkedKey(), cwd: workspace, stateDir: path.join(dataDir(), 'cli'), timeoutMs: 20 * 60 * 1000,
+      onProgress: progress => emit('ditto:teleport-progress', progress) });
+    return JSON.parse(output);
+  });
   ipcMain.handle('ditto:provider-status', async () => ({ pi: await piStatus(), providers: providerAvailability() }));
   ipcMain.handle('ditto:provider-login', async (_event, provider) => {
     if (!['codex', 'claude', 'cursor', 'grok'].includes(provider)) throw new Error('Unsupported coding provider.');
@@ -458,6 +500,7 @@ app.whenReady().then(async () => {
   store = new MemoryStore(dataDir());
   channels = new LocalChannels(app.isPackaged ? path.join(process.resourcesPath, 'channel-sidecars')
     : path.join(__dirname, '..', 'native', 'bin'), dataDir());
+  remoteHost = new RemoteHost(status => emit('ditto:remote-status', status), path.join(dataDir(), 'cli'));
   await registerWebRenderer();
   registerIpc();
   createWindow();
@@ -473,4 +516,4 @@ app.whenReady().then(async () => {
 }).catch(error => { dialog.showErrorBox('Ditto Desktop failed to start', errorMessage(error)); app.quit(); });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { if (piProcess) piProcess.kill('SIGTERM'); channels?.close(); if (store) store.close(); });
+app.on('before-quit', () => { if (piProcess) piProcess.kill('SIGTERM'); remoteHost?.stop(); channels?.close(); if (store) store.close(); });

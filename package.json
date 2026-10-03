@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.0.0",
+    "@heyditto/cli": "2.22.0",
     "@xai-official/grok": "^1.0.46",
     "qrcode": "^1.5.4",
     "yazl": "^3.3.1"
