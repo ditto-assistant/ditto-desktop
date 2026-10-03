@@ -161,8 +161,8 @@ body.ditto-local-open .ditto-local-page { display: none; }
 body.ditto-desktop-settings.ditto-local-open .ditto-local-page { display: block; }
 .ditto-desktop-code-chat { display: none; }
 body.ditto-local-open:not(.ditto-desktop-settings) .v2-code-surface-main > :not(.ditto-desktop-code-chat) { display: none; }
-body.ditto-local-open:not(.ditto-desktop-settings) .ditto-desktop-code-chat { display: flex; flex-direction: column; min-height: 100%; max-width: 840px; margin: 0 auto; padding: 28px 24px 18px; box-sizing: border-box; }
-.ditto-desktop-code-chat .v2-code-start-header { margin: auto 0; text-align: center; }
+body.ditto-local-open:not(.ditto-desktop-settings) .ditto-desktop-code-chat { display: flex; flex-direction: column; width: 100%; max-width: 760px; margin: 0 auto; padding: clamp(24px, 8vh, 88px) 16px 200px; box-sizing: border-box; }
+.ditto-desktop-code-chat .v2-code-start-header { margin: 0; }
 .ditto-desktop-code-chat.has-turns .v2-code-start-header { display: none; }
 #dl-transcript { display: flex; flex-direction: column; gap: 24px; }
 .ditto-desktop-code-question { align-self: flex-end; max-width: 85%; padding: 12px 18px; border-radius: 20px; background: var(--ditto-raised); white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -15,6 +15,8 @@ const { cliAvailable, runCli, RemoteHost } = require('./remote.cjs');
 const { DesktopBrowser } = require('./browser.cjs');
 const { startAgentBrowser } = require('./browser-agent.cjs');
 const { computerAction } = require('./computer.cjs');
+const { EngineMaintenance } = require('./maintenance.cjs');
+const { DesktopDevices } = require('./devices.cjs');
 
 const API_BASE = 'https://api.heyditto.ai';
 const WEB_ORIGIN = 'https://assistant.heyditto.ai';
@@ -33,6 +35,8 @@ let piProcess = null;
 let remoteHost;
 let desktopBrowser;
 let computerEnabled = false;
+let engineMaintenance;
+let devices;
 
 function dataDir() { return app.getPath('userData'); }
 function selectedWorkspace() {
@@ -225,6 +229,10 @@ function registerIpc() {
   ipcMain.handle('ditto:browser-click', async (_event, ref) => desktopBrowser.click(ref));
   ipcMain.handle('ditto:browser-fill', async (_event, ref, value) => desktopBrowser.fill(ref, value));
   ipcMain.handle('ditto:computer-status', async () => computerAction('status'));
+  ipcMain.handle('ditto:computer-settings', async () => {
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
+    return true;
+  });
   ipcMain.handle('ditto:computer-enable', async (_event, enabled) => {
     computerEnabled = enabled === true;
     return computerEnabled;
@@ -241,6 +249,7 @@ function registerIpc() {
   });
   ipcMain.handle('ditto:remote-status', async () => ({ ...remoteHost.status(), available: cliAvailable() }));
   ipcMain.handle('ditto:remote-start', async (_event, provider, endpoint) => {
+    if (engineMaintenance.active) throw new Error('Wait for the coding engine update to finish first.');
     const workspace = selectedWorkspace();
     if (!workspace) throw new Error('Choose a project folder before starting Remote Control.');
     if (!binaryFor(provider)) throw new Error(`${provider} is not installed on this Mac.`);
@@ -248,16 +257,17 @@ function registerIpc() {
   });
   ipcMain.handle('ditto:remote-stop', async () => remoteHost.stop());
   ipcMain.handle('ditto:remote-hosts', async () => {
-    const response = await fetch(`${API_BASE}/api/v5/hosts`, {
-      headers: { Authorization: `Bearer ${linkedKey()}` }, signal: AbortSignal.timeout(15000),
-    });
-    if (!response.ok) throw new Error(`Could not load Ditto devices (HTTP ${response.status}).`);
-    const data = await response.json();
-    return Array.isArray(data.hosts) ? data.hosts.map(host => ({
-      id: host.id, name: host.name, kind: host.kind, platform: host.platform,
-      online: Boolean(host.online), sessions: Array.isArray(host.sessions) ? host.sessions.length : 0,
-    })) : [];
+    return devices.list();
   });
+  ipcMain.handle('ditto:devices-status', () => devices.status());
+  ipcMain.handle('ditto:devices-start', () => { const status = devices.start(); store.setSetting('deviceNetworkEnabled', true); return status; });
+  ipcMain.handle('ditto:devices-stop', () => { store.setSetting('deviceNetworkEnabled', false); return devices.stop(); });
+  ipcMain.handle('ditto:devices-pair-code', () => devices.pairCode());
+  ipcMain.handle('ditto:devices-claim', (_event, code) => devices.claim(code));
+  ipcMain.handle('ditto:devices-unpair', (_event, peer) => devices.unpair(peer));
+  ipcMain.handle('ditto:devices-request', (_event, peer, method, params) => devices.request(peer, method, params));
+  ipcMain.handle('ditto:engines-status', () => engineMaintenance.status());
+  ipcMain.handle('ditto:engines-update', (_event, provider) => engineMaintenance.update(provider));
   ipcMain.handle('ditto:teleport-plan', async () => {
     const workspace = selectedWorkspace();
     if (!workspace) throw new Error('Choose a project folder before planning Teleport.');
@@ -288,6 +298,7 @@ function registerIpc() {
     return true;
   });
   ipcMain.handle('ditto:run-provider', async (_event, provider, question) => {
+    if (engineMaintenance.active) throw new Error('Wait for the coding engine update to finish first.');
     if (piProcess) throw new Error('A local coding task is already running.');
     if (!['codex', 'claude', 'cursor', 'grok'].includes(provider)) throw new Error('Unsupported coding provider.');
     if (typeof question !== 'string' || !question.trim() || question.length > 12000) throw new Error('Enter a task under 12,000 characters.');
@@ -421,6 +432,10 @@ function registerIpc() {
 
   ipcMain.handle('ditto:sign-out', async () => {
     pendingLink = null;
+    devices.stop(); remoteHost.stop();
+    store.setSetting('deviceNetworkEnabled', false);
+    store.setSetting('desktopHostId', null);
+    devices.hostId = null;
     await fsp.rm(accountPath(), { force: true });
     return true;
   });
@@ -437,6 +452,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('ditto:chat', async (_event, question, sessionId) => {
+    if (engineMaintenance.active) throw new Error('Wait for the coding engine update to finish first.');
     if (piProcess) throw new Error('Pi is already working.');
     if (typeof question !== 'string' || !question.trim() || question.length > 12000) {
       throw new Error('Enter a message under 12,000 characters.');
@@ -554,9 +570,16 @@ app.whenReady().then(async () => {
   channels = new LocalChannels(app.isPackaged ? path.join(process.resourcesPath, 'channel-sidecars')
     : path.join(__dirname, '..', 'native', 'bin'), dataDir(), event => emit('ditto:channel-event', event));
   remoteHost = new RemoteHost(status => emit('ditto:remote-status', status), path.join(dataDir(), 'cli'));
+  engineMaintenance = new EngineMaintenance({ busy: () => Boolean(piProcess || remoteHost.child),
+    onStatus: status => emit('ditto:engine-update', status) });
+  devices = new DesktopDevices({ apiBase: API_BASE, version: app.getVersion(), maintenance: engineMaintenance,
+    getKey: () => { const account = loadAccount(); if (!account?.key) throw new Error('Sign in with Ditto to connect this Mac.'); return account.key; },
+    getHostId: () => store.getSetting('desktopHostId', null), saveHostId: id => store.setSetting('desktopHostId', id),
+    onStatus: status => emit('ditto:devices-status', status) });
   await registerWebRenderer();
   registerIpc();
   createWindow();
+  if (store.getSetting('deviceNetworkEnabled', false) && loadAccount()) devices.start();
   const scanIfStale = () => {
     const last = store.getSetting('lastScan', null);
     if (!last || Date.now() - Date.parse(last) > 30 * 60 * 1000) {
@@ -569,4 +592,7 @@ app.whenReady().then(async () => {
 }).catch(error => { dialog.showErrorBox('Ditto Desktop failed to start', errorMessage(error)); app.quit(); });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { if (piProcess) piProcess.kill('SIGTERM'); remoteHost?.stop(); channels?.close(); if (store) store.close(); });
+app.on('before-quit', event => {
+  if (engineMaintenance?.active) { event.preventDefault(); dialog.showErrorBox('Coding engine update in progress', 'Wait for the update to finish before quitting Ditto Desktop.'); return; }
+  devices?.stop(); if (piProcess) piProcess.kill('SIGTERM'); remoteHost?.stop(); channels?.close(); if (store) store.close();
+});

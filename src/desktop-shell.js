@@ -9,6 +9,7 @@
     return node;
   };
   const number = value => Number(value || 0).toLocaleString();
+  const desktopError = error => String(error.message || error).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
   let activePanel = null;
   let cloudCodeMode = false;
   let defaultCodeOpenPending = false;
@@ -198,7 +199,7 @@
         <div class="ditto-local-row" style="margin-top:12px"><label for="dl-provider" class="ditto-local-muted">Coding engine</label><select id="dl-provider" aria-label="Coding engine">
           <option value="pi">Ditto Code · Pi (default)</option><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="cursor">Cursor Agent</option><option value="grok">Grok</option>
         </select><button id="dl-provider-login" type="button" hidden>Sign in to provider</button></div>
-        <div class="ditto-local-row ditto-computer-control" style="margin-top:12px"><label><input id="dl-computer-enable" type="checkbox"> Allow Mac computer control for the next Pi task</label><span id="dl-computer-status" class="ditto-local-muted"></span></div>
+        <div class="ditto-local-row ditto-computer-control" style="margin-top:12px"><label><input id="dl-computer-enable" type="checkbox"> Allow Mac computer control for the next Pi task</label><span id="dl-computer-status" class="ditto-local-muted"></span><button id="dl-computer-settings">Open Accessibility settings</button><button id="dl-computer-refresh">Check permission</button></div>
         <form id="dl-chat-form" style="margin-top:13px"><textarea id="dl-prompt" placeholder="Ask Pi to use your local memory and work on a project…" aria-label="Ask Pi"></textarea>
           <div class="ditto-local-row" style="margin-top:9px"><button id="dl-run" class="primary">Run locally with Pi</button><button id="dl-cancel" type="button" hidden>Stop</button><span id="dl-context" class="ditto-local-muted"></span></div></form>
         <div id="dl-output" class="ditto-local-output" aria-live="polite"></div></section>
@@ -209,8 +210,14 @@
           <label for="dl-endpoint" class="ditto-local-muted">Endpoint</label><select id="dl-endpoint" aria-label="Ditto endpoint"><option value="">Loading…</option></select>
           <button id="dl-remote-start" class="primary">Start Remote Control</button><button id="dl-remote-stop" hidden>Stop</button></div>
         <div id="dl-remote-status" class="ditto-local-status" role="status">Checking this Mac…</div>
-        <div class="ditto-local-row" style="margin-top:10px"><button id="dl-remote-refresh">Refresh devices</button></div>
-        <div id="dl-remote-devices" class="ditto-local-list"></div></section>
+        </section>
+      <section class="ditto-local-card"><h2>Your Ditto devices</h2><p>Pair your Macs to manage their coding engines. Keep Ditto Desktop open on each Mac.</p>
+        <div class="ditto-local-row" style="margin-top:12px"><button id="dl-devices-start" class="primary">Connect this Mac</button><button id="dl-devices-stop" hidden>Disconnect this Mac</button><button id="dl-remote-refresh">Refresh devices</button></div>
+        <div id="dl-devices-status" class="ditto-local-status" role="status"></div>
+        <div class="ditto-local-row" style="margin-top:12px"><button id="dl-pair-create">Get pairing code</button><input id="dl-pair-code" placeholder="Code from another Mac" aria-label="Code from another Mac" inputmode="numeric" maxlength="6"><button id="dl-pair-claim">Pair Mac</button></div>
+        <div id="dl-pair-status" class="ditto-local-status" role="status"></div><div id="dl-remote-devices" class="ditto-local-list"></div></section>
+      <section class="ditto-local-card"><div class="ditto-local-row between"><div><h2 id="dl-engines-title">Coding engines on this Mac</h2><p>Updates use each engine’s original installer.</p></div><button id="dl-engines-refresh">Check engines</button><button id="dl-engines-local" hidden>Back to this Mac</button></div>
+        <div id="dl-engines-status" class="ditto-local-status" role="status"></div><div id="dl-engines" class="ditto-local-list"></div></section>
       <section class="ditto-local-card"><h2>Ditto Teleport</h2><p>Preview this project, save a capsule, or continue it in Ditto Cloud. Upload happens only when you choose a push action.</p>
         <div class="ditto-local-row" style="margin-top:12px"><label for="dl-cloud-endpoint" class="ditto-local-muted">Cloud endpoint</label><select id="dl-cloud-endpoint" aria-label="Personal Ditto cloud endpoint"><option value="">Loading…</option></select><span class="ditto-local-muted">Personal Ditto endpoint</span></div>
         <div class="ditto-local-row" style="margin-top:12px"><button id="dl-teleport-plan">Preview project</button>
@@ -280,7 +287,7 @@
   let localSessionId = crypto.randomUUID();
   let localTurns = [];
   let localWorkspace = '';
-  const localChat = element('div', 'ditto-desktop-code-chat');
+  const localChat = element('div', 'v2-code-start ditto-desktop-code-chat');
   localChat.setAttribute('aria-label', 'Local Ditto Code conversation');
   localChat.innerHTML = '<header class="v2-code-start-header"><h1>What should Ditto Code do?</h1><p>Describe the task. Ditto Code uses Pi and your private memory to work on this Mac.</p></header><div id="dl-transcript" aria-live="polite"></div><div id="dl-chat-status" role="status"></div>';
   const sharedOutput = $('#dl-output');
@@ -519,10 +526,13 @@
     finally { running = false; $('#dl-run').disabled = false; $('#dl-cancel').hidden = true; void refresh(); }
   });
   $('#dl-cancel').addEventListener('click', () => { void window.ditto.cancelChat(); });
-  void window.ditto.computerStatus().then(status => {
+  const checkComputer = () => window.ditto.computerStatus().then(status => {
     show('#dl-computer-status', status.locked ? 'Unlock this Mac to use computer control.' :
       status.trusted ? 'Accessibility is ready.' : 'Grant Ditto Desktop Accessibility in macOS Settings.');
   }).catch(error => show('#dl-computer-status', error.message));
+  void checkComputer();
+  $('#dl-computer-refresh').addEventListener('click', checkComputer);
+  $('#dl-computer-settings').addEventListener('click', () => { void window.ditto.computerSettings().catch(error => show('#dl-computer-status', error.message)); });
   $('#dl-computer-enable').addEventListener('change', async () => {
     try { await window.ditto.computerEnable($('#dl-computer-enable').checked); }
     catch (error) { $('#dl-computer-enable').checked = false; show('#dl-computer-status', error.message); }
@@ -585,18 +595,118 @@
     try { remoteStatus(await window.ditto.remoteStop()); }
     catch (error) { show('#dl-remote-status', error.message); }
   });
-  $('#dl-remote-refresh').addEventListener('click', async () => {
+  let enginePeer = null;
+  let enginePeerName = null;
+  let engineUpdating = false;
+  const networkStatus = status => {
+    show('#dl-devices-status', status.detail);
+    $('#dl-devices-start').hidden = status.enabled;
+    $('#dl-devices-stop').hidden = !status.enabled;
+    $('#dl-pair-create').disabled = !status.online;
+    $('#dl-pair-claim').disabled = !status.online;
+    if (!status.online && enginePeer) {
+      enginePeer = null; enginePeerName = null; $('#dl-engines-local').hidden = true;
+      $('#dl-engines-title').textContent = 'Coding engines on this Mac'; $('#dl-engines').replaceChildren();
+    }
+  };
+  void window.ditto.devicesStatus().then(networkStatus).catch(error => show('#dl-devices-status', error.message));
+  window.ditto.onDevicesStatus(networkStatus);
+  $('#dl-devices-start').addEventListener('click', async () => {
+    try { networkStatus(await window.ditto.devicesStart()); }
+    catch (error) { show('#dl-devices-status', desktopError(error)); }
+  });
+  $('#dl-devices-stop').addEventListener('click', async () => { networkStatus(await window.ditto.devicesStop()); });
+  $('#dl-pair-create').addEventListener('click', async () => {
+    try {
+      const result = await window.ditto.devicesPairCode();
+      show('#dl-pair-status', `Enter ${result.code} on your other Mac. Expires ${new Date(result.expiresAt).toLocaleTimeString()}.`);
+    } catch (error) { show('#dl-pair-status', desktopError(error)); }
+  });
+  $('#dl-pair-claim').addEventListener('click', async () => {
+    const button = $('#dl-pair-claim'); button.disabled = true;
+    try { await window.ditto.devicesClaim($('#dl-pair-code').value.trim()); $('#dl-pair-code').value = ''; show('#dl-pair-status', 'Mac paired.'); await refreshDevices(); }
+    catch (error) { show('#dl-pair-status', desktopError(error)); }
+    finally { networkStatus(await window.ditto.devicesStatus()); }
+  });
+  const refreshEngines = async () => {
+    const button = $('#dl-engines-refresh'); button.disabled = true;
+    const peer = enginePeer;
+    try {
+      show('#dl-engines-status', 'Checking installed engines…');
+      const status = peer ? await window.ditto.devicesRequest(peer, 'engines.status') : await window.ditto.enginesStatus();
+      if (peer !== enginePeer) return;
+      const list = $('#dl-engines'); list.replaceChildren();
+      for (const engine of status.engines) {
+        const card = item(engine.name, engine.version || (engine.installed ? 'Installed' : 'Not installed'), engine.detail);
+        if (engine.updatable) {
+          const update = element('button', '', `Update ${engine.name}`);
+          update.disabled = Boolean(engineUpdating || status.updating || status.busy);
+          update.addEventListener('click', async () => {
+            if (engineUpdating) return;
+            engineUpdating = true; list.querySelectorAll('button').forEach(node => { node.disabled = true; });
+            $('#dl-engines-refresh').disabled = true; $('#dl-engines-local').disabled = true;
+            show('#dl-engines-status', `Updating ${engine.name}${peer ? ` on ${enginePeerName}` : ''}…`);
+            try {
+              const result = peer ? await window.ditto.devicesRequest(peer, 'engines.update', { provider: engine.id }) : await window.ditto.enginesUpdate(engine.id);
+              if (result.version) card.querySelector('small').textContent = result.version;
+              show('#dl-engines-status', `${engine.name} update finished${result.version ? ` · ${result.version}` : ''}.`);
+            } catch (error) { show('#dl-engines-status', `${engine.name} update failed. ${desktopError(error)}`); }
+            finally {
+              engineUpdating = false; $('#dl-engines-refresh').disabled = false; $('#dl-engines-local').disabled = false;
+              list.querySelectorAll('button').forEach(node => { node.disabled = false; });
+            }
+          });
+          card.append(update);
+        }
+        list.append(card);
+      }
+      show('#dl-engines-status', status.updating ? 'An engine update is in progress.' : status.busy ? 'Wait for coding tasks to finish before updating.' : 'Installed engines checked.');
+    } catch (error) { show('#dl-engines-status', desktopError(error)); }
+    finally { button.disabled = engineUpdating; }
+  };
+  $('#dl-engines-refresh').addEventListener('click', refreshEngines);
+  $('#dl-engines-local').addEventListener('click', () => {
+    enginePeer = null; enginePeerName = null; $('#dl-engines-local').hidden = true;
+    $('#dl-engines-title').textContent = 'Coding engines on this Mac'; void refreshEngines();
+  });
+  window.ditto.onEngineUpdate(status => { if (!enginePeer) show('#dl-engines-status', status.detail); });
+  const refreshDevices = async () => {
     const button = $('#dl-remote-refresh'); button.disabled = true;
     try {
-      const hosts = await window.ditto.remoteHosts();
+      const [hosts, status] = await Promise.all([window.ditto.remoteHosts(), window.ditto.devicesStatus()]);
       const list = $('#dl-remote-devices'); list.replaceChildren();
-      for (const host of hosts) list.append(item(host.name || 'Ditto device',
-        `${host.online ? 'Online' : 'Offline'} · ${host.kind || 'host'} · ${host.platform || 'Mac'}`,
-        `${number(host.sessions)} coding sessions`));
+      for (const host of hosts) {
+        const isThisMac = host.id === status.hostId;
+        const card = item(`${host.name || 'Ditto device'}${isThisMac ? ' · This Mac' : ''}`,
+          `${host.online ? 'Online' : 'Offline'} · ${host.kind || 'host'} · ${host.platform || 'Mac'}`,
+          [host.version && `Version ${host.version}`, host.paired ? 'Paired' : !isThisMac ? 'Pair this Mac to manage it' : ''].filter(Boolean).join(' · '));
+        if (!isThisMac && host.kind === 'desktop') {
+          const manage = element('button', '', 'Manage coding engines');
+          manage.disabled = !host.online || !host.paired || !status.online || engineUpdating;
+          manage.addEventListener('click', () => {
+            if (engineUpdating) return;
+            enginePeer = host.id; enginePeerName = host.name || 'your other Mac';
+            $('#dl-engines-title').textContent = `Coding engines on ${enginePeerName}`; $('#dl-engines-local').hidden = false; void refreshEngines();
+          });
+          card.append(manage);
+        }
+        if (host.paired && !isThisMac) {
+          const unpair = element('button', '', 'Unpair'); unpair.disabled = !status.online || engineUpdating;
+          unpair.addEventListener('click', async () => {
+            try {
+              await window.ditto.devicesUnpair(host.id);
+              if (enginePeer === host.id) { enginePeer = null; enginePeerName = null; $('#dl-engines-local').hidden = true; $('#dl-engines-title').textContent = 'Coding engines on this Mac'; $('#dl-engines').replaceChildren(); }
+              await refreshDevices();
+            } catch (error) { show('#dl-devices-status', desktopError(error)); }
+          }); card.append(unpair);
+        }
+        list.append(card);
+      }
       if (!hosts.length) list.append(element('p', 'ditto-local-muted', 'No linked devices yet.'));
-    } catch (error) { show('#dl-remote-status', error.message); }
+    } catch (error) { show('#dl-devices-status', desktopError(error)); }
     finally { button.disabled = false; }
-  });
+  };
+  $('#dl-remote-refresh').addEventListener('click', refreshDevices);
   const teleportStatus = message => show('#dl-teleport-status', message);
   const teleportBusy = async (button, action) => {
     button.disabled = true;
@@ -679,7 +789,7 @@
   let loginPoll = null;
   let messageRefresh = null;
   let loginDeadline = 0;
-  const channelError = error => String(error.message || error).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
+  const channelError = desktopError;
   const sourceName = service => ({ discord: 'Discord', telegram: 'Telegram', imessage: 'iMessage' })[service];
   function renderConversations() {
     const list = $('#di-conversations'); list.replaceChildren();

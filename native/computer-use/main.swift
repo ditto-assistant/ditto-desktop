@@ -42,7 +42,8 @@ func snapshot(_ root: AXUIElement) -> [[String: String]] {
   func visit(_ element: AXUIElement, _ reference: String, _ depth: Int) {
     if result.count >= 180 || depth > 6 { return }
     let role = label(element, kAXRoleAttribute)
-    let value = role == "AXSecureTextField" ? "[secure]" : label(element, kAXValueAttribute)
+    let secure = role == "AXSecureTextField" || label(element, kAXSubroleAttribute) == "AXSecureTextField"
+    let value = secure ? "[secure]" : label(element, kAXValueAttribute)
     result.append(["ref": reference, "role": role, "title": label(element, kAXTitleAttribute),
                    "description": label(element, kAXDescriptionAttribute), "value": value])
     for (index, child) in children(element).enumerated() {
@@ -62,7 +63,7 @@ let trusted = AXIsProcessTrusted()
 let locked = frontmost?.bundleIdentifier == "com.apple.loginwindow"
 
 if action == "status" {
-  output(["trusted": trusted, "locked": locked, "app": frontmost?.localizedName ?? "", "bundleId": frontmost?.bundleIdentifier ?? ""])
+  output(["trusted": trusted, "locked": locked, "app": frontmost?.localizedName ?? "", "bundleId": frontmost?.bundleIdentifier ?? "", "pid": frontmost?.processIdentifier ?? 0])
 } else if locked {
   output(["error": "Unlock this Mac before using computer control."])
   exit(1)
@@ -77,20 +78,32 @@ if action == "status" {
   exit(1)
 } else if let frontmost {
   let root = AXUIElementCreateApplication(frontmost.processIdentifier)
+  func checkedTarget() -> AXUIElement? {
+    guard arguments.count > 2, let index = arguments.firstIndex(of: "--expect"), index + 1 < arguments.count,
+          let data = arguments[index + 1].data(using: .utf8),
+          let expected = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          expected["bundleId"] as? String == frontmost.bundleIdentifier,
+          expected["pid"] as? Int == Int(frontmost.processIdentifier),
+          let target = resolve(root, arguments[2]),
+          expected["role"] as? String == label(target, kAXRoleAttribute),
+          expected["title"] as? String == label(target, kAXTitleAttribute),
+          expected["description"] as? String == label(target, kAXDescriptionAttribute) else { return nil }
+    return target
+  }
   switch action {
   case "snapshot":
-    output(["app": frontmost.localizedName ?? "", "bundleId": frontmost.bundleIdentifier ?? "", "elements": snapshot(root)])
+    output(["app": frontmost.localizedName ?? "", "bundleId": frontmost.bundleIdentifier ?? "", "pid": frontmost.processIdentifier, "elements": snapshot(root)])
   case "click":
-    guard arguments.count > 2, let element = resolve(root, arguments[2]) else {
-      output(["error": "Inspect the current app and use a listed element reference."])
+    guard let element = checkedTarget() else {
+      output(["error": "The app or control changed. Inspect the current app again before clicking."])
       exit(1)
     }
     let result = AXUIElementPerformAction(element, kAXPressAction as CFString)
     output(["clicked": result == .success, "errorCode": result.rawValue])
     if result != .success { exit(1) }
   case "set":
-    guard arguments.count > 3, let element = resolve(root, arguments[2]), arguments[3].count <= 10000 else {
-      output(["error": "Inspect the current app and enter shorter text in a listed field."])
+    guard arguments.count > 3, let element = checkedTarget(), arguments[3].count <= 10000 else {
+      output(["error": "The app or control changed. Inspect the current app again before entering text."])
       exit(1)
     }
     let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, arguments[3] as CFTypeRef)
