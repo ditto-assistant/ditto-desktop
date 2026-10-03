@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('ditto', {
   teleportList: () => ipcRenderer.invoke('ditto:teleport-list'),
   teleportPush: (launchCloud, endpoint) => ipcRenderer.invoke('ditto:teleport-push', launchCloud, endpoint),
   channelStatus: service => ipcRenderer.invoke('ditto:channel-status', service),
+  onChannelEvent: listener => { ipcRenderer.on('ditto:channel-event', (_event, event) => listener(event)); },
+  messagesSettings: () => ipcRenderer.invoke('ditto:messages-settings'),
   channelLogin: service => ipcRenderer.invoke('ditto:channel-login', service),
   channelLogout: service => ipcRenderer.invoke('ditto:channel-logout', service),
   channelConversations: service => ipcRenderer.invoke('ditto:channel-conversations', service),

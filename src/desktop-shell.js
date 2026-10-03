@@ -81,7 +81,7 @@
       button.setAttribute('aria-label', `${label} on this Mac`);
       button.append(element('span', `ditto-desktop-source-mark ${service}`, glyph));
       const copy = element('span');
-      copy.append(element('strong', '', label), element('small', '', 'Local account'));
+      copy.append(element('strong', '', label), element('small', '', 'Local sign-in'));
       button.append(copy);
       button.addEventListener('click', () => { selectedService = service; openPanel('Inbox'); });
       row.append(button);
@@ -524,22 +524,24 @@
   inbox.setAttribute('aria-label', 'Local chat inbox');
   inbox.innerHTML = `
     <aside class="ditto-inbox-sidebar">
-      <div class="ditto-local-eyebrow">Private on this Mac</div><h1>Local chats</h1>
-      <p>Local Discord, Telegram, and iMessage conversations.</p>
-      <div class="ditto-inbox-service-list" role="tablist" aria-label="Local chat sources">
-        <button type="button" data-service="discord">Discord</button>
-        <button type="button" data-service="telegram">Telegram</button>
-        <button type="button" data-service="imessage">iMessage</button>
-      </div>
+      <div class="ditto-local-eyebrow">On this Mac</div><h1 id="di-source">Discord</h1>
+      <p id="di-identity">Local sign-in</p>
       <div id="di-status" class="ditto-inbox-status" role="status"></div>
       <div class="ditto-local-row"><button id="di-connect" class="primary" hidden>Connect on this Mac</button><button id="di-disconnect" hidden>Disconnect</button></div>
-      <img id="di-qr" class="ditto-inbox-qr" alt="Scan with your signed-in phone" hidden>
+      <button id="di-settings" type="button" hidden>Open Full Disk Access settings</button>
+      <button id="di-refresh" type="button">Refresh connection</button>
       <input id="di-filter" type="search" placeholder="Find a conversation" aria-label="Find a local conversation">
       <div id="di-conversations" class="ditto-inbox-list"></div>
     </aside>
     <div class="ditto-inbox-main">
       <div class="ditto-inbox-head"><div><h2 id="di-title">Choose a conversation</h2><p id="di-subtitle">Messages stay on this Mac until you use them in a task.</p></div>
         <button id="di-packet" type="button" hidden>Use in Ditto Code →</button></div>
+      <div id="di-login" class="ditto-inbox-login" hidden>
+        <h3 id="di-login-title">Connect Discord on this Mac</h3>
+        <p id="di-login-help">Sign in locally to read conversations and reply as yourself.</p>
+        <img id="di-qr" class="ditto-inbox-qr" alt="Scan with your signed-in phone" hidden>
+        <p id="di-login-progress" role="status"></p>
+      </div>
       <div id="di-messages" class="ditto-inbox-messages"><p>Choose a chat to read it here.</p></div>
       <form id="di-compose" class="ditto-inbox-compose" hidden><textarea id="di-draft" placeholder="Message as yourself…" aria-label="Reply as yourself"></textarea>
         <div class="ditto-inbox-compose-row"><button class="primary" id="di-send" type="submit">Send as me</button><span id="di-send-status">Only sends when you click.</span></div></form>
@@ -550,6 +552,9 @@
   let conversationRows = [];
   let displayedConversations = 100;
   let loginPoll = null;
+  let messageRefresh = null;
+  let loginDeadline = 0;
+  const channelError = error => String(error.message || error).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
   const sourceName = service => ({ discord: 'Discord', telegram: 'Telegram', imessage: 'iMessage' })[service];
   function renderConversations() {
     const list = $('#di-conversations'); list.replaceChildren();
@@ -579,10 +584,11 @@
       displayedConversations = 100;
       renderConversations();
       show('#di-status', `${number(rows.length)} conversations on this Mac`);
-    } catch (error) { show('#di-status', error.message); }
+    } catch (error) { if (selectedService === service) show('#di-status', channelError(error)); }
   }
   async function selectService(service) {
     if (loginPoll) { clearTimeout(loginPoll); loginPoll = null; }
+    if (messageRefresh) { clearTimeout(messageRefresh); messageRefresh = null; }
     selectedService = service;
     selectedConversation = null;
     conversationRows = [];
@@ -592,6 +598,14 @@
     $('#di-compose').hidden = true;
     $('#di-packet').hidden = true;
     $('#di-qr').hidden = true;
+    $('#di-login').hidden = true;
+    $('#di-connect').hidden = true;
+    $('#di-disconnect').hidden = true;
+    $('#di-settings').hidden = true;
+    $('#di-filter').disabled = true;
+    show('#di-identity', 'Checking local sign-in…');
+    show('#di-source', sourceName(service));
+    show('#di-subtitle', 'Local conversations and replies as yourself');
     show('#di-title', `${sourceName(service)} on this Mac`);
     show('#di-status', 'Checking connection…');
     for (const button of inbox.querySelectorAll('[data-service]')) button.classList.toggle('active', button.dataset.service === service);
@@ -599,14 +613,29 @@
       const status = await window.ditto.channelStatus(service);
       if (selectedService !== service) return;
       show('#di-status', status.detail || (status.connected ? 'Connected' : 'Not connected'));
-      $('#di-connect').hidden = service === 'imessage' || status.connected || status.restoring;
+      show('#di-identity', status.connected ? (status.user?.displayName || 'Connected locally') : 'Not connected locally');
+      $('#di-connect').hidden = service === 'imessage' || status.connected || status.restoring || status.configured === false;
       $('#di-disconnect').hidden = service === 'imessage' || !status.connected;
+      $('#di-settings').hidden = service !== 'imessage' || status.connected;
+      $('#di-filter').disabled = !status.connected;
       if (status.connected) void loadConversations(service);
       else if (status.restoring) loginPoll = setTimeout(() => { void selectService(service); }, 3500);
-    } catch (error) { show('#di-status', error.message); }
+      else {
+        $('#di-login').hidden = false;
+        show('#di-login-title', service === 'imessage' ? 'Read Messages on this Mac' : `Connect ${sourceName(service)} on this Mac`);
+        show('#di-login-help', service === 'imessage' ? 'Enable Ditto Desktop in System Settings → Privacy & Security → Full Disk Access, then refresh the connection.' : status.configured === false ? 'Telegram sign-in needs Ditto’s app credentials. This build must be updated before you can connect.' : 'This is a separate local sign-in from your cloud connection. It enables reading conversations and replying as yourself.');
+        show('#di-login-progress', '');
+        if (status.loginPending) {
+          if (status.qrDataUrl) { $('#di-qr').src = status.qrDataUrl; $('#di-qr').hidden = false; }
+          loginDeadline = Date.now() + 180000;
+          loginPoll = setTimeout(() => { void pollLogin(service); }, 2500);
+        }
+      }
+    } catch (error) { if (selectedService === service) show('#di-status', channelError(error)); }
   }
   async function openConversation(row) {
     selectedConversation = row;
+    $('#di-login').hidden = true;
     renderConversations();
     show('#di-title', row.title || 'Conversation');
     show('#di-subtitle', [sourceName(selectedService), row.guildName || row.kind].filter(Boolean).join(' · '));
@@ -633,30 +662,60 @@
   }
   for (const button of inbox.querySelectorAll('[data-service]')) button.addEventListener('click', () => { void selectService(button.dataset.service); });
   $('#di-filter').addEventListener('input', renderConversations);
+  async function pollLogin(service) {
+    if (selectedService !== service || activePanel !== 'Inbox') return;
+    try {
+      const status = await window.ditto.channelStatus(service);
+      if (selectedService !== service) return;
+      if (status.connected) { await selectService(service); return; }
+      if (!status.loginPending || Date.now() >= loginDeadline) {
+        $('#di-qr').hidden = true;
+        show('#di-login-progress', status.loginPending ? 'QR code expired. Connect again for a new code.' : status.detail || 'Sign-in ended. Connect again to retry.');
+        $('#di-connect').disabled = false;
+        return;
+      }
+      if (status.qrDataUrl) { $('#di-qr').src = status.qrDataUrl; $('#di-qr').hidden = false; }
+      show('#di-login-progress', status.detail || 'Waiting for approval on your phone…');
+      loginPoll = setTimeout(() => { void pollLogin(service); }, 2500);
+    } catch (error) {
+      show('#di-login-progress', channelError(error));
+      $('#di-connect').disabled = false;
+    }
+  }
   $('#di-connect').addEventListener('click', async () => {
     const service = selectedService;
+    if (loginPoll) clearTimeout(loginPoll);
     $('#di-connect').disabled = true;
+    $('#di-qr').hidden = true;
+    show('#di-login-progress', 'Preparing secure sign-in…');
     try {
       const result = await window.ditto.channelLogin(service);
       if (selectedService !== service) return;
       if (result.connected) { await selectService(service); return; }
       if (result.qrDataUrl) { $('#di-qr').src = result.qrDataUrl; $('#di-qr').hidden = false; }
-      show('#di-status', `Scan this QR with your signed-in ${sourceName(service)} phone.`);
-      let attempts = 0;
-      const poll = async () => {
-        if (selectedService !== service || activePanel !== 'Inbox' || attempts++ >= 24) return;
-        try {
-          const status = await window.ditto.channelStatus(service);
-          if (status.connected) { await selectService(service); return; }
-          if (status.detail) show('#di-status', status.detail);
-        } catch (error) { show('#di-status', error.message); }
-        loginPoll = setTimeout(poll, 5000);
-      };
-      loginPoll = setTimeout(poll, 5000);
-    } catch (error) { show('#di-status', error.message); }
+      show('#di-login-help', service === 'discord' ? 'Open Discord on your phone → You → Scan QR Code. Scan here and approve the login.' : 'Open Telegram on your phone → Settings → Devices → Link Desktop Device. Scan here and approve the login.');
+      show('#di-login-progress', 'Waiting for approval on your phone…');
+      loginDeadline = Date.now() + (result.expiresInSeconds || 180) * 1000;
+      loginPoll = setTimeout(() => { void pollLogin(service); }, 2500);
+    } catch (error) { show('#di-login-progress', channelError(error)); }
     finally { $('#di-connect').disabled = false; }
   });
+  $('#di-settings').addEventListener('click', () => { void window.ditto.messagesSettings(); });
+  $('#di-refresh').addEventListener('click', () => { void selectService(selectedService); });
+  window.ditto.onChannelEvent(event => {
+    if (event.service !== selectedService || activePanel !== 'Inbox') return;
+    if (event.event === 'connection.ready' || event.event === 'login.completed' || (event.event === 'connection.status' && event.data?.connected)) {
+      void selectService(selectedService);
+    } else if (event.event === 'login.failed' || event.event === 'connection.error') {
+      $('#di-qr').hidden = true;
+      show('#di-login-progress', event.data?.message || 'Sign-in failed. Please reconnect.');
+    } else if (event.event.startsWith('message.') && event.data?.channelId === selectedConversation?.id) {
+      if (messageRefresh) clearTimeout(messageRefresh);
+      messageRefresh = setTimeout(() => { if (selectedConversation) void openConversation(selectedConversation); }, 300);
+    }
+  });
   $('#di-disconnect').addEventListener('click', async () => {
+    const service = selectedService;
     try { await window.ditto.channelLogout(selectedService); await selectService(selectedService); }
     catch (error) { show('#di-status', error.message); }
   });
@@ -664,9 +723,12 @@
     event.preventDefault();
     if (!selectedConversation) return;
     const content = $('#di-draft').value.trim(); if (!content) return;
+    const conversation = selectedConversation;
+    const service = selectedService;
     $('#di-send').disabled = true; show('#di-send-status', 'Sending…');
     try {
-      await window.ditto.channelSend(selectedService, selectedConversation.id, content, selectedConversation.handle);
+      await window.ditto.channelSend(service, conversation.id, content, conversation.handle);
+      if (selectedService !== service || selectedConversation?.id !== conversation.id) return;
       $('#di-draft').value = '';
       show('#di-send-status', 'Sent as you.');
       await openConversation(selectedConversation);
@@ -675,6 +737,7 @@
   });
   $('#di-packet').addEventListener('click', async () => {
     if (!selectedConversation) return;
+    const service = selectedService;
     const button = $('#di-packet'); button.disabled = true;
     try {
       const packet = await window.ditto.createPacket(selectedService, selectedConversation.id);
@@ -689,7 +752,7 @@
       $('#dl-prompt').value = `Use the local knowledge packet at ${packet.path} as context for this task.\n\n`;
       $('#dl-prompt').focus();
       show('#dl-context', `${packet.messageCount} chat messages ready for Ditto Code`);
-    } catch (error) { show('#di-status', error.message); }
+    } catch (error) { if (selectedService === service) show('#di-status', channelError(error)); }
     finally { button.disabled = false; }
   });
   mountSidebars();

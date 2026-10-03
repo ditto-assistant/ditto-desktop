@@ -318,7 +318,11 @@ func (s *server) restore() (status, error) {
 }
 
 func (s *server) startLogin() (any, error) {
-	if restored, err := s.restore(); err == nil && restored.Connected {
+	restored, err := s.restore()
+	if err != nil {
+		return nil, err
+	}
+	if restored.Connected {
 		return map[string]any{"connected": true, "status": restored}, nil
 	}
 	s.mu.Lock()

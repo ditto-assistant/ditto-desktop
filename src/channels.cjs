@@ -10,12 +10,14 @@ const QRCode = require('qrcode');
 const execFileAsync = promisify(execFile);
 
 class Sidecar {
-  constructor(binary, stateDir) {
+  constructor(binary, stateDir, { onEvent = () => {}, onDiagnostic = () => {} } = {}) {
     this.binary = binary;
     this.stateDir = stateDir;
     this.child = null;
     this.pending = new Map();
     this.sequence = 0;
+    this.onEvent = onEvent;
+    this.onDiagnostic = onDiagnostic;
   }
 
   ensureStarted() {
@@ -28,11 +30,19 @@ class Sidecar {
     readline.createInterface({ input: child.stdout }).on('line', line => {
       let message;
       try { message = JSON.parse(line); } catch { return; }
-      if (!message.id) return;
+      if (!message.id) {
+        if (typeof message.event === 'string') this.onEvent(message);
+        return;
+      }
       const request = this.pending.get(message.id);
       if (!request) return;
       this.pending.delete(message.id);
       clearTimeout(request.timer);
+      this.onDiagnostic({ method: request.method, durationMs: Date.now() - request.started,
+        outcome: message.error ? 'error' : 'ok', code: message.error?.code,
+        ...(typeof message.result?.connected === 'boolean' ? { connected: message.result.connected } : {}),
+        ...(typeof message.result?.configured === 'boolean' ? { configured: message.result.configured } : {}),
+        ...(Array.isArray(message.result) ? { count: message.result.length } : {}) });
       if (message.error) request.reject(new Error(message.error.message || 'Channel request failed.'));
       else request.resolve(message.result);
     });
@@ -52,8 +62,13 @@ class Sidecar {
     const child = this.ensureStarted();
     const id = `desktop-${++this.sequence}`;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${method} timed out.`)); }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      const started = Date.now();
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        this.onDiagnostic({ method, durationMs: Date.now() - started, outcome: 'timeout' });
+        reject(new Error(`${method} timed out.`));
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer, method, started });
       child.stdin.write(`${JSON.stringify({ id, method, ...(params === undefined ? {} : { params }) })}\n`, error => {
         if (!error) return;
         const request = this.pending.get(id);
@@ -79,15 +94,29 @@ async function sqliteRows(database, sql) {
 }
 
 class LocalChannels {
-  constructor(binaryDir, stateDir) {
+  constructor(binaryDir, stateDir, onEvent = () => {}) {
+    const hooks = service => ({
+      onEvent: message => {
+        // Message contents only travel to the inbox; diagnostics contain no content or credentials.
+        if (/^(connection\.|login\.|message\.)/.test(message.event)) onEvent({ service, ...message });
+      },
+      onDiagnostic: diagnostic => {
+        try {
+          const file = path.join(stateDir, 'channel-health.jsonl');
+          if (fs.existsSync(file) && fs.statSync(file).size > 512 * 1024) fs.renameSync(file, `${file}.previous`);
+          fs.appendFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), service, ...diagnostic })}\n`, { mode: 0o600 });
+        } catch { /* Diagnostics must not interrupt a chat connection. */ }
+      },
+    });
     this.clients = {
-      discord: new Sidecar(path.join(binaryDir, 'ditto-discord-sidecar'), stateDir),
-      telegram: new Sidecar(path.join(binaryDir, 'ditto-telegram-sidecar'), stateDir),
+      discord: new Sidecar(path.join(binaryDir, 'ditto-discord-sidecar'), stateDir, hooks('discord')),
+      telegram: new Sidecar(path.join(binaryDir, 'ditto-telegram-sidecar'), stateDir, hooks('telegram')),
     };
     this.imessageDatabase = path.join(os.homedir(), 'Library', 'Messages', 'chat.db');
     this.cache = new Map();
     this.telegramRestore = null;
     this.telegramRestoreSettled = false;
+    this.statusRequests = new Map();
   }
 
   client(service) {
@@ -96,6 +125,16 @@ class LocalChannels {
   }
 
   async status(service) {
+    if (this.statusRequests.has(service)) return this.statusRequests.get(service);
+    const request = this.readStatus(service).then(async result => {
+      if (result.qrUrl) result.qrDataUrl = await QRCode.toDataURL(result.qrUrl, { width: 220, margin: 1 });
+      return result;
+    });
+    this.statusRequests.set(service, request);
+    try { return await request; } finally { this.statusRequests.delete(service); }
+  }
+
+  async readStatus(service) {
     if (service === 'imessage') {
       try {
         await sqliteRows(this.imessageDatabase, 'SELECT COUNT(*) AS count FROM chat LIMIT 1');
@@ -110,7 +149,7 @@ class LocalChannels {
       return current.connected || current.loginPending ? current : client.request('connection.restore', undefined, 30000);
     }
     const current = await client.request('status');
-    if (current.connected || current.loginPending || this.telegramRestoreSettled) return current;
+    if (current.configured === false || current.connected || current.loginPending || this.telegramRestoreSettled) return current;
     if (!this.telegramRestore) {
       this.telegramRestore = client.request('connection.restore', undefined, 30000)
         .catch(() => null).finally(() => { this.telegramRestoreSettled = true; });
@@ -120,6 +159,8 @@ class LocalChannels {
 
   async startLogin(service) {
     const client = this.client(service);
+    const current = await client.request('status');
+    if (current.configured === false) throw new Error('Telegram is unavailable in this build. Ditto’s Telegram app credentials need to be added before you can sign in.');
     if (service === 'discord') {
       const status = await client.request('status');
       if (status.loginPending) await client.request('login.cancel');
@@ -129,7 +170,10 @@ class LocalChannels {
     return result;
   }
 
-  async logout(service) { return this.client(service).request('logout'); }
+  async logout(service) {
+    this.cache.delete(service);
+    return this.client(service).request('logout');
+  }
 
   async conversations(service) {
     const cached = this.cache.get(service);
@@ -186,4 +230,4 @@ class LocalChannels {
   close() { for (const client of Object.values(this.clients)) client.close(); }
 }
 
-module.exports = { LocalChannels };
+module.exports = { LocalChannels, Sidecar };

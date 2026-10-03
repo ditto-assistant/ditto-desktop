@@ -26,3 +26,12 @@ func TestProtocolErrorCode(t *testing.T) {
 		})
 	}
 }
+
+func TestLoginPreservesMissingConfiguration(t *testing.T) {
+	t.Setenv("DITTO_TELEGRAM_API_ID", "invalid")
+	t.Setenv("DITTO_TELEGRAM_API_HASH", "")
+	_, err := newServer().startLogin()
+	if err == nil || err.Error() != "Telegram is not configured in this build" {
+		t.Fatalf("missing configuration was hidden: %v", err)
+	}
+}

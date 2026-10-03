@@ -312,6 +312,7 @@ function registerIpc() {
     } finally { if (piProcess === child) piProcess = null; }
   });
   ipcMain.handle('ditto:channel-status', async (_event, service) => channels.status(service));
+  ipcMain.handle('ditto:messages-settings', () => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'));
   ipcMain.handle('ditto:channel-login', async (_event, service) => channels.startLogin(service));
   ipcMain.handle('ditto:channel-logout', async (_event, service) => channels.logout(service));
   ipcMain.handle('ditto:channel-conversations', async (_event, service) => channels.conversations(service));
@@ -544,7 +545,7 @@ app.whenReady().then(async () => {
   if (app.dock && fs.existsSync(dockIcon)) app.dock.setIcon(dockIcon);
   store = new MemoryStore(dataDir());
   channels = new LocalChannels(app.isPackaged ? path.join(process.resourcesPath, 'channel-sidecars')
-    : path.join(__dirname, '..', 'native', 'bin'), dataDir());
+    : path.join(__dirname, '..', 'native', 'bin'), dataDir(), event => emit('ditto:channel-event', event));
   remoteHost = new RemoteHost(status => emit('ditto:remote-status', status), path.join(dataDir(), 'cli'));
   await registerWebRenderer();
   registerIpc();

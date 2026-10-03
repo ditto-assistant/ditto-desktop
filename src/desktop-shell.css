@@ -147,3 +147,11 @@ html.dark .ditto-inbox-service-list button, html[data-ditto-mode="dark"] .ditto-
 html.dark .ditto-inbox-service-list button.active, html[data-ditto-mode="dark"] .ditto-inbox-service-list button.active { background: color-mix(in oklch, #2b75d0 22%, transparent); }
 html.dark .ditto-local-card, html.dark .ditto-local-stat,
 html[data-ditto-mode="dark"] .ditto-local-card, html[data-ditto-mode="dark"] .ditto-local-stat { background: var(--ditto-raised); border-color: color-mix(in oklch, var(--ditto-ink) 12%, transparent); }
+/* Local connection setup occupies the conversation area, alongside the shared rail. */
+.ditto-inbox-login { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 36px; text-align: center; }
+.ditto-inbox-login h3 { font-family: inherit; font-weight: 650; font-size: 24px; line-height: 1.25; margin: 0 0 12px; }
+.ditto-inbox-login p { max-width: 460px; }
+.ditto-inbox-login:not([hidden]) + .ditto-inbox-messages { display: none; }
+.ditto-inbox-qr[hidden], .ditto-inbox-login[hidden], .ditto-inbox-page button[hidden] { display: none; }
+#di-refresh { margin: 8px 0; }
+#di-identity { font-size: 12px; }
