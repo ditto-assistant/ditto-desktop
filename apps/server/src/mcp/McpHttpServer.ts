@@ -41,6 +41,9 @@ import {
   DeviceScreenshotToolkit,
   DeviceStandardToolkit,
 } from "./toolkits/device/tools.ts";
+// DITTO: OmniSynth integration.
+import { OmniSynthToolkitHandlersLive } from "./toolkits/omnisynth/handlers.ts";
+import { OmniSynthToolkit } from "./toolkits/omnisynth/tools.ts";
 
 const unauthorized = HttpServerResponse.jsonUnsafe(
   {
@@ -622,6 +625,11 @@ export const DeviceToolkitRegistrationLive = Layer.mergeAll(
   DeviceScreenshotRegistrationLive,
 );
 
+// DITTO: OmniSynth DAW tools; the service reads the app's discovery file at call time.
+export const OmniSynthToolkitRegistrationLive = McpServer.toolkit(OmniSynthToolkit).pipe(
+  Layer.provide(OmniSynthToolkitHandlersLive),
+);
+
 const McpTransportLive = McpServer.layerHttp({
   name: "Ditto",
   version: packageJson.version,
@@ -633,4 +641,5 @@ export const layer = Layer.mergeAll(
   PreviewToolkitRegistrationLive,
   PullRequestsToolkitRegistrationLive,
   DeviceToolkitRegistrationLive,
+  OmniSynthToolkitRegistrationLive,
 ).pipe(Layer.provideMerge(McpTransportLive));
