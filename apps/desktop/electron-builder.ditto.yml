@@ -1,0 +1,33 @@
+appId: ai.heyditto.local
+productName: Ditto Desktop
+artifactName: Ditto-Desktop-${version}-${arch}.${ext}
+directories:
+  output: dist
+files:
+  - LICENSE
+  - src/**/*
+  - native/**/*
+  - package.json
+  - node_modules/@earendil-works/**/*
+  - node_modules/@mariozechner/**/*
+  - node_modules/@anthropic-ai/**/*
+  - node_modules/@openai/**/*
+  - node_modules/@google/**/*
+  - node_modules/@smithy/**/*
+  - node_modules/@aws-sdk/**/*
+  - node_modules/**/*
+asarUnpack:
+  - native/*.node
+extraResources:
+  - from: resources/icon.png
+    to: dock-icon.png
+  - from: resources/web
+    to: web
+  - from: native/bin
+    to: channel-sidecars
+mac:
+  category: public.app-category.productivity
+  icon: resources/icon.png
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false

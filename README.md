@@ -1,3 +1,9 @@
+# Ditto Desktop
+
+Ditto Desktop combines the Ditto web interface with local Pi coding, private memory, local chat connections, browser use, and Mac control. This repository also retains Peyton’s T3-based coding workbench, providers, Ditto sign-in, host bridge, Teleport and update services.
+
+See [building Ditto Desktop](docs/operations/ditto-desktop.md) and [using Ditto Desktop](docs/user/ditto-desktop.md). The following upstream T3 guide describes the retained workbench.
+
 # T3 Code
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
