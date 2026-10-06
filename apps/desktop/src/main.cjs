@@ -15,6 +15,7 @@ const os = require("node:os");
 const { spawn } = require("node:child_process");
 const readline = require("node:readline");
 const { MemoryStore, defaultCodeRoots } = require("./memory.cjs");
+const { shouldRetrieveMemory } = require("./task-context.cjs");
 const { LocalChannels } = require("./channels.cjs");
 const { createKnowledgePacket } = require("./packets.cjs");
 const { binaryFor, providerAvailability, startProvider } = require("./code-providers.cjs");
@@ -133,7 +134,9 @@ async function localPiModel() {
       signal: AbortSignal.timeout(1500),
     });
     const data = await response.json();
-    const model = data.models?.find((item) => item.name === "qwen2.5:7b");
+    const model = ["qwen2.5:14b-instruct-q4_K_M", "qwen2.5:7b-instruct-q4_K_M", "qwen2.5:7b"]
+      .map((name) => data.models?.find((item) => item.name === name))
+      .find(Boolean);
     if (!model) return null;
     await fsp.mkdir(piDir(), { recursive: true, mode: 0o700 });
     const config = {
@@ -701,14 +704,15 @@ function registerIpc() {
       );
     // A resumed Pi session already contains its conversation and initial memory.
     // Unrelated retrieval on a follow-up can obscure the actual previous turn.
-    let matches = desktopToolTask || previous ? [] : store.search(question, aboutThisApp ? 30 : 3);
+    const retrieveMemory = shouldRetrieveMemory(question) && !desktopToolTask && !previous;
+    let matches = retrieveMemory ? store.search(question, aboutThisApp ? 30 : 3) : [];
     if (aboutThisApp)
       matches = matches
         .filter((item) => item.source === "code" && item.title === "hey-ditto-local/README.md")
         .slice(0, 1);
     const engine = await openHarness().catch(() => null);
     let vector = [];
-    if (engine && !previous && !aboutThisApp && !desktopToolTask) {
+    if (engine && retrieveMemory && !aboutThisApp) {
       try {
         vector = await engine.searchMemories("local", question, { limit: 1, minSimilarity: 0.1 });
       } catch {
