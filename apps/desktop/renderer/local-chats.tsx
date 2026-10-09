@@ -436,7 +436,14 @@ export function LocalChatSurface() {
     setError("");
     setBusy(false);
     setQR("");
-    void refreshChannel(provider).then(() => {
+    // Account events and explicit Refresh update the directory. Merely opening
+    // another conversation must not refetch every Discord server/channel.
+    const knownStatus = untrack(() => channels()[provider]?.status);
+    const ready =
+      knownStatus && !knownStatus.loginPending && !knownStatus.restoring
+        ? Promise.resolve()
+        : refreshChannel(provider);
+    void ready.then(() => {
       if (generation !== loginGeneration) return;
       const status = channels()[provider]?.status;
       if (status?.loginPending || status?.restoring) {
