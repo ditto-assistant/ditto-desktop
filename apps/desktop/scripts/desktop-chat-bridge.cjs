@@ -11,6 +11,12 @@ function sidebarOverlay(source) {
     localImport(
       "initializeLocalChannels, localSessions, localServices, localServiceName, LocalChatRows, LocalChatRow, isLocalSessionID",
     ) + source;
+  source = replace(source, 'value={view() === "all" ? "apps" : view()}', "value={view()}");
+  source = replace(
+    source,
+    '{view() === "recent" ? t(msg("One list")) : t(msg("By app"))}',
+    '{view() === "all" ? t(msg("All chats")) : view() === "recent" ? t(msg("One list")) : t(msg("By app"))}',
+  );
   source = replace(
     source,
     "  const appGroups = createMemo(() => {",
