@@ -26,8 +26,7 @@ body {
 .ditto-desktop-code-group .ditto-desktop-code-mode.is-selected {
   background: color-mix(in oklch, #2b75d0 20%, transparent);
 }
-.ditto-desktop-local-mark,
-.ditto-desktop-source-mark {
+.ditto-desktop-local-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -43,23 +42,7 @@ body {
     system-ui,
     sans-serif;
 }
-.ditto-desktop-source-mark.discord {
-  background: #5865f2;
-}
-.ditto-desktop-source-mark.telegram {
-  background: #289ed9;
-}
-.ditto-desktop-source-mark.imessage {
-  background: #39aa62;
-}
-.ditto-desktop-chat-group .v2-studio-recent small {
-  display: block;
-  opacity: 0.65;
-  font-size: 10px;
-}
-body.ditto-inbox-open .v2-studio-panel,
 body.ditto-local-open .v2-shell-stage,
-body.ditto-inbox-open .v2-shell-stage,
 body.ditto-browser-open .v2-shell-stage {
   visibility: hidden;
 }
@@ -200,208 +183,6 @@ html[data-ditto-mode="dark"] .ditto-browser-address input {
 html.dark .ditto-browser-viewport,
 html[data-ditto-mode="dark"] .ditto-browser-viewport {
   border-color: #344960;
-}
-.ditto-inbox-page {
-  display: none;
-  position: fixed;
-  inset: 0 0 0 var(--ditto-desktop-rail-width);
-  z-index: 2147483000;
-  background: #f7f8fa;
-  color: #172238;
-  font:
-    14px/1.5 Inter,
-    ui-sans-serif,
-    system-ui,
-    sans-serif;
-}
-body.ditto-inbox-open .ditto-inbox-page {
-  display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
-}
-.ditto-inbox-sidebar {
-  overflow: auto;
-  border-right: 1px solid #dfe5ee;
-  background: #fff;
-  padding: 22px 16px;
-}
-.ditto-inbox-page h1 {
-  font-size: 25px;
-  letter-spacing: -0.04em;
-  margin: 1px 0 2px;
-}
-.ditto-inbox-page h2 {
-  font-size: 18px;
-  letter-spacing: -0.03em;
-  margin: 0;
-}
-.ditto-inbox-page p {
-  color: #66778d;
-  margin: 4px 0 12px;
-}
-.ditto-inbox-service-list {
-  display: flex;
-  gap: 5px;
-  margin: 16px 0;
-}
-.ditto-inbox-page button {
-  font:
-    600 12px/1.2 Inter,
-    ui-sans-serif,
-    system-ui,
-    sans-serif;
-  cursor: pointer;
-  border-radius: 9px;
-  border: 1px solid #d6e0ed;
-  color: #35506f;
-  background: #f9fbfd;
-  padding: 10px 12px;
-}
-.ditto-inbox-page button:hover {
-  background: #eaf2fe;
-}
-.ditto-inbox-page button.primary {
-  color: #fff;
-  background: #2b75d0;
-  border-color: #2b75d0;
-}
-.ditto-inbox-service-list button.active {
-  background: #dceafe;
-  color: #2259a1;
-}
-.ditto-inbox-page input,
-.ditto-inbox-page textarea {
-  box-sizing: border-box;
-  width: 100%;
-  border: 1px solid #d5e0ed;
-  border-radius: 10px;
-  background: #fff;
-  color: #172238;
-  padding: 10px 11px;
-  font: inherit;
-}
-.ditto-inbox-status {
-  font-size: 12px;
-  color: #657992;
-  min-height: 36px;
-  margin-bottom: 10px;
-}
-.ditto-inbox-qr {
-  max-width: 220px;
-  display: block;
-  margin: 10px auto;
-  border-radius: 10px;
-}
-.ditto-inbox-list {
-  display: grid;
-  gap: 4px;
-  margin-top: 12px;
-}
-.ditto-inbox-list button {
-  text-align: left;
-  display: block;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  padding: 12px 11px;
-}
-.ditto-inbox-list button.active {
-  background: #e9f1fc;
-}
-.ditto-inbox-list button strong {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ditto-inbox-list button small {
-  display: block;
-  color: #7890aa;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-top: 3px;
-}
-.ditto-inbox-main {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.ditto-inbox-head {
-  border-bottom: 1px solid #dfe5ee;
-  background: #fff;
-  padding: 18px 22px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-.ditto-inbox-head p {
-  margin: 0;
-  font-size: 12px;
-}
-.ditto-inbox-messages {
-  flex: 1;
-  overflow: auto;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.ditto-inbox-message {
-  max-width: min(720px, 85%);
-  background: #fff;
-  border: 1px solid #e0e7ef;
-  padding: 12px 15px;
-  border-radius: 15px;
-  overflow-wrap: anywhere;
-}
-.ditto-inbox-message.self {
-  align-self: flex-end;
-  background: #e7f1ff;
-  border-color: #cfe2fb;
-}
-.ditto-inbox-message strong {
-  color: #316db6;
-  display: block;
-  font-size: 12px;
-}
-.ditto-inbox-message small {
-  color: #8b9aae;
-  margin-left: 8px;
-  font-weight: 400;
-}
-.ditto-inbox-message p {
-  color: inherit;
-  margin: 5px 0 0;
-  white-space: pre-wrap;
-}
-.ditto-inbox-compose {
-  border-top: 1px solid #dfe5ee;
-  background: #fff;
-  padding: 16px 22px;
-}
-.ditto-inbox-compose textarea {
-  min-height: 65px;
-  resize: vertical;
-}
-.ditto-inbox-compose-row {
-  display: flex;
-  gap: 9px;
-  align-items: center;
-  margin-top: 8px;
-}
-.ditto-inbox-compose-row span {
-  color: #6e819a;
-  font-size: 12px;
-}
-@media (max-width: 800px) {
-  body.ditto-inbox-open .ditto-inbox-page {
-    grid-template-columns: 250px minmax(0, 1fr);
-  }
-  .ditto-inbox-service-list {
-    flex-wrap: wrap;
-  }
 }
 .ditto-local-inner {
   max-width: 1060px;
@@ -622,49 +403,6 @@ html[data-ditto-mode="dark"] .ditto-local-page {
   background: #0d121a;
   color: #eaf0f8;
 }
-html.dark .ditto-inbox-page,
-html[data-ditto-mode="dark"] .ditto-inbox-page {
-  background: #0d121a;
-  color: #eaf0f8;
-}
-html.dark .ditto-inbox-sidebar,
-html.dark .ditto-inbox-head,
-html.dark .ditto-inbox-compose,
-html[data-ditto-mode="dark"] .ditto-inbox-sidebar,
-html[data-ditto-mode="dark"] .ditto-inbox-head,
-html[data-ditto-mode="dark"] .ditto-inbox-compose {
-  background: #141c27;
-  border-color: #2b3645;
-}
-html.dark .ditto-inbox-page button,
-html[data-ditto-mode="dark"] .ditto-inbox-page button {
-  background: #1c2b3b;
-  border-color: #344960;
-  color: #c9dcf3;
-}
-html.dark .ditto-inbox-page button.primary,
-html[data-ditto-mode="dark"] .ditto-inbox-page button.primary {
-  background: #2b75d0;
-  border-color: #2b75d0;
-  color: #fff;
-}
-html.dark .ditto-inbox-page input,
-html.dark .ditto-inbox-page textarea,
-html[data-ditto-mode="dark"] .ditto-inbox-page input,
-html[data-ditto-mode="dark"] .ditto-inbox-page textarea {
-  background: #101924;
-  color: #eaf0f8;
-  border-color: #344960;
-}
-html.dark .ditto-inbox-message,
-html[data-ditto-mode="dark"] .ditto-inbox-message {
-  background: #141c27;
-  border-color: #2b3645;
-}
-html.dark .ditto-inbox-message.self,
-html[data-ditto-mode="dark"] .ditto-inbox-message.self {
-  background: #173251;
-}
 html.dark .ditto-local-stat,
 html.dark .ditto-local-card,
 html[data-ditto-mode="dark"] .ditto-local-stat,
@@ -705,9 +443,6 @@ html[data-ditto-mode="dark"] .ditto-local-output {
   background: #0f1b2a;
   color: #d6e7fa;
 }
-
-/* The local panes use the same surfaces and type as Ditto's web shell. */
-.ditto-inbox-page,
 .ditto-local-page {
   font-family:
     "Ditto Brand Local",
@@ -718,94 +453,23 @@ html[data-ditto-mode="dark"] .ditto-local-output {
   background: var(--ditto-surface);
   color: var(--ditto-ink);
 }
-.ditto-inbox-page h1,
-.ditto-inbox-page h2,
 .ditto-local-page h1,
 .ditto-local-page h2,
-.ditto-inbox-page button,
 .ditto-local-page button,
-.ditto-inbox-page input,
-.ditto-inbox-page textarea,
 .ditto-local-page input,
 .ditto-local-page textarea,
 .ditto-local-page select {
   font-family: inherit;
-}
-.ditto-inbox-sidebar {
-  background: var(--ditto-raised);
-  border-color: color-mix(in oklch, var(--ditto-ink) 12%, transparent);
-}
-.ditto-inbox-head,
-.ditto-inbox-compose {
-  background: var(--ditto-surface);
-  border-color: color-mix(in oklch, var(--ditto-ink) 12%, transparent);
-}
-.ditto-inbox-messages {
-  background: var(--ditto-canvas);
-}
-.ditto-inbox-service-list {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 2px;
-  margin: 14px 0;
-}
-.ditto-inbox-service-list button {
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  padding: 9px 11px;
-}
-.ditto-inbox-service-list button.active {
-  background: color-mix(in oklch, #2b75d0 22%, transparent);
-}
-.ditto-inbox-service-list button::before {
-  content: "";
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 9px;
-  border-radius: 50%;
-  background: #5865f2;
-}
-.ditto-inbox-service-list button[data-service="telegram"]::before {
-  background: #289ed9;
-}
-.ditto-inbox-service-list button[data-service="imessage"]::before {
-  background: #39aa62;
 }
 .ditto-local-card,
 .ditto-local-stat {
   background: var(--ditto-raised);
   border-color: color-mix(in oklch, var(--ditto-ink) 12%, transparent);
 }
-html.dark .ditto-inbox-page,
-html[data-ditto-mode="dark"] .ditto-inbox-page,
 html.dark .ditto-local-page,
 html[data-ditto-mode="dark"] .ditto-local-page {
   background: var(--ditto-surface);
   color: var(--ditto-ink);
-}
-html.dark .ditto-inbox-sidebar,
-html[data-ditto-mode="dark"] .ditto-inbox-sidebar {
-  background: var(--ditto-raised);
-  border-color: color-mix(in oklch, var(--ditto-ink) 12%, transparent);
-}
-html.dark .ditto-inbox-head,
-html.dark .ditto-inbox-compose,
-html[data-ditto-mode="dark"] .ditto-inbox-head,
-html[data-ditto-mode="dark"] .ditto-inbox-compose {
-  background: var(--ditto-surface);
-  border-color: color-mix(in oklch, var(--ditto-ink) 12%, transparent);
-}
-html.dark .ditto-inbox-service-list button,
-html[data-ditto-mode="dark"] .ditto-inbox-service-list button {
-  background: transparent;
-  border: 0;
-}
-html.dark .ditto-inbox-service-list button.active,
-html[data-ditto-mode="dark"] .ditto-inbox-service-list button.active {
-  background: color-mix(in oklch, #2b75d0 22%, transparent);
 }
 html.dark .ditto-local-card,
 html.dark .ditto-local-stat,
@@ -813,40 +477,6 @@ html[data-ditto-mode="dark"] .ditto-local-card,
 html[data-ditto-mode="dark"] .ditto-local-stat {
   background: var(--ditto-raised);
   border-color: color-mix(in oklch, var(--ditto-ink) 12%, transparent);
-}
-/* Local connection setup occupies the conversation area, alongside the shared rail. */
-.ditto-inbox-login {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  padding: 36px;
-  text-align: center;
-}
-.ditto-inbox-login h3 {
-  font-family: inherit;
-  font-weight: 650;
-  font-size: 24px;
-  line-height: 1.25;
-  margin: 0 0 12px;
-}
-.ditto-inbox-login p {
-  max-width: 460px;
-}
-.ditto-inbox-login:not([hidden]) + .ditto-inbox-messages {
-  display: none;
-}
-.ditto-inbox-qr[hidden],
-.ditto-inbox-login[hidden],
-.ditto-inbox-page button[hidden] {
-  display: none;
-}
-#di-refresh {
-  margin: 8px 0;
-}
-#di-identity {
-  font-size: 12px;
 }
 /* Keep the exact web composer mounted for either execution location. */
 body.ditto-local-open:not(.ditto-desktop-settings) .v2-shell-stage {
@@ -979,10 +609,109 @@ body.ditto-local-open .ditto-desktop-local-history {
 .ditto-desktop-local-actions > [hidden] {
   display: none;
 }
-/* Sources remain in the existing web sidebar while local conversations are open. */
-body.ditto-inbox-open .v2-studio-panel {
-  visibility: visible;
+
+/* Native and cloud conversations share the web transcript and sidebar. */
+.ditto-local-badge {
+  flex: none;
+  font-weight: 500;
+  line-height: 1.5;
+  font-size: 10px;
+  padding: 0 5px;
+  border: 1px solid color-mix(in oklch, #2b75d0 35%, transparent);
+  border-radius: 5px;
+  color: var(--ditto-muted);
+  background: color-mix(in oklch, #2b75d0 8%, transparent);
 }
-.ditto-inbox-page {
-  left: var(--ditto-desktop-sidebar-width);
+.v2-studio-recent .ditto-local-badge {
+  margin-left: auto;
+}
+.ditto-local-connection {
+  font-size: 11px;
+  color: var(--ditto-muted);
+}
+.ditto-local-connection > span:first-child {
+  flex: 1;
+}
+.ditto-chat-search {
+  width: calc(100% - 20px);
+  margin: 5px 10px 8px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in oklch, var(--ditto-ink) 12%, transparent);
+  border-radius: 8px;
+  background: var(--ditto-canvas);
+  color: var(--ditto-ink);
+  font: inherit;
+  font-size: 12px;
+}
+.ditto-integrated-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--ditto-ink);
+}
+.ditto-integrated-chat > .v2-connector-chat {
+  flex: 1;
+  min-height: 0;
+}
+.ditto-integrated-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  border-bottom: 1px solid color-mix(in oklch, var(--ditto-ink) 10%, transparent);
+}
+.ditto-integrated-chat-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ditto-integrated-chat-head button {
+  margin-left: auto;
+}
+.ditto-integrated-chat-head button,
+.ditto-local-setup button {
+  border: 1px solid color-mix(in oklch, var(--ditto-ink) 14%, transparent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--ditto-raised);
+  color: var(--ditto-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.ditto-integrated-chat button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ditto-local-setup {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  overflow: auto;
+  text-align: center;
+}
+.ditto-local-setup h2 {
+  font-size: 24px;
+  margin: 0;
+}
+.ditto-local-setup p {
+  max-width: 460px;
+  color: var(--ditto-muted);
+  margin: 0;
+}
+.ditto-local-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.ditto-inbox-qr {
+  width: 220px;
+  max-width: 100%;
+  border-radius: 12px;
 }

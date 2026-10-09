@@ -209,4 +209,4 @@ class EngineMaintenance {
   }
 }
 
-module.exports = { updatePlan, runCommand, EngineMaintenance };
+module.exports = { updatePlan, EngineMaintenance };

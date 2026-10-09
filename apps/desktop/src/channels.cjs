@@ -350,4 +350,4 @@ class LocalChannels {
   }
 }
 
-module.exports = { LocalChannels, Sidecar };
+module.exports = { LocalChannels };

@@ -194,4 +194,4 @@ class DesktopBrowser {
   }
 }
 
-module.exports = { browserUrl, DesktopBrowser };
+module.exports = { DesktopBrowser };

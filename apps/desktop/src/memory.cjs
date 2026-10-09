@@ -715,8 +715,6 @@ class MemoryStore {
 module.exports = {
   MemoryStore,
   defaultCodeRoots,
-  discoverRepos,
-  isCodeFile,
   parseTrajectoryLine,
   redact,
 };

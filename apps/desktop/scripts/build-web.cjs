@@ -11,6 +11,19 @@ const appSource = path.join(web, "src", "App.tsx");
 const codeComposerSource = path.join(web, "src", "components", "code", "codeComposer.ts");
 const codeModeSource = path.join(web, "src", "components", "code", "codeModeState.ts");
 const { codeComposerOverlay, codeModeOverlay } = require("./desktop-code-bridge.cjs");
+const chatOverlays = require("./desktop-chat-bridge.cjs");
+const chatSources = new Map(
+  [
+    ["components/v2/V2StudioSidebar.tsx", chatOverlays.sidebarOverlay],
+    ["components/v2/V2ChatContactsSidebar.tsx", chatOverlays.contactsOverlay],
+    ["components/v2/V2ConnectorChatSurface.tsx", chatOverlays.surfaceOverlay],
+    ["components/ChatFeed.tsx", chatOverlays.feedOverlay],
+    ["hooks/useSurfaceCoordinator.ts", chatOverlays.coordinatorOverlay],
+    ["lib/connectorChat.ts", chatOverlays.connectorHelpersOverlay],
+  ].map(([file, transform]) => [path.join(web, "src", file), transform]),
+);
+const desktopRenderer = path.join(web, "src", "desktop");
+let desktopRendererCreated = false;
 
 if (!fs.existsSync(path.join(web, "package.json"))) {
   throw new Error("Ditto web source is missing. Run git submodule update --init --recursive.");
@@ -33,7 +46,7 @@ for (const key of [
 }
 const previousProductionEnv = fs.existsSync(productionEnv) ? fs.readFileSync(productionEnv) : null;
 const originals = new Map(
-  [appSource, codeComposerSource, codeModeSource].map((file) => [
+  [appSource, codeComposerSource, codeModeSource, ...chatSources.keys()].map((file) => [
     file,
     fs.readFileSync(file, "utf8"),
   ]),
@@ -61,6 +74,12 @@ try {
   fs.writeFileSync(appSource, app);
   fs.writeFileSync(codeComposerSource, codeComposerOverlay(originals.get(codeComposerSource)));
   fs.writeFileSync(codeModeSource, codeModeOverlay(originals.get(codeModeSource)));
+  if (fs.existsSync(desktopRenderer))
+    throw new Error("Web source already has a desktop directory; review the bridge.");
+  desktopRendererCreated = true;
+  fs.cpSync(path.join(root, "renderer"), desktopRenderer, { recursive: true });
+  for (const [file, transform] of chatSources)
+    fs.writeFileSync(file, transform(originals.get(file)));
   if (!fs.existsSync(path.join(web, "node_modules"))) run("bun", ["install", "--frozen-lockfile"]);
   run("bun", ["run", "build"]);
   fs.rmSync(output, { recursive: true, force: true });
@@ -83,6 +102,7 @@ try {
   console.log(`Built Ditto Desktop renderer from ${web}`);
 } finally {
   for (const [file, content] of originals) fs.writeFileSync(file, content);
+  if (desktopRendererCreated) fs.rmSync(desktopRenderer, { recursive: true, force: true });
   if (previousProductionEnv) fs.writeFileSync(productionEnv, previousProductionEnv);
   else fs.rmSync(productionEnv, { force: true });
 }

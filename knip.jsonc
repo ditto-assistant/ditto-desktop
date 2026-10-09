@@ -46,6 +46,7 @@
         "src/desktop-shell.css!",
         "src/pi-browser-extension.mjs!",
         "scripts/*.cjs",
+        "renderer/*",
         "tests/*.node-test.cjs",
         "src/preload.ts!",
         "src/preview-pick-preload.ts!",
