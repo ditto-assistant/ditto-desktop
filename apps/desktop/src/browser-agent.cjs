@@ -14,6 +14,7 @@ async function startAgentBrowser(browser, onOpen = () => {}, computer = null) {
       return;
     }
     try {
+      request.setEncoding("utf8");
       let body = "";
       for await (const chunk of request) {
         body += chunk.toString();
