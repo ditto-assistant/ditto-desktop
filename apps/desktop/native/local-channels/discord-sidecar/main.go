@@ -481,6 +481,12 @@ func (s *sidecar) listConversations() ([]wireConversation, error) {
 	var group sync.WaitGroup
 	var conversationsMu sync.Mutex
 	for _, guild := range guilds {
+		if cached, ok := cachedGuildConversations(session, guild); ok {
+			conversationsMu.Lock()
+			conversations = append(conversations, cached...)
+			conversationsMu.Unlock()
+			continue
+		}
 		group.Add(1)
 		sem <- struct{}{}
 		go func(guild *discordgo.UserGuild) {
@@ -510,6 +516,40 @@ func (s *sidecar) listConversations() ([]wireConversation, error) {
 		return conversations[i].GuildName < conversations[j].GuildName
 	})
 	return conversations, nil
+}
+
+func cachedGuildConversations(session *discordgo.Session, guild *discordgo.UserGuild) ([]wireConversation, bool) {
+	if !session.StateEnabled || session.State == nil {
+		return nil, false
+	}
+	// READY and subsequent gateway events already maintain this directory.
+	// Convert under the state lock so channel updates cannot race our snapshot.
+	session.State.RLock()
+	defer session.State.RUnlock()
+	for _, cached := range session.State.Guilds {
+		if cached.ID != guild.ID {
+			continue
+		}
+		if cached.Unavailable || cached.Channels == nil {
+			return nil, false
+		}
+		rows := make([]wireConversation, 0, len(cached.Channels)+len(cached.Threads))
+		seen := make(map[string]bool)
+		for _, channels := range [][]*discordgo.Channel{cached.Channels, cached.Threads} {
+			for _, channel := range channels {
+				if seen[channel.ID] {
+					continue
+				}
+				if channel.Type != discordgo.ChannelTypeGuildText && channel.Type != discordgo.ChannelTypeGuildNews && channel.Type != discordgo.ChannelTypeGuildPublicThread && channel.Type != discordgo.ChannelTypeGuildPrivateThread && channel.Type != discordgo.ChannelTypeGuildNewsThread {
+					continue
+				}
+				seen[channel.ID] = true
+				rows = append(rows, conversationFromChannel(channel, guild.ID, guild.Name, guildIconURL(guild)))
+			}
+		}
+		return rows, true
+	}
+	return nil, false
 }
 
 func (s *sidecar) listMessages(channelID string, limit int, beforeID string) ([]wireMessage, error) {
