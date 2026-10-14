@@ -326,6 +326,21 @@ class LocalChannels {
     if (typeof content !== "string" || !content.trim() || content.length > 8000)
       throw new Error("Enter a message under 8,000 characters.");
     if (service === "imessage") {
+      if (!/^\d+$/.test(conversationId)) throw new Error("Invalid iMessage conversation.");
+      // Recheck the database rather than trusting a renderer's cached recipient.
+      // Group chats and ambiguous recipients must stay read-only at the IPC boundary.
+      const [destination] = await sqliteRows(
+        this.imessageDatabase,
+        `SELECT c.style, COUNT(DISTINCT h.id) AS recipient_count, MAX(h.id) AS handle
+        FROM chat c LEFT JOIN chat_handle_join chj ON chj.chat_id=c.ROWID
+        LEFT JOIN handle h ON h.ROWID=chj.handle_id
+        WHERE c.ROWID=${conversationId} GROUP BY c.ROWID`,
+      );
+      if (!destination || destination.style !== 45 || destination.recipient_count !== 1)
+        throw new Error("This iMessage conversation is read-only on this Mac.");
+      if (handle !== destination.handle)
+        throw new Error("This iMessage chat needs a verified recipient. Refresh the conversation.");
+      handle = destination.handle;
       if (!handle || !/^\+?[\d@.a-zA-Z_-]{3,100}$/.test(handle))
         throw new Error("This iMessage chat needs a verified phone number or email to send.");
       const script =
