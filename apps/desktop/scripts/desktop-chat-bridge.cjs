@@ -33,7 +33,7 @@ function sidebarOverlay(source) {
   source = replace(
     source,
     "    const lane = useAppScopedThreads({",
-    '    const [groupSearch, setGroupSearch] = createSignal("")\n    const lane = useAppScopedThreads({',
+    '    const [groupSearch, setGroupSearch] = createSignal("")\n    const hasCloudLane = () => !!group.scoped && group.provider !== "imessage"\n    const lane = useAppScopedThreads({',
   );
   source = replace(
     source,
@@ -53,7 +53,7 @@ function sidebarOverlay(source) {
   source = replace(
     source,
     "enabled: () => !!group.scoped && !isCollapsed(),",
-    'enabled: () => !!group.scoped && !isCollapsed() && group.provider !== "imessage",',
+    "enabled: () => hasCloudLane() && !isCollapsed(),",
   );
   source = replace(
     source,
@@ -88,9 +88,16 @@ function sidebarOverlay(source) {
     `            <Show when={nativeRows().length > localLimit()}>
               <button type="button" class="v2-studio-sidebar-retry" onClick={() => setLocalLimit((value) => value + 30)}>Show more local chats</button>
             </Show>
-            <Show when={group.scoped}>
+            <Show when={hasCloudLane()}>
               <InfiniteListSentinel`,
   );
+  for (const state of ["isPending", "isError"]) {
+    source = replace(
+      source,
+      `when={group.scoped && lane.${state}()`,
+      `when={hasCloudLane() && lane.${state}()`,
+    );
+  }
   source = replace(
     source,
     "      rows().filter((session) => !session.pinned && !inCustomSection(session))",
