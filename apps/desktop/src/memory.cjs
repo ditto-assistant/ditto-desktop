@@ -451,6 +451,12 @@ class MemoryStore {
 
   async scan({ roots = defaultCodeRoots(), trajectoryRoots, progress = () => {} } = {}) {
     const counts = { code: 0, codex: 0, cursor: 0, repos: 0, skipped: 0 };
+    if (this.getSetting("codeRedactionVersion", 0) < 1) {
+      // Older scans redacted after chunking. Re-read unchanged files once,
+      // keeping their existing memories until each file is successfully indexed.
+      this.db.exec("DELETE FROM scan_files WHERE source='code'");
+      this.setSetting("codeRedactionVersion", 1);
+    }
     const repos = await discoverRepos(roots);
     counts.repos = repos.length;
     for (const repo of repos) {
@@ -492,7 +498,7 @@ class MemoryStore {
           counts.skipped++;
           continue;
         }
-        const chunks = content.match(new RegExp(`[\\s\\S]{1,${CHUNK_CHARS}}`, "g")) || [];
+        const chunks = redact(content).match(new RegExp(`[\\s\\S]{1,${CHUNK_CHARS}}`, "g")) || [];
         for (let i = 0; i < chunks.length; i++) {
           if (
             this.addDoc(
@@ -571,25 +577,23 @@ class MemoryStore {
       WHERE d.source IN ('codex','cursor') ORDER BY d.path,d.part`)
       .all();
     let prompt = null;
+    let responses = [];
     let previousPath = null;
     let saved = 0;
-    for (const row of rows) {
-      if (row.path !== previousPath) prompt = null;
-      previousPath = row.path;
-      if (row.role === "user") {
-        prompt = row;
-        continue;
-      }
-      if (row.role !== "assistant" || !prompt) continue;
+    const saveTurn = async () => {
+      if (!prompt || !responses.length) return;
+      // Codex can emit progress before its final answer. Track the last
+      // assistant row so a later result is not hidden by an earlier sync.
+      const row = responses.at(-1);
       const already = this.db.prepare("SELECT 1 FROM harness_synced WHERE doc_id=?").get(row.id);
-      if (already) {
-        prompt = null;
-        continue;
-      }
+      if (already) return;
       await harness.saveMemory({
         userId: "local",
         prompt: prompt.body.slice(0, 6000),
-        response: row.body.slice(0, 6000),
+        response: responses
+          .map((message) => message.body)
+          .join("\n\n")
+          .slice(-6000),
         summary: `${row.source} coding trajectory`,
         source: `local-${row.source}`,
         sourceContext: row.path,
@@ -602,8 +606,21 @@ class MemoryStore {
         .run(row.id, new Date().toISOString());
       saved++;
       if (saved % 25 === 0) progress(`Stored ${saved} conversation memories…`);
-      prompt = null;
+    };
+    for (const row of rows) {
+      if (row.path !== previousPath) {
+        await saveTurn();
+        prompt = null;
+        responses = [];
+      }
+      previousPath = row.path;
+      if (row.role === "user") {
+        await saveTurn();
+        prompt = row;
+        responses = [];
+      } else if (row.role === "assistant" && prompt) responses.push(row);
     }
+    await saveTurn();
     return saved;
   }
 

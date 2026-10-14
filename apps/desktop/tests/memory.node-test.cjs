@@ -35,6 +35,55 @@ test("redacts credentials before local persistence", () => {
   assert.equal(redact("api_key=abcdefghijklmnopq"), "api_key=[credential removed]");
 });
 
+test("code ingestion redacts credentials that cross memory chunk boundaries before export", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ditto-redaction-chunks-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const repo = path.join(root, "project");
+  await fsp.mkdir(repo);
+  execFileSync("git", ["init", "-q"], { cwd: repo });
+  const privatePayload = "FAKE_PRIVATE_PAYLOAD".repeat(40);
+  const token = "ghp_" + "NOT_A_REAL_CREDENTIAL".repeat(3);
+  await fsp.writeFile(
+    path.join(repo, "config.ts"),
+    "x".repeat(11980) +
+      "-----BEGIN PRIVATE KEY-----\n" +
+      privatePayload +
+      "\n-----END PRIVATE KEY-----\n",
+  );
+  await fsp.writeFile(path.join(repo, "settings.ts"), "x".repeat(11995) + " " + token);
+  const store = new MemoryStore(path.join(root, "data"));
+  t.after(() => store.close());
+  // Simulate an older index whose unchanged files would otherwise be skipped.
+  for (const name of ["config.ts", "settings.ts"]) {
+    const file = path.join(repo, name);
+    const content = await fsp.readFile(file, "utf8");
+    const stat = await fsp.stat(file);
+    const chunks = content.match(/[\s\S]{1,12000}/g);
+    chunks.forEach((chunk, part) =>
+      store.addDoc("code", file, part, "", name, chunk, stat.mtime.toISOString()),
+    );
+    store.markScanned("code", file, stat);
+  }
+  await store.scan({ roots: [repo], trajectoryRoots: [] });
+  const persisted = store.db
+    .prepare("SELECT body FROM docs ORDER BY path,part")
+    .all()
+    .map((row) => row.body)
+    .join("");
+  assert.ok(!persisted.includes("FAKE_PRIVATE_PAYLOAD"));
+  assert.ok(!persisted.includes("NOT_A_REAL_CREDENTIAL"));
+  assert.ok(persisted.includes("[private key removed]"));
+  assert.ok(persisted.includes("[credential removed]"));
+  assert.equal((await store.scan({ roots: [repo], trajectoryRoots: [] })).code, 0);
+  const bundle = await fsp.readFile(await store.exportCloudBundle(), "utf8");
+  const archive = await store.exportDittoImport();
+  const imported = execFileSync("unzip", ["-p", archive.files[0]], { encoding: "utf8" });
+  for (const exported of [bundle, imported]) {
+    assert.ok(!exported.includes("FAKE_PRIVATE_PAYLOAD"));
+    assert.ok(!exported.includes("NOT_A_REAL_CREDENTIAL"));
+  }
+});
+
 test("ranks memory content above a distractor path match", async (t) => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ditto-memory-rank-"));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));
@@ -172,4 +221,28 @@ test("Pi conversations retain their engine and workspace separately from other e
     store.close();
     await fsp.rm(root, { recursive: true, force: true });
   }
+});
+
+test("trajectory memories include the completed assistant turn rather than only its progress message", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ditto-turn-memory-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const store = new MemoryStore(root);
+  t.after(() => store.close());
+  const source = path.join(root, "qa.jsonl");
+  store.addDoc("codex", source, 0, "user", "QA", "Copy the fixture file.", null);
+  store.addDoc("codex", source, 1, "assistant", "QA", "I will read the fixture.", null);
+  const memories = [];
+  const harness = { seedUser: async () => {}, saveMemory: async (memory) => memories.push(memory) };
+  assert.equal(await store.syncHarness(harness), 1);
+  // A later final answer must update ingestion even if progress was already synced.
+  store.addDoc("codex", source, 2, "assistant", "QA", "Copied and verified 49 bytes.", null);
+  assert.equal(await store.syncHarness(harness), 1);
+  assert.equal(memories.at(-1).prompt, "Copy the fixture file.");
+  assert.ok(memories.at(-1).response.endsWith("Copied and verified 49 bytes."));
+  assert.equal(await store.syncHarness(harness), 0);
+  store.addDoc("codex", source, 3, "user", "QA", "Read the result.", null);
+  store.addDoc("codex", source, 4, "assistant", "QA", "The result is unchanged.", null);
+  assert.equal(await store.syncHarness(harness), 1);
+  assert.equal(memories.at(-1).prompt, "Read the result.");
+  assert.equal(memories.at(-1).response, "The result is unchanged.");
 });
