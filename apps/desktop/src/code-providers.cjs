@@ -92,6 +92,9 @@ function startProvider(provider, prompt, workspace, onText) {
       ].join(":"),
     },
   });
+  // Pipe chunks need not end on a UTF-8 character boundary.
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
   if (grokPromptDir)
     child.once("close", () => {
       fs.rmSync(grokPromptDir, { recursive: true, force: true });
