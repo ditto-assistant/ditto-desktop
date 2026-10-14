@@ -498,7 +498,7 @@ function registerIpc() {
       throw new Error("Enter a task under 12,000 characters.");
     const workspace = selectedWorkspace();
     if (!workspace) throw new Error("Choose a project folder before running local code.");
-    const matches = store.search(question, 3);
+    const matches = shouldRetrieveMemory(question) ? store.search(question, 3) : [];
     const context = matches
       .map(
         (match, index) =>

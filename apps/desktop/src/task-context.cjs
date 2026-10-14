@@ -1,4 +1,10 @@
 function shouldRetrieveMemory(question) {
+  if (
+    /\b(?:do not|don't|without|no)\s+(?:(?:use|using|retrieve|search|recall|include)\s+)?(?:my\s+|local\s+)?memor(?:y|ies)\b/i.test(
+      question,
+    )
+  )
+    return false;
   // A direct operation must inspect the selected workspace. Similar historical
   // file snippets are not evidence of the file currently on disk.
   const explicitlyRecalls =

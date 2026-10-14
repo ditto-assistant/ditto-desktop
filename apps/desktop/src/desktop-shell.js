@@ -130,7 +130,6 @@
       button.addEventListener("click", () => {
         if (mode === "local") {
           cloudCodeMode = false;
-          $("#dl-provider").value = "pi";
           $("#dl-provider").dispatchEvent(new Event("change"));
           openPanel("Local");
         } else if (mode === "browser") {
@@ -355,6 +354,19 @@
     );
   }
   function mountLocalCode() {
+    const provider = $("#dl-provider");
+    const engineName = provider.selectedOptions[0]?.textContent || "Ditto Code";
+    const description =
+      provider.value === "pi"
+        ? "Describe the task. Ditto Code uses Pi and your private memory to work on this Mac."
+        : `Describe the task. ${engineName} runs through its installed CLI on this Mac.`;
+    const subtitle = localChat.querySelector("header p");
+    if (subtitle.textContent !== description) subtitle.textContent = description;
+    const modeDescription = document.querySelector('[data-ditto-code-mode="local"] small');
+    const localDescription =
+      provider.value === "pi" ? "Pi agent on this Mac" : `${engineName} on this Mac`;
+    if (modeDescription && modeDescription.textContent !== localDescription)
+      modeDescription.textContent = localDescription;
     const main = document.querySelector(".v2-code-surface-main");
     if (main && !main.contains(localChat)) main.append(localChat);
     const context = document.querySelector(".v2-composer-context-panel");
