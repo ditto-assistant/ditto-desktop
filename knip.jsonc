@@ -45,6 +45,7 @@
         "src/desktop-shell.js!",
         "src/desktop-shell.css!",
         "src/pi-browser-extension.mjs!",
+        "src/pi-local-tools.mjs!",
         "scripts/*.cjs",
         "renderer/*",
         "tests/*.node-test.cjs",

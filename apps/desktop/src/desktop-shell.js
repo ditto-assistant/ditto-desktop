@@ -408,6 +408,7 @@
     localChat.querySelector("#dl-transcript").replaceChildren(sharedOutput);
     sharedOutput.textContent = "";
     localChat.classList.remove("has-turns");
+    show("#dl-context", `${$("#dl-provider").selectedOptions[0].textContent} · On this Mac`);
     desktopMode(true, "");
   }
   function addLocalTurn(prompt, provider) {
