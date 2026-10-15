@@ -22,3 +22,22 @@ test("an explicit request to omit memory takes precedence over memory keywords",
     true,
   );
 });
+
+test("memory opt-outs also apply to coordinated lists of prohibited actions", () => {
+  for (const prompt of [
+    "Use the bash tool to run exactly pwd. Do not change files, access the network, or retrieve memories.",
+    "Don't change files or use my memory to answer this.",
+    "Do not access the network, use tools, nor recall local memories.",
+    "Do not edit files or include memory.",
+  ])
+    assert.equal(shouldRetrieveMemory(prompt), false, prompt);
+});
+
+test("a separate request to use memory is not negated by a preceding prohibition", () => {
+  for (const prompt of [
+    "Do not edit files. Recall my memories or history to explain this.",
+    "Don't run commands; retrieve memories or history instead.",
+    "Do not edit files\nUse memory or history to explain this.",
+  ])
+    assert.equal(shouldRetrieveMemory(prompt), true, prompt);
+});

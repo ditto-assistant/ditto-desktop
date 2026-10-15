@@ -2,6 +2,9 @@ function shouldRetrieveMemory(question) {
   if (
     /\b(?:do not|don't|without|no)\s+(?:(?:use|using|retrieve|search|recall|include)\s+)?(?:my\s+|local\s+)?memor(?:y|ies)\b/i.test(
       question,
+    ) ||
+    /\b(?:do not|don't)\s+[^.!?;\n]*?\b(?:or|nor)\s+(?:(?:use|using|retrieve|search|recall|include)\s+)?(?:my\s+|local\s+)?memor(?:y|ies)\b/i.test(
+      question,
     )
   )
     return false;
