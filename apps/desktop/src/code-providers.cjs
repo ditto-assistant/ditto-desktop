@@ -80,6 +80,8 @@ function startProvider(provider, prompt, workspace, onText) {
     stdinPrompt = "";
   }
   const child = spawnLocalTask(binary, args, {
+    // Codex uses its interactive interrupt path to abort detached tool groups.
+    cancelSignal: provider === "codex" ? "SIGINT" : "SIGTERM",
     cwd: workspace,
     stdio: ["pipe", "pipe", "pipe"],
     env: {

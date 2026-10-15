@@ -20,6 +20,50 @@ async function closeTask(child) {
 }
 
 test(
+  "provider interrupt lets its owner drain detached tools before exiting",
+  { skip: os.platform() === "win32", timeout: 10000 },
+  async (t) => {
+    const tool = `
+      const net = require('node:net');
+      const server = net.createServer();
+      process.on('SIGTERM', () => server.close(() => process.exit(0)));
+      server.listen(0, '127.0.0.1', () => process.send({port: server.address().port}));
+    `;
+    const child = spawnLocalTask(
+      process.execPath,
+      [
+        "-e",
+        `
+          const {spawn} = require('node:child_process');
+          const tool = spawn(process.execPath, ['-e', ${JSON.stringify(tool)}], {
+            detached: true, stdio: ['ignore', 'inherit', 'inherit', 'ipc']
+          });
+          tool.on('message', message => process.send(message));
+          for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
+            tool.once('close', () => process.exit(signal === 'SIGINT' ? 130 : 143));
+            tool.kill('SIGTERM');
+          });
+        `,
+      ],
+      {
+        cancelSignal: "SIGINT",
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      },
+    );
+    t.after(() => closeTask(child));
+    const [ready] = await once(child, "message");
+    const closed = once(child, "close");
+    assert.equal(cancelLocalTask(child), true);
+    assert.equal((await closed)[0], 130);
+    assert.equal(wasLocalTaskCancelled(child), true);
+    const socket = net.connect({ host: "127.0.0.1", port: ready.port });
+    t.after(() => socket.destroy());
+    assert.equal((await once(socket, "error"))[0].code, "ECONNREFUSED");
+  },
+);
+
+test(
   "Stop drains a task group even when its launcher exits 143 and a tool ignores SIGTERM",
   { skip: os.platform() === "win32", timeout: 10000 },
   async (t) => {
