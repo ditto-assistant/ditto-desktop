@@ -60,6 +60,7 @@ let harness;
 let scanPromise = null;
 let pendingLink = null;
 let piProcess = null;
+let quittingLocalTask = null;
 let remoteHost;
 let desktopBrowser;
 let computerEnabled = false;
@@ -1017,8 +1018,23 @@ app.on("before-quit", (event) => {
     );
     return;
   }
+  if (piProcess) {
+    event.preventDefault();
+    if (quittingLocalTask !== piProcess) {
+      quittingLocalTask = piProcess;
+      piProcess.once("close", () => {
+        // Provider promise callbacks save their receipt in this event's microtasks.
+        // Keep SQLite open until those callbacks finish before trying Quit again.
+        setImmediate(() => {
+          quittingLocalTask = null;
+          app.quit();
+        });
+      });
+      cancelLocalTask(piProcess);
+    }
+    return;
+  }
   devices?.stop();
-  cancelLocalTask(piProcess);
   remoteHost?.stop();
   channels?.close();
   chatSync?.close();
