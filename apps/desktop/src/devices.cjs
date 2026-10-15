@@ -368,9 +368,15 @@ class DesktopDevices {
           ),
         method === "engines.update" ? 330000 : 30000,
       );
-      client.on("open", () =>
-        client.send(JSON.stringify({ version: 1, id, method, ...(params ? { params } : {}) })),
-      );
+      client.on("open", () => {
+        if (!this.state.online || !this.paired.has(peer)) {
+          finish(
+            new Error("Desktop connection or paired device changed before the request started."),
+          );
+          return;
+        }
+        client.send(JSON.stringify({ version: 1, id, method, ...(params ? { params } : {}) }));
+      });
       client.on("message", (bytes) => {
         try {
           const frame = JSON.parse(bytes.toString());

@@ -5,6 +5,7 @@ const { randomUUID } = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const http = require("node:http");
 const { EngineMaintenance } = require("../src/maintenance.cjs");
 const WebSocket = require("ws");
 const { DesktopDevices, RPC_PATH } = require("../src/devices.cjs");
@@ -191,6 +192,55 @@ test("outgoing paired RPC uses the authenticated backend environment proxy", asy
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+for (const invalidate of ["unpair", "offline"]) {
+  test(`outgoing engine updates are not dispatched after device ${invalidate} during connection`, async () => {
+    const server = http.createServer();
+    const bridge = new WebSocket.WebSocketServer({ noServer: true });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const hostId = randomUUID();
+    const peerId = randomUUID();
+    const desktop = new DesktopDevices({
+      apiBase: `http://127.0.0.1:${server.address().port}`,
+      getKey: () => "test-key",
+      version: "test",
+    });
+    desktop.hostId = hostId;
+    desktop.state.online = true;
+    desktop.setPaired([peerId]);
+    let dispatched = 0;
+    let socket;
+    try {
+      // Hold the real WebSocket handshake until local authorization is revoked.
+      const upgrade = once(server, "upgrade");
+      const completion = desktop.request(peerId, "engines.update", { provider: "codex" }).then(
+        (result) => ({ result }),
+        (error) => ({ error }),
+      );
+      const [request, transport, head] = await upgrade;
+      if (invalidate === "unpair") desktop.setPaired([]);
+      else desktop.report(false, "Connection lost.");
+      bridge.handleUpgrade(request, transport, head, (client) => {
+        socket = client;
+        client.on("message", (bytes) => {
+          dispatched++;
+          const frame = JSON.parse(bytes.toString());
+          client.send(JSON.stringify({ version: 1, id: frame.id, result: { updated: true } }));
+        });
+      });
+      const outcome = await completion;
+      assert.equal(dispatched, 0, "a revoked outgoing request must never reach the paired updater");
+      assert.match(outcome.error?.message || "", /connection|paired|online/i);
+      assert.equal(desktop.clients.size, 0);
+    } finally {
+      desktop.stop();
+      socket?.terminate();
+      await new Promise((resolve) => bridge.close(resolve));
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+}
 
 for (const invalidate of ["stop", "unpair", "close", "offline"]) {
   test(`queued engine updates do not start after device ${invalidate}`, async () => {
