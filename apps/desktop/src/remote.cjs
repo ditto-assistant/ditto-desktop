@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawnLocalTask, cancelLocalTask } = require("./local-task.cjs");
 
 const CLI_SCRIPT = path.join(
   path.dirname(require.resolve("@heyditto/cli/package.json")),
@@ -25,7 +25,7 @@ function cliAvailable() {
 
 function runCli(args, { key, cwd, stateDir, timeoutMs = 120000, onProgress = () => {} }) {
   if (!cliAvailable()) throw new Error("Ditto Teleport is not bundled in this app.");
-  const child = spawn(process.execPath, [CLI_SCRIPT, ...args], {
+  const child = spawnLocalTask(process.execPath, [CLI_SCRIPT, ...args], {
     cwd,
     env: cliEnvironment(key, stateDir),
     stdio: ["ignore", "pipe", "pipe"],
@@ -36,7 +36,7 @@ function runCli(args, { key, cwd, stateDir, timeoutMs = 120000, onProgress = () 
     let expired = false;
     const timer = setTimeout(() => {
       expired = true;
-      child.kill("SIGTERM");
+      cancelLocalTask(child);
     }, timeoutMs);
     child.stdout.on("data", (chunk) => {
       stdout = (stdout + chunk.toString()).slice(-MAX_OUTPUT);
@@ -82,7 +82,7 @@ class RemoteHost {
     ) {
       throw new Error("Choose a Ditto endpoint.");
     }
-    const child = spawn(
+    const child = spawnLocalTask(
       process.execPath,
       [CLI_SCRIPT, provider, "--headless", ...(endpoint ? ["--endpoint", endpoint] : [])],
       {
@@ -130,7 +130,7 @@ class RemoteHost {
   }
 
   stop() {
-    if (this.child) this.child.kill("SIGTERM");
+    if (this.child) cancelLocalTask(this.child);
     return { ...this.state, detail: this.child ? "Stopping Remote Control…" : this.state.detail };
   }
 }
