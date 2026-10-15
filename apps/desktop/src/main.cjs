@@ -1058,11 +1058,13 @@ app.on("before-quit", (event) => {
     );
     return;
   }
-  if (piProcess) {
+  // A pending startup uses its cancellation path below before Remote Control drains.
+  const child = piProcess || (piStartup ? null : remoteHost?.child);
+  if (child) {
     event.preventDefault();
-    if (quittingLocalTask !== piProcess) {
-      quittingLocalTask = piProcess;
-      piProcess.once("close", () => {
+    if (quittingLocalTask !== child) {
+      quittingLocalTask = child;
+      child.once("close", () => {
         // Provider promise callbacks save their receipt in this event's microtasks.
         // Keep SQLite open until those callbacks finish before trying Quit again.
         setImmediate(() => {
@@ -1070,7 +1072,7 @@ app.on("before-quit", (event) => {
           app.quit();
         });
       });
-      cancelLocalTask(piProcess);
+      cancelLocalTask(child);
     }
     return;
   }

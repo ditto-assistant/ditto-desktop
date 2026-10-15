@@ -88,6 +88,7 @@ function desktopFixture(t, options = {}) {
       `
     store = fixtureStore;
     engineMaintenance = {active:false};
+    remoteHost = fixtureRemoteHost;
     piStatus = fixtureStatus;
     openHarness = async () => null;
     registerIpc();
@@ -101,6 +102,7 @@ function desktopFixture(t, options = {}) {
       setInterval,
       setImmediate,
       fixtureStore: store,
+      fixtureRemoteHost: options.remoteHost,
       fixtureStatus: options.status || (async () => ({ ready: true, localModel: null })),
       require(name) {
         if (name === "electron")
@@ -390,3 +392,66 @@ test(
     assert.equal((await running).cancelled, true);
   },
 );
+
+for (const setupPending of [false, true]) {
+  test(
+    `Quit drains Remote Control with local startup pending=${setupPending}`,
+    { timeout: 10000 },
+    async (t) => {
+      const child = spawnLocalTask(
+        process.execPath,
+        [
+          "-e",
+          `
+    process.on("SIGTERM", () => {});
+    process.on("disconnect", () => process.exit(0));
+    process.send("remote-ready");
+    setInterval(() => {}, 1000);
+  `,
+        ],
+        {
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+          stdio: ["ignore", "pipe", "pipe", "ipc"],
+        },
+      );
+      const exited = once(child, "close");
+      t.after(async () => {
+        cancelLocalTask(child);
+        await exited;
+      });
+      await once(child, "message");
+      const remoteHost = {
+        child,
+        stop() {
+          cancelLocalTask(this.child);
+        },
+      };
+      child.once("close", () => {
+        remoteHost.child = null;
+      });
+      const gate = setupGate();
+      const fixture = desktopFixture(t, {
+        remoteHost,
+        ...(setupPending ? { status: gate.wait } : {}),
+      });
+      const starting = setupPending
+        ? fixture.handlers.get("ditto:chat")(null, "Reply exactly QA. Do not retrieve memories.")
+        : null;
+      if (setupPending) await gate.entered;
+      const quit = fixture.app.quit();
+      assert.equal(quit.prevented, true, "keep Electron alive until Remote Control is stopped");
+      assert.equal(fixture.closed(), false);
+      assert.equal(fixture.app.quit().prevented, true, "repeated Quit shares the same shutdown");
+      if (setupPending) {
+        gate.release({ ready: true, localModel: null });
+        assert.equal((await starting).cancelled, true);
+        assert.equal(fixture.spawnCount(), 0);
+      }
+      await fixture.quit;
+      await exited;
+      assert.equal(child.signalCode, "SIGKILL", "the unresponsive child needed bounded escalation");
+      assert.equal(remoteHost.child, null);
+      assert.equal(fixture.databaseClosed(), true);
+    },
+  );
+}
