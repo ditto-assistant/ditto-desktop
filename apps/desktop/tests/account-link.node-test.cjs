@@ -237,3 +237,29 @@ for (const [error, kind] of [
       assert.equal(f.requests.length, requestCount);
     }
   });
+
+test("cancelling link prevents a late token from replacing the saved desktop account", async (t) => {
+  const f = fixture(t);
+  fs.mkdirSync(path.dirname(f.account), { recursive: true });
+  fs.writeFileSync(f.account, "existing encrypted credential");
+  await start(f, "cancelled");
+  const poll = f.call("link-poll");
+  const request = f.requests.at(-1);
+  await f.call("link-cancel");
+  request.response.resolve({
+    status: 200,
+    data: { access_token: "ditto_mcp_synthetic_cancelled" },
+  });
+  assert.equal((await poll).kind, "expired");
+  assert.equal(fs.readFileSync(f.account, "utf8"), "existing encrypted credential");
+});
+
+test("cancelling pending device-code creation does not open a stale browser approval", async (t) => {
+  const f = fixture(t);
+  const starting = f.call("link-start");
+  const request = f.requests.at(-1);
+  await f.call("link-cancel");
+  request.response.resolve(startResponse("cancelled"));
+  await assert.rejects(starting, /cancelled/i);
+  assert.equal(f.browser.length, 0);
+});

@@ -14,6 +14,96 @@
       /^Error invoking remote method '[^']+': (?:Error: )?/,
       "",
     );
+  function createDesktopAccountLink(bridge, render, changed) {
+    let generation = 0;
+    let timer;
+    let linked = false;
+    let busy = false;
+    const update = (message) => render({ linked, busy, message });
+    const idle = () =>
+      linked ? "Desktop services are connected to Ditto." : "Desktop services are not connected.";
+    const refresh = async () => {
+      const owner = generation;
+      const status = await bridge.status();
+      if (owner !== generation || busy) return;
+      linked = status.accountLinked;
+      update(idle());
+    };
+    const start = async () => {
+      if (busy || linked) return;
+      const owner = ++generation;
+      busy = true;
+      update("Opening Ditto sign-in in your browser…");
+      try {
+        const request = await bridge.linkStart();
+        if (owner !== generation) return;
+        let interval = Math.max(1, Number(request.intervalSeconds) || 5);
+        update(`Approve desktop services in your browser. Verification code: ${request.userCode}`);
+        const poll = async () => {
+          try {
+            const result = await bridge.linkPoll();
+            if (owner !== generation) return;
+            if (result.kind === "pending" || result.kind === "slow-down") {
+              if (result.kind === "slow-down") interval += 5;
+              timer = setTimeout(poll, interval * 1000);
+              return;
+            }
+            busy = false;
+            linked = result.kind === "linked";
+            update(
+              linked
+                ? idle()
+                : result.kind === "denied"
+                  ? "Connection declined. You can try again."
+                  : "Sign-in expired. Please try again.",
+            );
+            if (linked) changed();
+          } catch (error) {
+            if (owner !== generation) return;
+            busy = false;
+            update(desktopError(error));
+          }
+        };
+        timer = setTimeout(poll, interval * 1000);
+      } catch (error) {
+        if (owner !== generation) return;
+        busy = false;
+        update(desktopError(error));
+      }
+    };
+    const cancel = async () => {
+      ++generation;
+      clearTimeout(timer);
+      // Invalidate the native request before allowing another attempt.
+      let message = "Sign-in cancelled. Desktop services are not connected.";
+      try {
+        await bridge.linkCancel();
+      } catch (error) {
+        message = desktopError(error);
+      } finally {
+        busy = false;
+        update(message);
+      }
+    };
+    const disconnect = async () => {
+      if (busy || !linked) return;
+      ++generation;
+      busy = true;
+      update("Disconnecting desktop services…");
+      try {
+        await bridge.signOut();
+        linked = false;
+        changed();
+      } catch (error) {
+        busy = false;
+        update(desktopError(error));
+        return;
+      }
+      busy = false;
+      update(idle());
+    };
+    return { refresh, start, cancel, disconnect };
+  }
   let activePanel = null;
   let cloudCodeMode = false;
   let defaultCodeOpenPending = false;
@@ -232,6 +322,9 @@
           <div class="ditto-local-row" style="margin-top:9px"><button id="dl-run" class="primary">Run Ditto Code locally</button><button id="dl-cancel" type="button" hidden>Stop</button><span id="dl-context" class="ditto-local-muted"></span></div></form>
         <div id="dl-output" class="ditto-local-output" aria-live="polite"></div></section>
       <section class="ditto-local-card"><h2>Recent local executions</h2><p>Saved privately on this Mac.</p><div id="dl-runs" class="ditto-local-list"></div></section>
+      <section class="ditto-local-card"><h2>Ditto account for desktop services</h2><p>Connect this Mac for Teleport, Remote Control, and paired devices. Connecting does not start Remote Control or upload a project.</p>
+        <div class="ditto-local-row"><button id="dl-account-connect" class="primary">Connect Ditto account</button><button id="dl-account-cancel" hidden>Cancel sign-in</button><button id="dl-account-disconnect" hidden>Disconnect desktop services</button></div>
+        <div id="dl-account-status" class="ditto-local-status" role="status">Checking desktop connection…</div></section>
       <section class="ditto-local-card"><h2>Remote Control</h2><p>Keep a coding session on this Mac available from your signed-in Ditto apps.</p>
         <div class="ditto-local-row" style="margin-top:12px"><label for="dl-remote-provider" class="ditto-local-muted">Host engine</label>
           <select id="dl-remote-provider" aria-label="Remote Control engine"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="grok">Grok</option></select>
@@ -950,6 +1043,31 @@
       show("#dl-remote-status", error.message);
     }
   }
+  const accountLink = createDesktopAccountLink(
+    window.ditto,
+    ({ linked, busy, message }) => {
+      $("#dl-account-connect").hidden = linked || busy;
+      $("#dl-account-cancel").hidden = linked || !busy;
+      $("#dl-account-disconnect").hidden = !linked;
+      $("#dl-account-disconnect").disabled = busy;
+      show("#dl-account-status", message);
+    },
+    () => {
+      void loadEndpoints();
+      void window.ditto
+        .remoteStatus()
+        .then(remoteStatus)
+        .catch((error) => show("#dl-remote-status", desktopError(error)));
+      void window.ditto
+        .devicesStatus()
+        .then(networkStatus)
+        .catch((error) => show("#dl-devices-status", desktopError(error)));
+    },
+  );
+  $("#dl-account-connect").addEventListener("click", () => void accountLink.start());
+  $("#dl-account-cancel").addEventListener("click", () => void accountLink.cancel());
+  $("#dl-account-disconnect").addEventListener("click", () => void accountLink.disconnect());
+  void accountLink.refresh().catch((error) => show("#dl-account-status", desktopError(error)));
   void loadEndpoints();
   void window.ditto
     .remoteStatus()

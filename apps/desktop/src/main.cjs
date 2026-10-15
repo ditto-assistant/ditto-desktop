@@ -712,6 +712,10 @@ function registerIpc() {
     };
   });
 
+  ipcMain.handle("ditto:link-cancel", () => {
+    pendingLink = null;
+  });
+
   ipcMain.handle("ditto:link-poll", async () => {
     const link = pendingLink;
     if (!link?.code || Date.now() > link.expires) return { kind: "expired" };

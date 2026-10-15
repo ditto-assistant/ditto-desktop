@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("ditto", {
   defaultWorkspace: () => ipcRenderer.invoke("ditto:default-workspace"),
   exportBundle: () => ipcRenderer.invoke("ditto:export"),
   linkStart: () => ipcRenderer.invoke("ditto:link-start"),
+  linkCancel: () => ipcRenderer.invoke("ditto:link-cancel"),
   linkPoll: () => ipcRenderer.invoke("ditto:link-poll"),
   signOut: () => ipcRenderer.invoke("ditto:sign-out"),
   piLogin: () => ipcRenderer.invoke("ditto:pi-login"),
