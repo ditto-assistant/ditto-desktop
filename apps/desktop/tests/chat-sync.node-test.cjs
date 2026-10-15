@@ -135,3 +135,40 @@ test("pause after a lost cloud receipt reconciles the committed checkpoint witho
   assert.equal(await f.queue.prepare("owner"), null);
   assert.equal(f.queue.status("owner")[0].queued, false);
 });
+
+test("one failing local account cannot starve another provider's outbox", async (t) => {
+  const f = fixture(t);
+  await f.queue.select("owner", "discord", "room", true);
+  await f.queue.select("owner", "googlemessages", "room", true);
+  const google = f.queue.status("owner").find((s) => s.provider === "googlemessages");
+  f.queue.registered("owner", google.key, { sourceId, cursor: "" });
+  f.channels.status = async (provider) => {
+    if (provider === "discord") throw new Error("private provider diagnostics must stay local");
+    return { connected: true, user: { id: "discord-account", displayName: "QA" } };
+  };
+  const work = await f.queue.prepare("owner");
+  assert.equal(work.provider, "googlemessages");
+  const failed = f.queue.status("owner").find((s) => s.provider === "discord");
+  assert.ok(failed.error);
+  assert.doesNotMatch(failed.error, /private provider/);
+  f.restart();
+  assert.equal(f.queue.status("owner").find((s) => s.provider === "discord").error, failed.error);
+});
+
+test("a local transport failure retains its queued page across restart and restoration", async (t) => {
+  const f = fixture(t);
+  await f.queue.select("owner", "discord", "room", true);
+  const registration = await f.queue.prepare("owner");
+  f.queue.registered("owner", registration.key, { sourceId, cursor: "" });
+  const queued = await f.queue.prepare("owner");
+  const healthyStatus = f.channels.status;
+  f.channels.status = async () => {
+    throw new Error("provider unavailable");
+  };
+  assert.equal(await f.queue.prepare("owner"), null);
+  assert.equal(f.queue.status("owner")[0].queued, true);
+  assert.ok(f.queue.status("owner")[0].error);
+  f.restart();
+  f.channels.status = healthyStatus;
+  assert.deepEqual((await f.queue.prepare("owner")).batch, queued.batch);
+});

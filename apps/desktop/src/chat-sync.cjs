@@ -137,102 +137,110 @@ class DesktopChatSync {
   async prepareOne(uid) {
     const sources = this.all(uid).sort((a, b) => (a.lastAttempt || 0) - (b.lastAttempt || 0));
     for (let source of sources) {
-      const enabled = source.chats.filter((c) => c.enabled);
-      if (!enabled.length) {
-        if (source.needsRegistration && source.sourceId)
+      try {
+        const enabled = source.chats.filter((c) => c.enabled);
+        if (!enabled.length) {
+          if (source.needsRegistration && source.sourceId)
+            return {
+              kind: "pause",
+              key: source.key,
+              provider: source.provider,
+              sourceId: source.sourceId,
+            };
+          continue;
+        }
+        const status = await this.channels.status(source.provider);
+        if (!status.connected || status.user?.id !== source.accountId) continue;
+        source = this.get(uid, source.key);
+        if (!source || !source.chats.some((c) => c.enabled)) continue;
+        if (!source.sourceId || source.needsRegistration)
           return {
-            kind: "pause",
+            kind: "register",
+            key: source.key,
+            provider: source.provider,
+            registration: {
+              accountId: source.accountId,
+              deviceId: this.device,
+              displayName: source.displayName,
+              consentVersion: CONSENT_VERSION,
+            },
+          };
+        if (source.pending)
+          return {
+            kind: "ingest",
             key: source.key,
             provider: source.provider,
             sourceId: source.sourceId,
+            batch: source.pending.batch,
           };
-        continue;
-      }
-      const status = await this.channels.status(source.provider);
-      if (!status.connected || status.user?.id !== source.accountId) continue;
-      source = this.get(uid, source.key);
-      if (!source || !source.chats.some((c) => c.enabled)) continue;
-      if (!source.sourceId || source.needsRegistration)
-        return {
-          kind: "register",
-          key: source.key,
-          provider: source.provider,
-          registration: {
-            accountId: source.accountId,
-            deviceId: this.device,
-            displayName: source.displayName,
-            consentVersion: CONSENT_VERSION,
-          },
+        const currentEnabled = source.chats.filter((c) => c.enabled);
+        const conversation = currentEnabled[source.next % currentEnabled.length];
+        const rows = await this.channels.messages(
+          source.provider,
+          conversation.id,
+          100,
+          conversation.before,
+        );
+        // Recheck consent and identity after asynchronous provider work.
+        const current = this.get(uid, source.key);
+        const currentChat = current?.chats.find((c) => c.id === conversation.id);
+        const currentStatus = await this.channels.status(source.provider);
+        if (!currentChat?.enabled || currentStatus.user?.id !== source.accountId) continue;
+        const messages = rows
+          .filter((m) => m.content?.trim() || m.attachments?.length)
+          .map((m) => normalizedMessage(conversation, m));
+        const changed = messages.filter(
+          (m) =>
+            this.db
+              .prepare(
+                "SELECT fingerprint FROM delivered WHERE source=? AND conversation=? AND id=?",
+              )
+              .get(source.key, conversation.id, m.messageId)?.fingerprint !== digest(m),
+        );
+        // Discord pagination uses the oldest snowflake, independent of presentation order.
+        const oldest =
+          [...rows].sort(
+            (a, b) =>
+              Date.parse(a.timestamp) - Date.parse(b.timestamp) ||
+              String(a.id).localeCompare(String(b.id)),
+          )[0]?.id || "";
+        const hasKnown = messages.some((message) =>
+          this.db
+            .prepare("SELECT 1 FROM delivered WHERE source=? AND conversation=? AND id=?")
+            .get(source.key, conversation.id, message.messageId),
+        );
+        const keepPaging =
+          rows.length === 100 &&
+          (source.provider === "googlemessages" || !currentChat.complete || !hasKnown);
+        const progress = {
+          before: keepPaging ? oldest : "",
+          complete: currentChat.complete || rows.length < 100,
         };
-      if (source.pending)
+        current.lastAttempt = Date.now();
+        current.next = (source.next || 0) + 1;
+        if (!changed.length) {
+          Object.assign(currentChat, progress);
+          this.save(current);
+          continue;
+        }
+        current.pending = {
+          conversation: conversation.id,
+          progress,
+          batch: { previousCursor: current.cursor, cursor: crypto.randomUUID(), messages: changed },
+        };
+        this.save(current);
         return {
           kind: "ingest",
-          key: source.key,
-          provider: source.provider,
-          sourceId: source.sourceId,
-          batch: source.pending.batch,
+          key: current.key,
+          provider: current.provider,
+          sourceId: current.sourceId,
+          batch: current.pending.batch,
         };
-      const currentEnabled = source.chats.filter((c) => c.enabled);
-      const conversation = currentEnabled[source.next % currentEnabled.length];
-      const rows = await this.channels.messages(
-        source.provider,
-        conversation.id,
-        100,
-        conversation.before,
-      );
-      // Recheck consent and identity after asynchronous provider work.
-      const current = this.get(uid, source.key);
-      const currentChat = current?.chats.find((c) => c.id === conversation.id);
-      const currentStatus = await this.channels.status(source.provider);
-      if (!currentChat?.enabled || currentStatus.user?.id !== source.accountId) continue;
-      const messages = rows
-        .filter((m) => m.content?.trim() || m.attachments?.length)
-        .map((m) => normalizedMessage(conversation, m));
-      const changed = messages.filter(
-        (m) =>
-          this.db
-            .prepare("SELECT fingerprint FROM delivered WHERE source=? AND conversation=? AND id=?")
-            .get(source.key, conversation.id, m.messageId)?.fingerprint !== digest(m),
-      );
-      // Discord pagination uses the oldest snowflake, independent of presentation order.
-      const oldest =
-        [...rows].sort(
-          (a, b) =>
-            Date.parse(a.timestamp) - Date.parse(b.timestamp) ||
-            String(a.id).localeCompare(String(b.id)),
-        )[0]?.id || "";
-      const hasKnown = messages.some((message) =>
-        this.db
-          .prepare("SELECT 1 FROM delivered WHERE source=? AND conversation=? AND id=?")
-          .get(source.key, conversation.id, message.messageId),
-      );
-      const keepPaging =
-        rows.length === 100 &&
-        (source.provider === "googlemessages" || !currentChat.complete || !hasKnown);
-      const progress = {
-        before: keepPaging ? oldest : "",
-        complete: currentChat.complete || rows.length < 100,
-      };
-      current.lastAttempt = Date.now();
-      current.next = (source.next || 0) + 1;
-      if (!changed.length) {
-        Object.assign(currentChat, progress);
-        this.save(current);
-        continue;
+      } catch {
+        // A disconnected or malformed local source must not starve other
+        // selected accounts. Persist safe status, never provider diagnostics.
+        this.failed(uid, source.key);
       }
-      current.pending = {
-        conversation: conversation.id,
-        progress,
-        batch: { previousCursor: current.cursor, cursor: crypto.randomUUID(), messages: changed },
-      };
-      this.save(current);
-      return {
-        kind: "ingest",
-        key: current.key,
-        provider: current.provider,
-        sourceId: current.sourceId,
-        batch: current.pending.batch,
-      };
     }
     return null;
   }
