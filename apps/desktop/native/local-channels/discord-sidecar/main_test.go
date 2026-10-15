@@ -2,7 +2,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -200,5 +204,49 @@ func TestDiscordTransportNonceCompactsLongActionIDsDeterministically(t *testing.
 	}
 	if first == discordTransportNonce("716c3753-5711-423d-bfc2-3a9a211b6bf6") {
 		t.Fatal("discordTransportNonce() collided for different action IDs")
+	}
+}
+
+func TestSupersededLoginFailureDoesNotOverwriteNewAttempt(t *testing.T) {
+	for _, failure := range []error{context.Canceled, context.DeadlineExceeded, errors.New("old callback failed"), nil} {
+		t.Run(fmt.Sprint(failure), func(t *testing.T) {
+			var encoded bytes.Buffer
+			app := &sidecar{out: &output{encoder: json.NewEncoder(&encoded)}, authGeneration: 2, loginStop: func() {}, connectionErr: "New attempt status"}
+			results := make(chan remoteAuthResult, 1)
+			if failure != nil {
+				results <- remoteAuthResult{err: failure}
+			}
+			close(results)
+			cancelled := false
+			app.finishLogin(1, func() { cancelled = true }, results)
+			if !cancelled {
+				t.Fatal("old remote-auth resources were not cancelled")
+			}
+			if app.connectionErr != "New attempt status" || app.loginStop == nil {
+				t.Fatalf("stale callback changed the new login: detail=%q pending=%v", app.connectionErr, app.loginStop != nil)
+			}
+			if encoded.Len() != 0 {
+				t.Fatalf("stale callback emitted an event: %s", encoded.String())
+			}
+		})
+	}
+}
+
+func TestCurrentLoginFailureStillReportsItsStatus(t *testing.T) {
+	var encoded bytes.Buffer
+	app := &sidecar{out: &output{encoder: json.NewEncoder(&encoded)}, authGeneration: 1, loginStop: func() {}}
+	results := make(chan remoteAuthResult, 1)
+	results <- remoteAuthResult{err: context.DeadlineExceeded}
+	close(results)
+	app.finishLogin(1, func() {}, results)
+	if app.loginStop != nil || app.connectionErr != "QR code expired. Connect again for a new code." {
+		t.Fatalf("current failure did not settle login: %#v", app.status())
+	}
+	var result event
+	if err := json.Unmarshal(encoded.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Event != "login.failed" {
+		t.Fatalf("wrong login event: %#v", result)
 	}
 }

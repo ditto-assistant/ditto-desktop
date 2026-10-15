@@ -345,8 +345,7 @@ func (s *sidecar) finishLogin(generation uint64, cancel context.CancelFunc, resu
 		} else if result.err != nil && !errors.Is(result.err, context.Canceled) {
 			message = result.err.Error()
 		}
-		s.setConnectionError(message)
-		s.out.write(event{Event: "login.failed", Data: map[string]string{"message": message}})
+		s.failLogin(generation, message)
 		return
 	}
 	s.mu.RLock()
@@ -357,16 +356,25 @@ func (s *sidecar) finishLogin(generation uint64, cancel context.CancelFunc, resu
 	}
 	if err := keyring.Set(keyringService, keyringAccount, result.user.Token); err != nil {
 		message := "Could not save the Discord credential in the system credential store."
-		s.setConnectionError(message)
-		s.out.write(event{Event: "login.failed", Data: map[string]string{"message": message}})
+		s.failLogin(generation, message)
 		return
 	}
 	if err := s.connect(result.user.Token, generation); err != nil {
-		s.setConnectionError(err.Error())
-		s.out.write(event{Event: "login.failed", Data: map[string]string{"message": err.Error()}})
+		s.failLogin(generation, err.Error())
 		return
 	}
 	s.out.write(event{Event: "login.completed", Data: s.status()})
+}
+
+func (s *sidecar) failLogin(generation uint64, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.authGeneration != generation {
+		return
+	}
+	// Keep the failure event ordered before a newer attempt can replace this state.
+	s.connectionErr = message
+	s.out.write(event{Event: "login.failed", Data: map[string]string{"message": message}})
 }
 
 func (s *sidecar) setConnectionError(message string) {
