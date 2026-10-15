@@ -3,9 +3,12 @@ const crypto = require("node:crypto");
 
 async function startAgentBrowser(browser, onOpen = () => {}, computer = null) {
   const token = crypto.randomBytes(32).toString("hex");
+  let closed = false;
+  let closing;
   const server = http.createServer(async (request, response) => {
     response.setHeader("Content-Type", "application/json; charset=utf-8");
     if (
+      closed ||
       request.method !== "POST" ||
       request.url !== "/action" ||
       request.headers.authorization !== `Bearer ${token}`
@@ -20,12 +23,13 @@ async function startAgentBrowser(browser, onOpen = () => {}, computer = null) {
         body += chunk.toString();
         if (body.length > 20000) throw new Error("Browser action is too large.");
       }
+      if (closed) throw new Error("This coding task has ended.");
       const input = JSON.parse(body);
       let result;
       switch (input.action) {
         case "navigate":
           result = await browser.navigate(input.url);
-          onOpen();
+          if (!closed) onOpen();
           break;
         case "snapshot":
           result = await browser.snapshot();
@@ -79,7 +83,16 @@ async function startAgentBrowser(browser, onOpen = () => {}, computer = null) {
   return {
     port: server.address().port,
     token,
-    close: () => new Promise((resolve) => server.close(resolve)),
+    close: () => {
+      closed = true;
+      // A stopped task must not retain authenticated requests or keep shutdown waiting
+      // for a page that never finishes loading. The shared browser itself stays open.
+      closing ||= new Promise((resolve) => {
+        server.close(resolve);
+        server.closeAllConnections();
+      });
+      return closing;
+    },
   };
 }
 

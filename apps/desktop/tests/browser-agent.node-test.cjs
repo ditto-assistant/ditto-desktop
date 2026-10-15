@@ -106,3 +106,50 @@ test("browser and Mac field text survives UTF-8 splits in the actual HTTP bridge
     await bridge.close();
   }
 });
+
+test(
+  "closing a task disconnects a pending browser request without reopening the browser",
+  { timeout: 5000 },
+  async (t) => {
+    const entered = Promise.withResolvers();
+    const navigation = Promise.withResolvers();
+    t.after(() => navigation.resolve({ url: "https://example.com" }));
+    let opened = 0;
+    const bridge = await startAgentBrowser(
+      {
+        navigate: async () => {
+          entered.resolve();
+          return navigation.promise;
+        },
+      },
+      () => {
+        opened++;
+      },
+    );
+    const result = fetch(`http://127.0.0.1:${bridge.port}/action`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${bridge.token}` },
+      body: JSON.stringify({ action: "navigate", url: "https://example.com" }),
+    }).then(
+      async (response) => ({ status: response.status, body: await response.json() }),
+      () => ({ disconnected: true }),
+    );
+    try {
+      await entered.promise;
+      const closing = bridge.close();
+      // Closing must finish while navigation is still blocked.
+      await closing;
+      const receipt = await result;
+      navigation.resolve({ url: "https://example.com" });
+      // Drain the resumed HTTP handler before checking its late UI callback.
+      await new Promise(setImmediate);
+      assert.equal(opened, 0, "a completed task must not reopen the browser panel");
+      assert.deepEqual(receipt, { disconnected: true });
+      await assert.rejects(fetch(`http://127.0.0.1:${bridge.port}/action`));
+    } finally {
+      navigation.resolve({ url: "https://example.com" });
+      await result;
+      await bridge.close();
+    }
+  },
+);
