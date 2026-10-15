@@ -172,3 +172,49 @@ test("a local transport failure retains its queued page across restart and resto
   f.channels.status = healthyStatus;
   assert.deepEqual((await f.queue.prepare("owner")).batch, queued.batch);
 });
+
+for (const provider of ["discord", "googlemessages"]) {
+  for (const change of ["pause", "disconnect"]) {
+    test(`${provider} history cannot queue after ${change} during the final account check`, async (t) => {
+      const f = fixture(t);
+      await f.queue.select("owner", provider, "room", true);
+      const registration = await f.queue.prepare("owner");
+      f.queue.registered("owner", registration.key, { sourceId, cursor: "" });
+      const checking = Promise.withResolvers();
+      const resume = Promise.withResolvers();
+      const healthyStatus = f.channels.status;
+      let connected = true;
+      let checks = 0;
+      f.channels.status = async () => {
+        if (++checks === 2) {
+          checking.resolve();
+          await resume.promise;
+        }
+        return { ...(await healthyStatus()), connected };
+      };
+      const preparing = f.queue.prepare("owner");
+      await checking.promise;
+      if (change === "pause") await f.queue.select("owner", provider, "room", false);
+      else connected = false; // A disconnected provider may retain its cached identity.
+      resume.resolve();
+      assert.equal(await preparing, null, "stale history must not become upload work");
+      assert.equal(f.queue.status("owner")[0].queued, false);
+      f.restart();
+      if (change === "pause") {
+        assert.equal(f.queue.status("owner")[0].chats[0].enabled, false);
+        assert.equal((await f.queue.prepare("owner")).kind, "pause");
+        await f.queue.select("owner", provider, "room", true);
+        const retry = await f.queue.prepare("owner");
+        assert.equal(retry.kind, "register");
+        f.queue.registered("owner", retry.key, { sourceId, cursor: "" });
+      } else {
+        assert.equal(await f.queue.prepare("owner"), null);
+        connected = true;
+      }
+      const recovered = await f.queue.prepare("owner");
+      assert.equal(recovered.kind, "ingest");
+      assert.equal(recovered.provider, provider);
+      assert.equal(recovered.batch.messages[0].text, "Synthetic QA only");
+    });
+  }
+}

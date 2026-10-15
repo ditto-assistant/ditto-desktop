@@ -182,10 +182,15 @@ class DesktopChatSync {
           conversation.before,
         );
         // Recheck consent and identity after asynchronous provider work.
+        const currentStatus = await this.channels.status(source.provider);
         const current = this.get(uid, source.key);
         const currentChat = current?.chats.find((c) => c.id === conversation.id);
-        const currentStatus = await this.channels.status(source.provider);
-        if (!currentChat?.enabled || currentStatus.user?.id !== source.accountId) continue;
+        if (
+          !currentChat?.enabled ||
+          !currentStatus.connected ||
+          currentStatus.user?.id !== source.accountId
+        )
+          continue;
         const messages = rows
           .filter((m) => m.content?.trim() || m.attachments?.length)
           .map((m) => normalizedMessage(conversation, m));
