@@ -174,6 +174,23 @@ function surfaceOverlay(source) {
   );
   source = replace(
     source,
+    "        <Show when={thread.hasMore() || props.hasOlderPrivateMessages}>",
+    `        <Show when={local() && (thread.isPending() || thread.isError() || thread.messages().length === 0)}>
+          <div class="v2-connector-history-status" role="status" aria-live="polite">
+            <p>{thread.isPending()
+              ? "Loading local messages…"
+              : thread.isError()
+                ? "Couldn’t load messages from this chat on this Mac. Check your connection and access to this conversation."
+                : "No messages are available in this local conversation."}</p>
+            <Show when={!thread.isPending()}>
+              <button type="button" onClick={() => void thread.refresh()}>Retry local messages</button>
+            </Show>
+          </div>
+        </Show>
+        <Show when={thread.hasMore() || props.hasOlderPrivateMessages}>`,
+  );
+  source = replace(
+    source,
     "  const connections = useConnectorConnections()",
     "  const connections = useConnectorConnections(() => !local())",
   );

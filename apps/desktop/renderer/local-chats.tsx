@@ -364,7 +364,10 @@ export function useLocalConnectorMessages(
   });
   return {
     messages,
-    refresh,
+    refresh: async () => {
+      if (!disposed) setPending(true);
+      await refresh();
+    },
     hasMore: () => false,
     fetchOlder: refresh,
     isFetchingOlder: () => false,
