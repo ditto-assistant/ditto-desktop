@@ -137,6 +137,15 @@ export const localSessions = createMemo<Session[]>(() =>
     })),
   ),
 );
+export const localHeaderSession = createMemo(() => {
+  const selected = localSelection();
+  return selected?.conversation
+    ? (localSessions().find(
+        (session) => session.id === localSessionID(selected.service, selected.conversation!.id),
+      ) ?? null)
+    : null;
+});
+
 export function localConnection(session: Session): Connection | null {
   const selection = localSelection();
   if (
@@ -502,16 +511,13 @@ export function LocalChatSurface() {
   };
   return (
     <section class="ditto-integrated-chat" aria-label={`${localServiceName(service())} local chat`}>
-      <header class="ditto-integrated-chat-head">
-        <ConnectorLogo provider={service()} size={22} />
-        <strong>{selection().conversation?.title || localServiceName(service())}</strong>
-        <span class="ditto-local-badge">Local</span>
-        <Show when={selection().conversation}>
-          <button type="button" disabled={packetBusy()} onClick={() => void packet()}>
-            Use in Ditto Code →
-          </button>
-        </Show>
-      </header>
+      <Show when={!selection().conversation}>
+        <header class="ditto-integrated-chat-head">
+          <ConnectorLogo provider={service()} size={22} />
+          <strong>{selection().conversation?.title || localServiceName(service())}</strong>
+          <span class="ditto-local-badge">Local</span>
+        </header>
+      </Show>
       <Show
         when={selection().conversation && state()?.status?.connected}
         fallback={
@@ -610,6 +616,37 @@ export function LocalChatSurface() {
             />
           )}
         </Show>
+      </Show>
+      <Show when={selection().conversation && state()?.status?.connected}>
+        <div class="connector-destination-shelf ditto-local-destination-shelf">
+          <div class="v2-connector-mode-toggle" role="group" aria-label="Send to">
+            <button
+              type="button"
+              class="v2-connector-mode-option"
+              aria-pressed="true"
+              disabled={!canSendLocally(selection())}
+              aria-label={`Reply in ${localServiceName(service())} as yourself on this Mac`}
+              onClick={(event) =>
+                event.currentTarget
+                  .closest("section")
+                  ?.querySelector<HTMLTextAreaElement>("textarea")
+                  ?.focus()
+              }
+            >
+              <ConnectorLogo provider={service()} size={18} />
+              <span class="v2-connector-mode-label">Reply in {localServiceName(service())}</span>
+            </button>
+            <button
+              type="button"
+              class="v2-connector-mode-option"
+              disabled={packetBusy()}
+              onClick={() => void packet()}
+              aria-label="Use this local conversation in Ditto Code"
+            >
+              <span class="v2-connector-mode-label">Use in Ditto Code →</span>
+            </button>
+          </div>
+        </div>
       </Show>
     </section>
   );

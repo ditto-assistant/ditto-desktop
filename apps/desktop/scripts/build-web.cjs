@@ -20,6 +20,7 @@ const chatOverlays = require("./desktop-chat-bridge.cjs");
 const chatSources = new Map(
   [
     ["components/v2/V2StudioSidebar.tsx", chatOverlays.sidebarOverlay],
+    ["components/v2/V2Shell.tsx", chatOverlays.shellOverlay],
     ["components/v2/V2ChatContactsSidebar.tsx", chatOverlays.contactsOverlay],
     ["components/v2/V2ConnectorChatSurface.tsx", chatOverlays.surfaceOverlay],
     ["components/ChatFeed.tsx", chatOverlays.feedOverlay],

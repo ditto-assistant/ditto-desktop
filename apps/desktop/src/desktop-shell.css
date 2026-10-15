@@ -649,6 +649,7 @@ body:is(.ditto-local-open, .ditto-browser-open) .ditto-desktop-local-history {
   font-size: 12px;
 }
 .ditto-integrated-chat {
+  --connector-destination-space: 0px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -658,6 +659,14 @@ body:is(.ditto-local-open, .ditto-browser-open) .ditto-desktop-local-history {
 .ditto-integrated-chat > .v2-connector-chat {
   flex: 1;
   min-height: 0;
+}
+.ditto-integrated-chat > .ditto-local-destination-shelf {
+  position: static;
+  flex: none;
+  width: min(calc(100% - 40px), calc(var(--v2-command-rail-max, 720px) - 16px));
+  max-width: none;
+  margin: 8px auto;
+  pointer-events: auto;
 }
 .ditto-integrated-chat-head {
   display: flex;

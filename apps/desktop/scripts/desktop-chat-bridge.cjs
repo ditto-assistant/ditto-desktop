@@ -128,6 +128,30 @@ function feedOverlay(source) {
   );
   return source;
 }
+function shellOverlay(source) {
+  source = localImport("localHeaderSession") + source;
+  source = replace(
+    source,
+    "  const connectorSession = createMemo(() => {",
+    "  const connectorSession = createMemo(() => {\n    if (localHeaderSession()) return localHeaderSession()",
+  );
+  source = replace(
+    source,
+    "  const headerTitle = createMemo(() => {",
+    "  const headerTitle = createMemo(() => {\n    if (localHeaderSession()) return localHeaderSession()!.title",
+  );
+  source = replace(
+    source,
+    "<Show when={isThread()}>",
+    "<Show when={isThread() || localHeaderSession()}>",
+  );
+  source = replace(
+    source,
+    '<span class="v2-studio-header-title">{headerTitle()}</span>',
+    '<><span class="v2-studio-header-title">{headerTitle()}</span><Show when={localHeaderSession()}><span class="ditto-local-badge">Local</span></Show></>',
+  );
+  return source;
+}
 function surfaceOverlay(source) {
   source = localImport("isLocalSessionID, localConnection, useLocalConnectorMessages") + source;
   source = replace(
@@ -250,6 +274,7 @@ function contactsOverlay(source) {
 }
 module.exports = {
   sidebarOverlay,
+  shellOverlay,
   feedOverlay,
   surfaceOverlay,
   coordinatorOverlay,
