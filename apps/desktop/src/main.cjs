@@ -12,6 +12,7 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
+const { randomUUID } = require("node:crypto");
 const { spawn } = require("node:child_process");
 const readline = require("node:readline");
 const { MemoryStore, defaultCodeRoots } = require("./memory.cjs");
@@ -128,11 +129,20 @@ function loadAccount() {
   }
 }
 
-async function saveAccount(key, apiBase = API_BASE) {
+async function saveAccount(key, link, apiBase = API_BASE) {
   if (!safeStorage.isEncryptionAvailable())
     throw new Error("macOS Keychain encryption is unavailable.");
   const encrypted = safeStorage.encryptString(key).toString("base64");
-  await fsp.writeFile(accountPath(), JSON.stringify({ apiBase, key: encrypted }), { mode: 0o600 });
+  const temporary = `${accountPath()}.${randomUUID()}.tmp`;
+  try {
+    await fsp.writeFile(temporary, JSON.stringify({ apiBase, key: encrypted }), { mode: 0o600 });
+    if (pendingLink !== link) return false;
+    // Commit without yielding after the ownership check so sign-out cannot interleave.
+    fs.renameSync(temporary, accountPath());
+    return true;
+  } finally {
+    await fsp.rm(temporary, { force: true });
+  }
 }
 
 async function postDitto(route, body) {
@@ -681,14 +691,21 @@ function registerIpc() {
   });
 
   ipcMain.handle("ditto:link-start", async () => {
+    const link = { code: null, expires: 0 };
+    pendingLink = link;
     const { status, data } = await postDitto("/api/v2/mcp/device-code", {});
+    if (pendingLink !== link) throw new Error("Ditto sign-in was cancelled. Please try again.");
     if (status >= 400 || !data.device_code || !data.user_code || !data.verification_url) {
       throw new Error(`Ditto sign-in could not start (HTTP ${status}).`);
     }
-    pendingLink = { code: data.device_code, expires: Date.now() + (data.expires_in || 600) * 1000 };
     if (!String(data.verification_url).startsWith("https://"))
       throw new Error("Ditto returned an invalid sign-in page.");
+    Object.assign(link, {
+      code: data.device_code,
+      expires: Date.now() + (data.expires_in || 600) * 1000,
+    });
     await shell.openExternal(data.verification_url);
+    if (pendingLink !== link) throw new Error("Ditto sign-in was cancelled. Please try again.");
     return {
       userCode: data.user_code,
       verificationUrl: data.verification_url,
@@ -697,13 +714,16 @@ function registerIpc() {
   });
 
   ipcMain.handle("ditto:link-poll", async () => {
-    if (!pendingLink || Date.now() > pendingLink.expires) return { kind: "expired" };
+    const link = pendingLink;
+    if (!link?.code || Date.now() > link.expires) return { kind: "expired" };
     const { data } = await postDitto("/api/v2/mcp/device-token", {
-      device_code: pendingLink.code,
+      device_code: link.code,
       grant_type: "urn:ietf:params:oauth:grant-type:device_code",
     });
+    if (pendingLink !== link) return { kind: "expired" };
     if (typeof data.access_token === "string" && data.access_token.startsWith("ditto_mcp_")) {
-      await saveAccount(data.access_token);
+      if (!(await saveAccount(data.access_token, link)) || pendingLink !== link)
+        return { kind: "expired" };
       pendingLink = null;
       return { kind: "linked" };
     }
