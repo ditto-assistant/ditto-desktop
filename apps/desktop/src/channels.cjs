@@ -31,6 +31,7 @@ class Sidecar {
     });
     this.child = child;
     readline.createInterface({ input: child.stdout }).on("line", (line) => {
+      if (this.child !== child) return;
       let message;
       try {
         message = JSON.parse(line);
@@ -68,13 +69,16 @@ class Sidecar {
     // Authentication and protocol details must not be copied into app logs.
     child.stderr.resume();
     const fail = (error) => {
-      if (this.child === child) this.child = null;
+      if (this.child !== child) return;
+      this.child = null;
       for (const request of this.pending.values()) {
         clearTimeout(request.timer);
         request.reject(error);
       }
       this.pending.clear();
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
     };
+    child.stdin.on("error", fail);
     child.once("error", fail);
     child.once("exit", (code, signal) =>
       fail(new Error(`Channel component stopped (${signal || code}).`)),
