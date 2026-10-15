@@ -704,15 +704,30 @@
       button.disabled = false;
     }
   });
+  let localSearchGeneration = 0;
+  $("#dl-query").addEventListener("input", () => {
+    localSearchGeneration++;
+    if (!$("#dl-query").value.trim()) $("#dl-results").replaceChildren();
+  });
   $("#dl-search-form").addEventListener("submit", async (event) => {
     event.preventDefault();
+    const generation = ++localSearchGeneration;
     const query = $("#dl-query").value.trim();
-    if (!query) return;
     const list = $("#dl-results");
+    if (!query) {
+      list.replaceChildren();
+      return;
+    }
     list.textContent = "Searching…";
     try {
       const results = await window.ditto.search(query);
+      if (generation !== localSearchGeneration) return;
       list.replaceChildren();
+      // Exact local source matches should lead broad trajectory suggestions.
+      for (const match of results.matches)
+        list.append(
+          item(match.title || "Source", `${match.source} · ${match.path}`, match.excerpt || ""),
+        );
       for (const memory of results.memories) {
         const prompt = memory.prompt?.trim();
         const answer = memory.response?.trim();
@@ -724,14 +739,10 @@
           ),
         );
       }
-      for (const match of results.matches)
-        list.append(
-          item(match.title || "Source", `${match.source} · ${match.path}`, match.excerpt || ""),
-        );
       if (!list.children.length)
         list.append(element("p", "ditto-local-muted", "No matching local memory."));
     } catch (error) {
-      list.textContent = error.message;
+      if (generation === localSearchGeneration) list.textContent = error.message;
     }
   });
   $("#dl-choose-workspace").addEventListener("click", async () => {
