@@ -14,6 +14,7 @@ const CODE_EXTENSIONS = new Set([
   ".c",
   ".cc",
   ".cpp",
+  ".cjs",
   ".cs",
   ".css",
   ".go",

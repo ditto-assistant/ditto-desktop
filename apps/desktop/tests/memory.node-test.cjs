@@ -35,6 +35,32 @@ test("redacts credentials before local persistence", () => {
   assert.equal(redact("api_key=abcdefghijklmnopq"), "api_key=[credential removed]");
 });
 
+test("scans CommonJS source into searchable, exportable local memory", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ditto-commonjs-memory-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const repo = path.join(root, "project");
+  await fsp.mkdir(repo);
+  execFileSync("git", ["init", "-q", repo]);
+  const file = path.join(repo, "worker.cjs");
+  await fsp.writeFile(file, 'module.exports = "COMMONJS_MEMORY_FIXTURE";\n');
+  await fsp.writeFile(
+    path.join(repo, "worker.js"),
+    'export const worker = "JAVASCRIPT_CONTROL";\n',
+  );
+  const store = new MemoryStore(path.join(root, "data"));
+  t.after(() => store.close());
+  const options = { roots: [repo], trajectoryRoots: [] };
+  const result = await store.scan(options);
+  assert.equal(result.code, 2);
+  assert.equal(store.search("COMMONJS_MEMORY_FIXTURE")[0]?.path, file);
+  assert.equal((await store.scan(options)).code, 0, "unchanged files must not be reindexed");
+  const records = (await fsp.readFile(await store.exportCloudBundle(), "utf8"))
+    .trim()
+    .split("\n")
+    .map(JSON.parse);
+  assert.ok(records.some((record) => JSON.stringify(record).includes("COMMONJS_MEMORY_FIXTURE")));
+});
+
 test("code ingestion redacts credentials that cross memory chunk boundaries before export", async (t) => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ditto-redaction-chunks-"));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));
