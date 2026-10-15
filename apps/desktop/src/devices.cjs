@@ -249,8 +249,16 @@ class DesktopDevices {
       }
       entry = { at: Date.now(), fingerprint, done: false };
       entry.result = Promise.resolve()
-        .then(() =>
-          request.method === "desktop.status"
+        .then(() => {
+          // Pairing or the connection can disappear after a frame is queued.
+          // Recheck before starting an updater; an already running update is not cancelled.
+          if (
+            !this.state.online ||
+            this.tunnels.get(frame.tunnelId) !== tunnel ||
+            (tunnel.peer && !this.paired.has(tunnel.peer))
+          )
+            throw new Error("Desktop connection closed before the request started.");
+          return request.method === "desktop.status"
             ? {
                 name: "Ditto Desktop",
                 version: this.version,
@@ -259,8 +267,8 @@ class DesktopDevices {
               }
             : request.method === "engines.status"
               ? this.maintenance.status()
-              : this.maintenance.update(request.params.provider),
-        )
+              : this.maintenance.update(request.params.provider);
+        })
         .then(
           (result) => ({ version: 1, id: request.id, result }),
           (error) => ({
