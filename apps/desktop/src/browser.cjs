@@ -167,7 +167,7 @@ class DesktopBrowser {
       button: "left",
       clickCount: 1,
     });
-    return this.status();
+    return { ...this.status(), clicked: true, ref };
   }
 
   async fill(ref, value) {
@@ -184,7 +184,7 @@ class DesktopBrowser {
       return true;
     })()`);
     if (!result) throw new Error("The referenced field is no longer available. Inspect again.");
-    return this.status();
+    return { ...this.status(), filled: true, ref };
   }
 
   close() {

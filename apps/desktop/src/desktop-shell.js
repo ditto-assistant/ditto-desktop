@@ -284,7 +284,13 @@
       browserPage.querySelector("#db-status").textContent = error.message;
     }
   }
+  let inspectedBrowserUrl = "";
+  function clearBrowserInspection() {
+    inspectedBrowserUrl = "";
+    browserPage.querySelector("#db-inspect-output").textContent = "";
+  }
   function browserState(state) {
+    if (inspectedBrowserUrl && inspectedBrowserUrl !== state.url) clearBrowserInspection();
     if (state.url && document.activeElement !== browserPage.querySelector("#db-address"))
       browserPage.querySelector("#db-address").value = state.url;
     browserPage.querySelector("#db-back").disabled = !state.canGoBack;
@@ -296,6 +302,7 @@
   }).observe(browserPage.querySelector("#db-viewport"));
   browserPage.querySelector("#db-address-form").addEventListener("submit", async (event) => {
     event.preventDefault();
+    clearBrowserInspection();
     try {
       const state = await window.ditto.browserNavigate(
         browserPage.querySelector("#db-address").value,
@@ -312,6 +319,7 @@
     ["db-reload", "browserReload"],
   ]) {
     browserPage.querySelector(`#${id}`).addEventListener("click", async () => {
+      clearBrowserInspection();
       try {
         browserState(await window.ditto[action]());
       } catch (error) {
@@ -322,6 +330,7 @@
   browserPage.querySelector("#db-inspect").addEventListener("click", async () => {
     try {
       const snapshot = await window.ditto.browserSnapshot();
+      inspectedBrowserUrl = snapshot.url;
       browserPage.querySelector("#db-inspect-output").textContent =
         `${number(snapshot.controls.length)} controls · ${snapshot.text.slice(0, 240)}`;
     } catch (error) {

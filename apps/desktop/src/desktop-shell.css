@@ -551,7 +551,7 @@ body.ditto-local-open:not(.ditto-desktop-settings) .ditto-desktop-code-chat {
   gap: 8px;
   padding: 8px 12px;
 }
-body.ditto-local-open .ditto-desktop-local-actions {
+body:is(.ditto-local-open, .ditto-browser-open) .ditto-desktop-local-actions {
   display: flex;
 }
 .ditto-desktop-local-actions label {
@@ -585,10 +585,12 @@ body.ditto-desktop-settings #dl-chat-form {
 body.ditto-local-open .ditto-desktop-workspace {
   display: inline-flex !important;
 }
-body.ditto-local-open .v2-code-panel > .v2-code-panel-toolbar,
-body.ditto-local-open .v2-code-panel > .v2-code-repo-section,
-body.ditto-local-open .v2-code-panel > .v2-studio-section:not(.ditto-desktop-code-group),
-body.ditto-local-open .v2-code-panel > .v2-studio-sidebar-status {
+body:is(.ditto-local-open, .ditto-browser-open) .v2-code-panel > .v2-code-panel-toolbar,
+body:is(.ditto-local-open, .ditto-browser-open) .v2-code-panel > .v2-code-repo-section,
+body:is(.ditto-local-open, .ditto-browser-open)
+  .v2-code-panel
+  > .v2-studio-section:not(.ditto-desktop-code-group),
+body:is(.ditto-local-open, .ditto-browser-open) .v2-code-panel > .v2-studio-sidebar-status {
   display: none;
 }
 .ditto-desktop-local-history {
@@ -596,7 +598,7 @@ body.ditto-local-open .v2-code-panel > .v2-studio-sidebar-status {
   gap: 3px;
   padding: 10px;
 }
-body.ditto-local-open .ditto-desktop-local-history {
+body:is(.ditto-local-open, .ditto-browser-open) .ditto-desktop-local-history {
   display: grid;
 }
 .ditto-desktop-local-history button {
