@@ -9,7 +9,7 @@ const { EventEmitter, once } = require("node:events");
 const { MemoryStore } = require("../src/memory.cjs");
 const { spawnLocalTask, cancelLocalTask, wasLocalTaskCancelled } = require("../src/local-task.cjs");
 
-function desktopFixture(t) {
+function desktopFixture(t, options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ditto-local-quit-"));
   const data = path.join(root, "data");
   const store = new MemoryStore(data);
@@ -51,12 +51,14 @@ function desktopFixture(t) {
   };
   const handlers = new Map();
   let child;
+  let spawnCount = 0;
   let ready;
   let didStart;
   const started = new Promise((resolve) => {
     didStart = resolve;
   });
   const start = () => {
+    spawnCount++;
     child = spawnLocalTask(
       process.execPath,
       [
@@ -86,7 +88,7 @@ function desktopFixture(t) {
       `
     store = fixtureStore;
     engineMaintenance = {active:false};
-    piStatus = async () => ({ready:true,localModel:null});
+    piStatus = fixtureStatus;
     openHarness = async () => null;
     registerIpc();
   `,
@@ -99,6 +101,7 @@ function desktopFixture(t) {
       setInterval,
       setImmediate,
       fixtureStore: store,
+      fixtureStatus: options.status || (async () => ({ ready: true, localModel: null })),
       require(name) {
         if (name === "electron")
           return {
@@ -121,7 +124,9 @@ function desktopFixture(t) {
           };
         if (name === "./pi-sandbox.cjs") return { spawnSandboxedPi: start };
         if (name === "./browser-agent.cjs")
-          return { startAgentBrowser: async () => ({ close: async () => {} }) };
+          return {
+            startAgentBrowser: options.browser || (async () => ({ close: async () => {} })),
+          };
         if (
           name.startsWith("./") &&
           !["./memory.cjs", "./task-context.cjs", "./local-task.cjs", "./workspace.cjs"].includes(
@@ -149,6 +154,7 @@ function desktopFixture(t) {
     quit,
     data,
     started,
+    spawnCount: () => spawnCount,
     ready: () => ready,
     closed: () => storeClosed,
     databaseClosed: () => databaseClosed,
@@ -213,3 +219,174 @@ test("Quit without a local task closes SQLite immediately", async (t) => {
   await fixture.quit;
   assert.equal(fixture.closed(), true);
 });
+
+function setupGate() {
+  let enter, release;
+  const entered = new Promise((resolve) => {
+    enter = resolve;
+  });
+  const result = new Promise((resolve) => {
+    release = resolve;
+  });
+  return {
+    entered,
+    release,
+    wait: () => {
+      enter();
+      return result;
+    },
+  };
+}
+
+test(
+  "Stop during model setup prevents a later launch and releases local ownership",
+  { timeout: 10000 },
+  async (t) => {
+    const gate = setupGate();
+    const fixture = desktopFixture(t, { status: gate.wait });
+    const running = fixture.handlers.get("ditto:chat")(
+      null,
+      "Reply exactly QA. Do not retrieve memories.",
+    );
+    await gate.entered;
+    const stopped = await fixture.handlers.get("ditto:cancel-chat")();
+    gate.release({ ready: true, localModel: null });
+    // Drain the broken baseline too, without leaving its unexpectedly launched child behind.
+    if (!stopped) {
+      await fixture.started;
+      await fixture.ready();
+      await fixture.handlers.get("ditto:cancel-chat")();
+    }
+    const response = await running;
+    assert.equal(stopped, true, "Stop must also own a task that has no child yet");
+    assert.equal(response.cancelled, true);
+    assert.equal(fixture.spawnCount(), 0);
+  },
+);
+
+test(
+  "pending startup blocks competing tasks and folder changes until cancellation drains",
+  { timeout: 10000 },
+  async (t) => {
+    const gate = setupGate();
+    const fixture = desktopFixture(t, { status: gate.wait });
+    const running = fixture.handlers.get("ditto:chat")(
+      null,
+      "Reply exactly QA. Do not retrieve memories.",
+    );
+    await gate.entered;
+    try {
+      await assert.rejects(
+        fixture.handlers.get("ditto:chat")(null, "Another task"),
+        /already working/,
+      );
+      await assert.rejects(
+        fixture.handlers.get("ditto:run-provider")(null, "codex", "Another task"),
+        /already running/,
+      );
+      await assert.rejects(fixture.handlers.get("ditto:choose-workspace")(), /Stop the local task/);
+      await assert.rejects(
+        async () => fixture.handlers.get("ditto:default-workspace")(),
+        /Stop the local task/,
+      );
+    } finally {
+      await fixture.handlers.get("ditto:cancel-chat")();
+      gate.release({ ready: true, localModel: null });
+    }
+    assert.equal((await running).cancelled, true);
+    assert.equal(fixture.spawnCount(), 0);
+    const folder = await fixture.handlers.get("ditto:default-workspace")();
+    assert.ok(folder.endsWith(path.join("workspaces", "default")));
+    const retry = fixture.handlers.get("ditto:chat")(
+      null,
+      "Reply exactly QA. Do not retrieve memories.",
+    );
+    await fixture.started;
+    await fixture.ready();
+    assert.equal(await fixture.handlers.get("ditto:cancel-chat")(), true);
+    assert.equal((await retry).cancelled, true);
+    assert.equal(fixture.spawnCount(), 1);
+  },
+);
+
+test(
+  "Quit during setup saves cancellation before closing SQLite without launching a child",
+  { timeout: 10000 },
+  async (t) => {
+    const gate = setupGate();
+    const fixture = desktopFixture(t, { status: gate.wait });
+    const running = fixture.handlers.get("ditto:chat")(
+      null,
+      "Reply exactly QA. Do not retrieve memories.",
+    );
+    await gate.entered;
+    assert.equal(fixture.app.quit().prevented, true);
+    assert.equal(fixture.app.quit().prevented, true);
+    assert.equal(fixture.closed(), false);
+    gate.release({ ready: true, localModel: null });
+    assert.equal((await running).cancelled, true);
+    await fixture.quit;
+    assert.equal(fixture.spawnCount(), 0);
+    assert.equal(fixture.databaseClosed(), true);
+    const reopened = new MemoryStore(fixture.data);
+    try {
+      const runs = reopened.recentPiRuns();
+      assert.equal(runs.length, 1);
+      assert.equal(runs[0].status, "cancelled");
+      assert.equal(runs[0].response, "");
+      assert.equal(runs[0].error, "");
+    } finally {
+      reopened.close();
+    }
+  },
+);
+
+test(
+  "Stop while the browser bridge initializes closes it before returning cancellation",
+  { timeout: 10000 },
+  async (t) => {
+    const gate = setupGate();
+    let bridgeClosed = 0;
+    const fixture = desktopFixture(t, { browser: gate.wait });
+    const running = fixture.handlers.get("ditto:chat")(
+      null,
+      "Reply exactly QA. Do not retrieve memories.",
+    );
+    await gate.entered;
+    assert.equal(await fixture.handlers.get("ditto:cancel-chat")(), true);
+    gate.release({
+      close: async () => {
+        bridgeClosed++;
+      },
+    });
+    assert.equal((await running).cancelled, true);
+    assert.equal(bridgeClosed, 1);
+    assert.equal(fixture.spawnCount(), 0);
+  },
+);
+
+test(
+  "failed model setup releases ownership so a later local task can start",
+  { timeout: 10000 },
+  async (t) => {
+    let attempts = 0;
+    const fixture = desktopFixture(t, {
+      status: async () => {
+        if (++attempts === 1) throw new Error("Synthetic setup failure");
+        return { ready: true, localModel: null };
+      },
+    });
+    await assert.rejects(
+      fixture.handlers.get("ditto:chat")(null, "Reply exactly QA. Do not retrieve memories."),
+      /Synthetic setup failure/,
+    );
+    const running = fixture.handlers.get("ditto:chat")(
+      null,
+      "Reply exactly QA. Do not retrieve memories.",
+    );
+    await fixture.started;
+    await fixture.ready();
+    assert.equal(await fixture.handlers.get("ditto:cancel-chat")(), true);
+    assert.equal((await running).cancelled, true);
+  },
+);

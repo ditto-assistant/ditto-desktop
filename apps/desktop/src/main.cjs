@@ -60,6 +60,7 @@ let harness;
 let scanPromise = null;
 let pendingLink = null;
 let piProcess = null;
+let piStartup = null;
 let quittingLocalTask = null;
 let remoteHost;
 let desktopBrowser;
@@ -84,6 +85,36 @@ function emit(channel, value) {
 }
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function prepareLocalPi(run) {
+  return async (...args) => {
+    if (piProcess || piStartup) throw new Error("Ditto Code is already working.");
+    let complete;
+    const startup = {
+      cancelled: false,
+      done: new Promise((resolve) => {
+        complete = resolve;
+      }),
+      check() {
+        if (this.cancelled) throw new Error("Local task stopped before starting.");
+      },
+    };
+    piStartup = startup;
+    try {
+      return await run(startup, ...args);
+    } catch (error) {
+      if (!startup.cancelled || !startup.task) throw error;
+      const { workspace, question, sessionId } = startup.task;
+      const runId = store.startPiRun(workspace, question, "pi", sessionId);
+      store.finishPiRun(runId, "cancelled", "");
+      emit("ditto:chat-event", { type: "cancelled" });
+      return { text: "", cancelled: true };
+    } finally {
+      if (piStartup === startup) piStartup = null;
+      complete();
+    }
+  };
 }
 
 function loadAccount() {
@@ -503,7 +534,7 @@ function registerIpc() {
   ipcMain.handle("ditto:run-provider", async (_event, provider, question) => {
     if (engineMaintenance.active)
       throw new Error("Wait for the coding engine update to finish first.");
-    if (piProcess) throw new Error("A local coding task is already running.");
+    if (piProcess || piStartup) throw new Error("A local coding task is already running.");
     if (!["codex", "claude", "cursor", "grok"].includes(provider))
       throw new Error("Unsupported coding provider.");
     if (typeof question !== "string" || !question.trim() || question.length > 12000)
@@ -624,13 +655,13 @@ function registerIpc() {
 
   ipcMain.handle("ditto:workspace", () => selectedWorkspace());
   ipcMain.handle("ditto:default-workspace", () => {
-    if (piProcess) throw new Error("Stop the local task before changing folders.");
+    if (piProcess || piStartup) throw new Error("Stop the local task before changing folders.");
     const folder = defaultWorkspace(dataDir());
     store.setSetting("workspace", folder);
     return folder;
   });
   ipcMain.handle("ditto:choose-workspace", async () => {
-    if (piProcess) throw new Error("Stop the local task before changing folders.");
+    if (piProcess || piStartup) throw new Error("Stop the local task before changing folders.");
     const result = await dialog.showOpenDialog(win, {
       defaultPath: selectedWorkspace(),
       properties: ["openDirectory"],
@@ -709,7 +740,7 @@ function registerIpc() {
     return true;
   });
 
-  ipcMain.handle("ditto:chat", async (_event, question, sessionId) => {
+  const localPi = async (startup, _event, question, sessionId) => {
     if (engineMaintenance.active)
       throw new Error("Wait for the coding engine update to finish first.");
     if (piProcess) throw new Error("Ditto Code is already working.");
@@ -727,7 +758,9 @@ function registerIpc() {
     const previous = sessionId ? store.piSession(sessionId) : null;
     if (previous && (previous.workspace !== workspace || previous.provider !== "pi"))
       throw new Error("Start a new local task when changing its folder or engine.");
+    startup.task = { workspace, question, sessionId };
     const pi = await piStatus();
+    startup.check();
     if (!pi.ready)
       throw new Error("Ditto Code needs a model. Start Ollama or set up a model in Ditto Code.");
     const desktopToolTask =
@@ -791,8 +824,10 @@ function registerIpc() {
           },
         );
     let child;
-    await fsp.mkdir(sessions, { recursive: true, mode: 0o700 });
     try {
+      startup.check();
+      await fsp.mkdir(sessions, { recursive: true, mode: 0o700 });
+      startup.check();
       child = spawnSandboxedPi(
         process.execPath,
         PI_SCRIPT,
@@ -906,9 +941,14 @@ function registerIpc() {
         }
       });
     });
-  });
+  };
+  ipcMain.handle("ditto:chat", prepareLocalPi(localPi));
 
   ipcMain.handle("ditto:cancel-chat", async () => {
+    if (!piProcess && piStartup) {
+      piStartup.cancelled = true;
+      return true;
+    }
     return cancelLocalTask(piProcess);
   });
   ipcMain.handle("ditto:recent-runs", async () => store.recentPiRuns());
@@ -967,7 +1007,7 @@ app
       path.join(dataDir(), "cli"),
     );
     engineMaintenance = new EngineMaintenance({
-      busy: () => Boolean(piProcess || remoteHost.child),
+      busy: () => Boolean(piProcess || piStartup || remoteHost.child),
       onStatus: (status) => emit("ditto:engine-update", status),
     });
     devices = new DesktopDevices({
@@ -1031,6 +1071,15 @@ app.on("before-quit", (event) => {
         });
       });
       cancelLocalTask(piProcess);
+    }
+    return;
+  }
+  if (piStartup) {
+    event.preventDefault();
+    piStartup.cancelled = true;
+    if (!piStartup.quitting) {
+      piStartup.quitting = true;
+      void piStartup.done.then(() => app.quit());
     }
     return;
   }
