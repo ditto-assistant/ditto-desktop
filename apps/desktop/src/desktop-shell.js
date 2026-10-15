@@ -356,6 +356,18 @@
   sharedOutput.classList.add("ditto-desktop-code-response");
   localChat.querySelector("#dl-transcript").append(sharedOutput);
   const responseSources = new WeakMap();
+  let localScrollTarget;
+  let followLocalOutput = true;
+  let localScrollFrame = 0;
+  function scrollLocalCode(force = false) {
+    if (force) followLocalOutput = true;
+    if (!followLocalOutput || localScrollFrame || activePanel !== "Local") return;
+    localScrollFrame = requestAnimationFrame(() => {
+      localScrollFrame = 0;
+      if (followLocalOutput && activePanel === "Local" && localScrollTarget)
+        localScrollTarget.scrollTop = localScrollTarget.scrollHeight;
+    });
+  }
   function setCodeResponse(target, source) {
     responseSources.set(target, source);
     const render = window.dittoDesktopRenderCodeResponse;
@@ -401,6 +413,17 @@
       modeDescription.textContent = localDescription;
     const main = document.querySelector(".v2-code-surface-main");
     if (main && !main.contains(localChat)) main.append(localChat);
+    if (main && main !== localScrollTarget) {
+      localScrollTarget = main;
+      main.addEventListener(
+        "scroll",
+        () => {
+          followLocalOutput = main.scrollHeight - main.clientHeight - main.scrollTop < 80;
+        },
+        { passive: true },
+      );
+    }
+    scrollLocalCode();
     const context = document.querySelector(".v2-composer-context-panel");
     if (main && context && !context.querySelector(".ditto-desktop-workspace")) {
       const button = element(
@@ -474,6 +497,7 @@
     localChat.classList.remove("has-turns");
     show("#dl-context", `${$("#dl-provider").selectedOptions[0].textContent} · On this Mac`);
     desktopMode(true, "");
+    scrollLocalCode(true);
   }
   function addLocalTurn(prompt, provider) {
     const transcript = localChat.querySelector("#dl-transcript");
@@ -489,6 +513,7 @@
     setCodeResponse(sharedOutput, "");
     localChat.classList.add("has-turns");
     localTurns.push({ prompt, provider });
+    scrollLocalCode(true);
   }
   async function runLocalTask(prompt) {
     const provider = $("#dl-provider").value;
@@ -653,6 +678,7 @@
             setCodeResponse(sharedOutput, "");
             localChat.classList.add("has-turns");
             desktopMode(true, "");
+            scrollLocalCode(true);
             show(
               "#dl-context",
               resumable
@@ -1237,7 +1263,7 @@
     if (event.type === "text") {
       const box = $("#dl-output");
       setCodeResponse(box, (responseSources.get(box) || "") + event.text);
-      box.scrollTop = box.scrollHeight;
+      scrollLocalCode();
     }
     if (event.type === "tool") show("#dl-context", `Ditto Code used ${event.name}`);
     if (event.type === "tool-error") show("#dl-context", `${event.name}: ${event.message}`);
