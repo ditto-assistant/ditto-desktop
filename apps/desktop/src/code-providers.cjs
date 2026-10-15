@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawnLocalTask, wasLocalTaskCancelled } = require("./local-task.cjs");
 const readline = require("node:readline");
 
 const names = { codex: "Codex", claude: "Claude Code", cursor: "Cursor Agent", grok: "Grok" };
@@ -79,7 +79,7 @@ function startProvider(provider, prompt, workspace, onText) {
     ];
     stdinPrompt = "";
   }
-  const child = spawn(binary, args, {
+  const child = spawnLocalTask(binary, args, {
     cwd: workspace,
     stdio: ["pipe", "pipe", "pipe"],
     env: {
@@ -135,7 +135,8 @@ function startProvider(provider, prompt, workspace, onText) {
   const result = new Promise((resolve, reject) => {
     child.once("error", reject);
     child.once("close", (code) => {
-      if (code === 0) resolve({ text: answer.trim() });
+      if (wasLocalTaskCancelled(child)) resolve({ text: answer.trim(), cancelled: true });
+      else if (code === 0) resolve({ text: answer.trim() });
       else
         reject(
           new Error(

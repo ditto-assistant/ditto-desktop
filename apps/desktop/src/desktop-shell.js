@@ -1243,6 +1243,7 @@
     if (event.type === "tool-error") show("#dl-context", `${event.name}: ${event.message}`);
     if (event.type === "error") show("#dl-context", event.message);
     if (event.type === "done") show("#dl-context", "Complete");
+    if (event.type === "cancelled") show("#dl-context", "Stopped");
     mountLocalCode();
   });
 

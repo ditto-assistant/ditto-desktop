@@ -8,6 +8,7 @@ const { EventEmitter } = require("node:events");
 const { PassThrough } = require("node:stream");
 
 function providerFixture() {
+  let cancelled = false;
   const child = new EventEmitter();
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
@@ -20,12 +21,14 @@ function providerFixture() {
     __dirname: path.dirname(sourcePath),
     process,
     require: (name) => {
+      if (name === "./local-task.cjs")
+        return { spawnLocalTask: () => child, wasLocalTaskCancelled: () => cancelled };
       if (name === "node:child_process") return { spawn: () => child };
       if (name === "node:fs") return { ...fs, existsSync: () => true };
       return sourceRequire(name);
     },
   });
-  return { child, start: module.exports.startProvider };
+  return { child, start: module.exports.startProvider, cancel: () => (cancelled = true) };
 }
 
 test("plain provider output preserves Unicode across stdout pipe chunks", async () => {
@@ -48,4 +51,16 @@ test("provider failure details preserve Unicode across stderr pipe chunks", asyn
   child.stderr.end();
   child.emit("close", 1);
   await assert.rejects(run.result, /Cannot open résumé\.txt/);
+});
+
+test("intentional provider cancellation retains partial output without exposing diagnostics", async () => {
+  const { child, start, cancel } = providerFixture();
+  const run = start("claude", "Disposable task", "/tmp/fixture", () => {});
+  child.stdout.end("Partial answer");
+  child.stderr.end("private runtime diagnostic");
+  cancel();
+  child.emit("close", 143);
+  const result = await run.result;
+  assert.equal(result.cancelled, true);
+  assert.equal(result.text, "Partial answer");
 });

@@ -21,6 +21,7 @@ const { LocalChannels } = require("./channels.cjs");
 const { createKnowledgePacket } = require("./packets.cjs");
 const { binaryFor, providerAvailability, startProvider } = require("./code-providers.cjs");
 const { spawnSandboxedPi } = require("./pi-sandbox.cjs");
+const { cancelLocalTask, wasLocalTaskCancelled } = require("./local-task.cjs");
 const { projectFolder, defaultWorkspace, resolveWorkspace } = require("./workspace.cjs");
 const { cliAvailable, runCli, RemoteHost } = require("./remote.cjs");
 const { DesktopBrowser } = require("./browser.cjs");
@@ -524,11 +525,11 @@ function registerIpc() {
     emit("ditto:chat-event", { type: "start", memoryCount: matches.length });
     try {
       const response = await result;
-      store.finishPiRun(runId, "done", response.text);
-      emit("ditto:chat-event", { type: "done" });
+      store.finishPiRun(runId, response.cancelled ? "cancelled" : "done", response.text);
+      emit("ditto:chat-event", { type: response.cancelled ? "cancelled" : "done" });
       return response;
     } catch (error) {
-      store.finishPiRun(runId, child.signalCode ? "cancelled" : "error", "", errorMessage(error));
+      store.finishPiRun(runId, "error", "", errorMessage(error));
       emit("ditto:chat-event", { type: "error", message: errorMessage(error) });
       throw error;
     } finally {
@@ -849,6 +850,7 @@ function registerIpc() {
     emit("ditto:chat-event", { type: "start", memoryCount: matches.length + vector.length });
     return new Promise((resolve, reject) => {
       piProcess = child;
+      let settled = false;
       let final = "";
       let stderr = "";
       const lines = readline.createInterface({ input: child.stdout });
@@ -887,16 +889,24 @@ function registerIpc() {
       child.stderr.on("data", (chunk) => {
         stderr += chunk.toString().slice(0, 4000);
       });
-      child.on("error", (error) => {
-        piProcess = null;
+      child.once("error", (error) => {
+        if (settled) return;
+        settled = true;
+        if (piProcess === child) piProcess = null;
         if (browserBridge) void browserBridge.close();
         store.finishPiRun(runId, "error", final, errorMessage(error));
         reject(error);
       });
-      child.on("exit", (code) => {
-        piProcess = null;
+      child.once("close", (code) => {
+        if (settled) return;
+        settled = true;
+        if (piProcess === child) piProcess = null;
         if (browserBridge) void browserBridge.close();
-        if (code === 0) {
+        if (wasLocalTaskCancelled(child)) {
+          store.finishPiRun(runId, "cancelled", final);
+          emit("ditto:chat-event", { type: "cancelled" });
+          resolve({ text: final, cancelled: true });
+        } else if (code === 0) {
           store.finishPiRun(runId, "done", final);
           emit("ditto:chat-event", { type: "done" });
           resolve({ text: final });
@@ -904,7 +914,7 @@ function registerIpc() {
           const message =
             stderr.trim().replace(/\bpi\b/gi, "Ditto Code") ||
             `Ditto Code stopped (code ${code}). Check your model setup and retry.`;
-          store.finishPiRun(runId, code === null ? "cancelled" : "error", final, message);
+          store.finishPiRun(runId, "error", final, message);
           emit("ditto:chat-event", { type: "error", message });
           reject(new Error(message));
         }
@@ -913,8 +923,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("ditto:cancel-chat", async () => {
-    if (piProcess) piProcess.kill("SIGTERM");
-    return true;
+    return cancelLocalTask(piProcess);
   });
   ipcMain.handle("ditto:recent-runs", async () => store.recentPiRuns());
 }
@@ -1024,7 +1033,7 @@ app.on("before-quit", (event) => {
     return;
   }
   devices?.stop();
-  if (piProcess) piProcess.kill("SIGTERM");
+  cancelLocalTask(piProcess);
   remoteHost?.stop();
   channels?.close();
   chatSync?.close();

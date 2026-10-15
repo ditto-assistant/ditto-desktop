@@ -1,7 +1,7 @@
 const os = require("node:os");
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawnLocalTask } = require("./local-task.cjs");
 
 const SANDBOX = "/usr/bin/sandbox-exec";
 
@@ -14,6 +14,9 @@ function sandboxProfile(workspace, agentDir, tempDir) {
 (allow file-read*)
 (allow file-write* ${writable})
 (allow process*)
+; Tool shells create their own groups; the runtime may stop only peers
+; inheriting this task's sandbox, while filesystem write boundaries stay intact.
+(allow signal (target same-sandbox))
 (allow sysctl-read)
 (allow mach-lookup)
 (allow network*)`;
@@ -31,7 +34,7 @@ function spawnSandboxedPi(
   fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
   const tempDir = fs.mkdtempSync(path.join(dataDir, "pi-task-"));
   const profile = sandboxProfile(workspace, agentDir, tempDir);
-  const child = spawn(SANDBOX, ["-p", profile, executable, script, ...args], {
+  const child = spawnLocalTask(SANDBOX, ["-p", profile, executable, script, ...args], {
     cwd: workspace,
     env: {
       ...process.env,
