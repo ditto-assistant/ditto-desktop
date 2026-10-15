@@ -210,6 +210,18 @@ class MemoryStore {
         INSERT INTO docs_fts(rowid,title,body) VALUES(new.id,new.title,new.body);
       END;
       CREATE TABLE IF NOT EXISTS harness_synced (doc_id INTEGER PRIMARY KEY, synced_at TEXT NOT NULL);
+      CREATE TRIGGER IF NOT EXISTS docs_harness_edit AFTER UPDATE ON docs
+      WHEN new.source IN ('codex','cursor') AND old.digest<>new.digest BEGIN
+        -- A receipt belongs to the full turn, including its prompt and progress.
+        -- Invalidate only the edited turn; retain unchanged neighboring receipts.
+        DELETE FROM harness_synced WHERE doc_id IN (
+          SELECT id FROM docs WHERE source=new.source AND path=new.path
+          AND part>=COALESCE((SELECT MAX(part) FROM docs
+            WHERE source=new.source AND path=new.path AND role='user' AND part<=new.part),new.part)
+          AND part<COALESCE((SELECT MIN(part) FROM docs
+            WHERE source=new.source AND path=new.path AND role='user' AND part>new.part),2147483647)
+        );
+      END;
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS scan_files (
         source TEXT NOT NULL, path TEXT NOT NULL, mtime_ms INTEGER NOT NULL, size INTEGER NOT NULL,

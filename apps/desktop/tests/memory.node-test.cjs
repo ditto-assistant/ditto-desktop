@@ -246,3 +246,67 @@ test("trajectory memories include the completed assistant turn rather than only 
   assert.equal(memories.at(-1).prompt, "Read the result.");
   assert.equal(memories.at(-1).response, "The result is unchanged.");
 });
+
+for (const source of ["codex", "cursor"]) {
+  test(
+    `updated ${source} turns reach the native memory engine even when document IDs stay the same`,
+    { skip: !fs.existsSync(path.join(__dirname, "../native/ditto-harness.node")) },
+    async (t) => {
+      const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ditto-memory-edit-"));
+      t.after(() => fsp.rm(root, { recursive: true, force: true }));
+      let store = new MemoryStore(root);
+      t.after(() => store.close());
+      // Simulate an existing app database before this new trigger was installed.
+      store.db.exec("DROP TRIGGER IF EXISTS docs_harness_edit");
+      const file = path.join(root, "trajectory.jsonl");
+      store.addDoc(source, file, 0, "user", "QA", "What release label did we choose?", null);
+      store.addDoc(source, file, 1, "assistant", "QA", "The release label is AMBER_FIXTURE.", null);
+      store.addDoc(source, file, 2, "user", "QA", "What is the unchanged second task?", null);
+      store.addDoc(source, file, 3, "assistant", "QA", "The second task remains unchanged.", null);
+      const { Harness } = require("../native/ditto-harness.node");
+      const harness = await Harness.open(path.join(root, "harness.sqlite"), { embedder: "hash" });
+      assert.equal(await store.syncHarness(harness), 2);
+      store.close();
+      store = new MemoryStore(root);
+      assert.equal(
+        await store.syncHarness(harness),
+        0,
+        "upgrade must preserve unchanged sync receipts",
+      );
+      store.addDoc(
+        source,
+        file,
+        1,
+        "assistant",
+        "QA",
+        "The corrected release label is COBALT_FIXTURE.",
+        null,
+      );
+      assert.equal(
+        await store.syncHarness(harness),
+        1,
+        "changed response must refresh native memory",
+      );
+      store.addDoc(
+        source,
+        file,
+        0,
+        "user",
+        "QA",
+        "What release label did the NEBULA_FIXTURE project choose?",
+        null,
+      );
+      assert.equal(
+        await store.syncHarness(harness),
+        1,
+        "changed prompt must refresh native memory too",
+      );
+      assert.equal(await store.syncHarness(harness), 0, "unchanged turns must remain idempotent");
+      const memories = JSON.stringify(
+        await harness.searchMemories("local", "release label", { minSimilarity: 0, limit: 20 }),
+      );
+      assert.ok(memories.includes("COBALT_FIXTURE"));
+      assert.ok(memories.includes("NEBULA_FIXTURE"));
+    },
+  );
+}
