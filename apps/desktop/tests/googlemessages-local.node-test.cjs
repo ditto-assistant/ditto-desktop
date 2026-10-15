@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const http = require("node:http");
 const { GoogleMessagesLocal } = require("../src/googlemessages-local.cjs");
 const secureStorage = {
   isEncryptionAvailable: () => true,
@@ -127,3 +128,105 @@ test("cancelled Google Messages pairing cannot restore a late sign-in response",
   assert.equal((await attempt).connected, false);
   assert.equal(fs.existsSync(transport.accountFile()), false);
 });
+
+for (const read of ["conversations", "messages"]) {
+  test(`Google Messages ${read} refreshes the new account while an old sync is pending`, async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ditto-googlemessages-switch-"));
+    const transport = new GoogleMessagesLocal(root, root, secureStorage, async () => ({
+      status: "cancelled",
+    }));
+    const oldEntered = Promise.withResolvers();
+    const newEntered = Promise.withResolvers();
+    const newResponses = [];
+    const newPage = {
+      threads: [{ threadId: "new-room", threadName: "New account" }],
+      messages: [
+        {
+          messageId: "new-message",
+          threadId: "new-room",
+          text: "New account only",
+          timestamp: "2026-10-15T00:00:00Z",
+        },
+      ],
+      nextCursor: "new-cursor",
+    };
+    let releaseNew = false;
+    let oldResponse;
+    let pairCount = 0;
+    const syncs = [];
+    const server = http.createServer(async (request, response) => {
+      assert.equal(request.headers.authorization, `Bearer ${transport.token}`);
+      let text = "";
+      for await (const part of request) text += part;
+      const body = JSON.parse(text);
+      if (request.url === "/v1/connect") {
+        const name = ++pairCount === 1 ? "old" : "new";
+        response.end(JSON.stringify({ credentials: { session: name }, displayName: name }));
+      } else {
+        syncs.push(body.credentials.session);
+        if (body.credentials.session === "old") {
+          oldResponse = response;
+          oldEntered.resolve();
+        } else {
+          if (releaseNew) response.end(JSON.stringify(newPage));
+          else newResponses.push(response);
+          newEntered.resolve();
+        }
+      }
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    transport.base = `http://127.0.0.1:${server.address().port}`;
+    // Exercise the production HTTP adapter; only the external provider endpoint is simulated.
+    transport.start = async () => {};
+    t.after(async () => {
+      oldResponse?.end(JSON.stringify({ nextCursor: "old-cursor" }));
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+      transport.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    await transport.login();
+    const load = () =>
+      read === "conversations" ? transport.conversations() : transport.messages("new-room");
+    const oldRead = load().then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+    await oldEntered.promise;
+    await transport.logout();
+    await transport.login();
+    const settle = (promise) =>
+      promise.then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+    const newRead = settle(load());
+    oldResponse.end(
+      JSON.stringify({
+        threads: [{ threadId: "old-room", threadName: "Old account" }],
+        messages: [],
+        nextCursor: "old-cursor",
+      }),
+    );
+    const oldReceipt = await oldRead;
+    assert.match(oldReceipt.error?.message || "accepted an old refresh", /connection changed/i);
+    await newEntered.promise;
+    // Old cleanup must not clear the new pending refresh: this read shares it.
+    const sharedRead = settle(load());
+    releaseNew = true;
+    for (const response of newResponses) response.end(JSON.stringify(newPage));
+    for (const receipt of await Promise.all([newRead, sharedRead])) {
+      assert.equal(receipt.error, undefined);
+      assert.equal(receipt.value[0]?.id, read === "conversations" ? "new-room" : "new-message");
+    }
+    assert.deepEqual(syncs, ["old", "new"]);
+    assert.equal(
+      transport.db.prepare("SELECT COUNT(*) AS n FROM conversations WHERE id='old-room'").get().n,
+      0,
+    );
+    assert.equal(
+      transport.db.prepare("SELECT value FROM state WHERE key=?").get(transport.account.id).value,
+      "new-cursor",
+    );
+  });
+}

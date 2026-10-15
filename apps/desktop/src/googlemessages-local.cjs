@@ -182,9 +182,10 @@ class GoogleMessagesLocal {
   }
   async refresh() {
     if (!this.account) throw new Error("Pair Google Messages on this Mac first.");
-    if (this.refreshing) return this.refreshing;
     const account = this.account;
-    this.refreshing = (async () => {
+    if (this.refreshing?.account === account) return this.refreshing.promise;
+    const refresh = { account };
+    refresh.promise = (async () => {
       const cursor =
         this.db.prepare("SELECT value FROM state WHERE key=?").get(account.id)?.value || "";
       const page = await this.request("/v1/sync", {
@@ -192,7 +193,7 @@ class GoogleMessagesLocal {
         cursor,
         limit: 500,
       });
-      if (this.account !== account) return;
+      this.requireCurrentAccount(account);
       this.db.exec("BEGIN IMMEDIATE");
       try {
         for (const row of page.threads || [])
@@ -242,26 +243,36 @@ class GoogleMessagesLocal {
         throw error;
       }
     })();
+    this.refreshing = refresh;
     try {
-      await this.refreshing;
+      await refresh.promise;
     } finally {
-      this.refreshing = null;
+      // An old account's request must not clear a newer account's refresh.
+      if (this.refreshing === refresh) this.refreshing = null;
     }
   }
+  requireCurrentAccount(account) {
+    if (!account || this.account !== account)
+      throw new Error("Google Messages connection changed. Refresh the conversation.");
+  }
   async conversations() {
+    const account = this.account;
     await this.refresh();
+    this.requireCurrentAccount(account);
     return this.db
       .prepare("SELECT value FROM conversations WHERE account=?")
-      .all(this.account.id)
+      .all(account.id)
       .map((r) => JSON.parse(r.value));
   }
   async messages(id, limit = 100, before = "") {
+    const account = this.account;
     await this.refresh();
+    this.requireCurrentAccount(account);
     const rows = this.db
       .prepare(
         "SELECT value FROM messages WHERE account=? AND conversation=? ORDER BY timestamp DESC,id DESC",
       )
-      .all(this.account.id, id)
+      .all(account.id, id)
       .map((r) => JSON.parse(r.value));
     const start = before ? rows.findIndex((r) => r.id === before) + 1 : 0;
     return rows.slice(start, start + limit).toReversed();
