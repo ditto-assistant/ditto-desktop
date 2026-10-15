@@ -540,6 +540,9 @@ body.ditto-local-open:not(.ditto-desktop-settings) .ditto-desktop-code-chat {
 .ditto-desktop-code-response:empty {
   display: none;
 }
+.ditto-desktop-code-response:has(.markdown-content) {
+  white-space: normal;
+}
 #dl-chat-status {
   font-size: 12px;
   color: var(--ditto-muted);

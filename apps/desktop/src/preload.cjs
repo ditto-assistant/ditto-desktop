@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("ditto", {
   chooseRoot: () => ipcRenderer.invoke("ditto:choose-root"),
   removeRoot: (root) => ipcRenderer.invoke("ditto:remove-root", root),
   chooseWorkspace: () => ipcRenderer.invoke("ditto:choose-workspace"),
+  workspace: () => ipcRenderer.invoke("ditto:workspace"),
+  defaultWorkspace: () => ipcRenderer.invoke("ditto:default-workspace"),
   exportBundle: () => ipcRenderer.invoke("ditto:export"),
   linkStart: () => ipcRenderer.invoke("ditto:link-start"),
   linkPoll: () => ipcRenderer.invoke("ditto:link-poll"),

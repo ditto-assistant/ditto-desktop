@@ -347,6 +347,7 @@
   let localSessionId = crypto.randomUUID();
   let localTurns = [];
   let localWorkspace = "";
+  let defaultLocalWorkspace = "";
   const localChat = element("div", "v2-code-start ditto-desktop-code-chat");
   localChat.setAttribute("aria-label", "Local Ditto Code conversation");
   localChat.innerHTML =
@@ -354,6 +355,28 @@
   const sharedOutput = $("#dl-output");
   sharedOutput.classList.add("ditto-desktop-code-response");
   localChat.querySelector("#dl-transcript").append(sharedOutput);
+  const responseSources = new WeakMap();
+  function setCodeResponse(target, source) {
+    responseSources.set(target, source);
+    const render = window.dittoDesktopRenderCodeResponse;
+    if (render) {
+      try {
+        render(target, source);
+        return;
+      } catch (error) {
+        console.error("Local Code rendering failed", error);
+      }
+    }
+    target.textContent = source;
+  }
+  function clearCodeResponses() {
+    for (const target of localChat.querySelectorAll(".ditto-desktop-code-response"))
+      window.dittoDesktopRenderCodeResponse?.(target, null);
+  }
+  window.addEventListener("ditto-desktop-code-renderer-ready", () => {
+    for (const target of localChat.querySelectorAll(".ditto-desktop-code-response"))
+      setCodeResponse(target, responseSources.get(target) || "");
+  });
   function desktopMode(localMode, prompt) {
     document.body.classList.remove("ditto-desktop-settings");
     window.dispatchEvent(
@@ -413,33 +436,57 @@
         openPanel("Local");
         document.body.classList.add("ditto-desktop-settings");
       });
-      actions.append(fresh, settings, $("#dl-cancel"));
+      const home = element("button", "v2-studio-create", "Use Ditto workspace");
+      home.id = "dl-default-workspace";
+      home.type = "button";
+      home.addEventListener("click", async () => {
+        if (running) return;
+        try {
+          localWorkspace = await window.ditto.defaultWorkspace();
+          workspaceReady = true;
+          newLocalTask();
+          openPanel("Local");
+        } catch (error) {
+          show("#dl-context", desktopError(error));
+        }
+      });
+      actions.append(fresh, home, settings, $("#dl-cancel"));
       group.append(actions);
       const history = element("div", "ditto-desktop-local-history");
       history.setAttribute("aria-label", "Local tasks");
       group.append(history);
     }
     const status = localChat.querySelector("#dl-chat-status");
+    const home = $("#dl-default-workspace");
+    if (home) {
+      home.hidden = Boolean(localWorkspace) && localWorkspace === defaultLocalWorkspace;
+      home.disabled = running;
+    }
     if (status.textContent !== $("#dl-context").textContent)
       status.textContent = $("#dl-context").textContent;
   }
   function newLocalTask() {
     localSessionId = crypto.randomUUID();
     localTurns = [];
+    clearCodeResponses();
     localChat.querySelector("#dl-transcript").replaceChildren(sharedOutput);
-    sharedOutput.textContent = "";
+    setCodeResponse(sharedOutput, "");
     localChat.classList.remove("has-turns");
     show("#dl-context", `${$("#dl-provider").selectedOptions[0].textContent} · On this Mac`);
     desktopMode(true, "");
   }
   function addLocalTurn(prompt, provider) {
     const transcript = localChat.querySelector("#dl-transcript");
-    if (sharedOutput.textContent)
-      transcript.append(element("div", "ditto-desktop-code-response", sharedOutput.textContent));
+    const previousResponse = responseSources.get(sharedOutput) || "";
+    if (previousResponse) {
+      const response = element("div", "ditto-desktop-code-response");
+      transcript.append(response);
+      setCodeResponse(response, previousResponse);
+    }
     const question = element("article", "ditto-desktop-code-question", prompt);
     question.setAttribute("aria-label", "Your task");
     transcript.append(question, sharedOutput);
-    sharedOutput.textContent = "";
+    setCodeResponse(sharedOutput, "");
     localChat.classList.add("has-turns");
     localTurns.push({ prompt, provider });
   }
@@ -447,6 +494,7 @@
     const provider = $("#dl-provider").value;
     running = true;
     $("#dl-provider").disabled = true;
+    if ($("#dl-default-workspace")) $("#dl-default-workspace").disabled = true;
     $("#dl-run").disabled = true;
     $("#dl-cancel").hidden = false;
     addLocalTurn(prompt, provider);
@@ -460,6 +508,7 @@
     } finally {
       running = false;
       $("#dl-provider").disabled = false;
+      if ($("#dl-default-workspace")) $("#dl-default-workspace").disabled = false;
       $("#dl-run").disabled = false;
       $("#dl-cancel").hidden = true;
       mountLocalCode();
@@ -474,8 +523,7 @@
         reason: "A local task is still running. Stop it or wait for it to finish.",
       };
     if (!workspaceReady) {
-      const folder = await window.ditto.chooseWorkspace();
-      if (!folder) return { status: "blocked", reason: "Choose a local project folder first." };
+      const folder = await window.ditto.workspace();
       workspaceReady = true;
       localWorkspace = folder;
       show("#dl-workspace", folder);
@@ -487,6 +535,10 @@
     document.body.classList.remove("ditto-desktop-settings");
   });
   const show = (target, message) => {
+    if (target === "#dl-output") {
+      setCodeResponse(sharedOutput, message);
+      return;
+    }
     $(target).textContent = message;
   };
   const item = (title, subtitle, body) => {
@@ -537,11 +589,18 @@
       }
       workspaceReady = Boolean(status.workspace);
       localWorkspace = status.workspace || "";
+      defaultLocalWorkspace = status.defaultWorkspace;
       show("#dl-workspace", status.workspace || "Choose a project folder");
+      const home = $("#dl-default-workspace");
+      if (home) {
+        home.hidden = status.workspace === status.defaultWorkspace;
+        home.disabled = running;
+      }
       for (const button of document.querySelectorAll(".ditto-desktop-workspace"))
-        button.textContent = status.workspace
-          ? status.workspace.split("/").at(-1)
-          : "Choose local folder";
+        button.textContent =
+          status.workspace === status.defaultWorkspace
+            ? "Ditto workspace"
+            : status.workspace?.split("/").at(-1) || "Ditto workspace";
       roots(status.roots);
       const list = $("#dl-runs");
       list.replaceChildren();
@@ -577,18 +636,21 @@
             localTurns = [{ prompt: run.prompt, provider: run.provider }];
             $("#dl-provider").value = run.provider || "pi";
             const transcript = localChat.querySelector("#dl-transcript");
+            clearCodeResponses();
             transcript.replaceChildren();
             const turns = run.session_id
               ? runs.filter((turn) => turn.session_id === run.session_id).reverse()
               : [run];
             for (const turn of turns) {
+              const response = element("div", "ditto-desktop-code-response");
               transcript.append(
                 element("article", "ditto-desktop-code-question", turn.prompt),
-                element("div", "ditto-desktop-code-response", turn.response || turn.error || ""),
+                response,
               );
+              setCodeResponse(response, turn.response || turn.error || "");
             }
-            sharedOutput.textContent = "";
             transcript.append(sharedOutput);
+            setCodeResponse(sharedOutput, "");
             localChat.classList.add("has-turns");
             desktopMode(true, "");
             show(
@@ -731,11 +793,7 @@
     if (!prompt) return;
     if (!workspaceReady) {
       try {
-        const folder = await window.ditto.chooseWorkspace();
-        if (!folder) {
-          show("#dl-context", "Choose a project folder to run local code.");
-          return;
-        }
+        const folder = await window.ditto.workspace();
         workspaceReady = true;
         show("#dl-workspace", folder);
       } catch (error) {
@@ -1167,7 +1225,7 @@
     if (event.type === "start") show("#dl-context", `${event.memoryCount} local sources`);
     if (event.type === "text") {
       const box = $("#dl-output");
-      box.textContent += event.text;
+      setCodeResponse(box, (responseSources.get(box) || "") + event.text);
       box.scrollTop = box.scrollHeight;
     }
     if (event.type === "tool") show("#dl-context", `Pi used ${event.name}`);

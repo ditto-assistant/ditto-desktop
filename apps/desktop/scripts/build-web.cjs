@@ -10,7 +10,12 @@ const productionEnv = path.join(web, ".env.production.local");
 const appSource = path.join(web, "src", "App.tsx");
 const codeComposerSource = path.join(web, "src", "components", "code", "codeComposer.ts");
 const codeModeSource = path.join(web, "src", "components", "code", "codeModeState.ts");
-const { codeComposerOverlay, codeModeOverlay } = require("./desktop-code-bridge.cjs");
+const codeSurfaceSource = path.join(web, "src", "components", "code", "V2CodeSurface.tsx");
+const {
+  codeComposerOverlay,
+  codeModeOverlay,
+  codeSurfaceOverlay,
+} = require("./desktop-code-bridge.cjs");
 const chatOverlays = require("./desktop-chat-bridge.cjs");
 const chatSources = new Map(
   [
@@ -46,10 +51,9 @@ for (const key of [
 }
 const previousProductionEnv = fs.existsSync(productionEnv) ? fs.readFileSync(productionEnv) : null;
 const originals = new Map(
-  [appSource, codeComposerSource, codeModeSource, ...chatSources.keys()].map((file) => [
-    file,
-    fs.readFileSync(file, "utf8"),
-  ]),
+  [appSource, codeComposerSource, codeModeSource, codeSurfaceSource, ...chatSources.keys()].map(
+    (file) => [file, fs.readFileSync(file, "utf8")],
+  ),
 );
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -74,6 +78,7 @@ try {
   fs.writeFileSync(appSource, app);
   fs.writeFileSync(codeComposerSource, codeComposerOverlay(originals.get(codeComposerSource)));
   fs.writeFileSync(codeModeSource, codeModeOverlay(originals.get(codeModeSource)));
+  fs.writeFileSync(codeSurfaceSource, codeSurfaceOverlay(originals.get(codeSurfaceSource)));
   if (fs.existsSync(desktopRenderer))
     throw new Error("Web source already has a desktop directory; review the bridge.");
   desktopRendererCreated = true;

@@ -43,4 +43,16 @@ function codeModeOverlay(source) {
     source.replace(anchor, "(desktopCodeLocal() || !selectedCodeTask(uid, kgID))")
   );
 }
-module.exports = { codeComposerOverlay, codeModeOverlay };
+function codeSurfaceOverlay(source) {
+  const anchor = "  const t = useT()";
+  if (!source.includes(anchor) || !source.includes("export function V2CodeSurface"))
+    throw new Error("The upstream Code surface changed; review the desktop renderer.");
+  return (
+    'import { registerDesktopCodeRenderer } from "@/desktop/local-code"\n' +
+    source.replace(
+      anchor,
+      `  if (import.meta.env.VITE_DITTO_DESKTOP) registerDesktopCodeRenderer()\n${anchor}`,
+    )
+  );
+}
+module.exports = { codeComposerOverlay, codeModeOverlay, codeSurfaceOverlay };
