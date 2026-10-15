@@ -281,7 +281,7 @@
       if (state.url) await window.ditto.browserShow(browserBounds());
       browserState(state);
     } catch (error) {
-      browserPage.querySelector("#db-status").textContent = error.message;
+      browserPage.querySelector("#db-status").textContent = desktopError(error);
     }
   }
   let inspectedBrowserUrl = "";
@@ -310,7 +310,7 @@
       await window.ditto.browserShow(browserBounds());
       browserState(state);
     } catch (error) {
-      browserPage.querySelector("#db-status").textContent = error.message;
+      browserPage.querySelector("#db-status").textContent = desktopError(error);
     }
   });
   for (const [id, action] of [
@@ -323,7 +323,7 @@
       try {
         browserState(await window.ditto[action]());
       } catch (error) {
-        browserPage.querySelector("#db-status").textContent = error.message;
+        browserPage.querySelector("#db-status").textContent = desktopError(error);
       }
     });
   }
@@ -334,7 +334,7 @@
       browserPage.querySelector("#db-inspect-output").textContent =
         `${number(snapshot.controls.length)} controls · ${snapshot.text.slice(0, 240)}`;
     } catch (error) {
-      browserPage.querySelector("#db-inspect-output").textContent = error.message;
+      browserPage.querySelector("#db-inspect-output").textContent = desktopError(error);
     }
   });
   window.ditto.onBrowserState(browserState);
