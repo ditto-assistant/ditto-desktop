@@ -101,6 +101,12 @@ function startProvider(provider, prompt, workspace, onText) {
     child.once("close", () => {
       fs.rmSync(grokPromptDir, { recursive: true, force: true });
     });
+  let inputError;
+  // A CLI can exit (for example, on expired authentication) before reading its prompt.
+  // Keep the stream error local and report failure after stdout/stderr have drained.
+  child.stdin.on("error", (error) => {
+    inputError = error;
+  });
   child.stdin.end(stdinPrompt);
   let answer = "";
   let stderr = "";
@@ -138,13 +144,14 @@ function startProvider(provider, prompt, workspace, onText) {
     child.once("error", reject);
     child.once("close", (code) => {
       if (wasLocalTaskCancelled(child)) resolve({ text: answer.trim(), cancelled: true });
-      else if (code === 0) resolve({ text: answer.trim() });
+      else if (code === 0 && !inputError) resolve({ text: answer.trim() });
       else
         reject(
           new Error(
             stderr.trim() ||
-              answer.trim().slice(-1000) ||
-              `${names[provider]} exited with code ${code}.`,
+              (inputError
+                ? `Could not send the task to ${names[provider]}. Check that it is signed in and try again.`
+                : answer.trim().slice(-1000) || `${names[provider]} exited with code ${code}.`),
           ),
         );
     });
