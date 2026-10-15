@@ -19,14 +19,14 @@ async function fixture(t) {
     CREATE TABLE chat (display_name TEXT, chat_identifier TEXT, style INTEGER);
     CREATE TABLE handle (id TEXT);
     CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);
-    CREATE TABLE message (text TEXT, is_from_me INTEGER, handle_id INTEGER, date INTEGER);
+    CREATE TABLE message (text TEXT, is_from_me INTEGER, handle_id INTEGER, date INTEGER, attributedBody BLOB);
     CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
     INSERT INTO chat VALUES ('QA direct', '+15555550100', 45), ('QA group', 'chat123', 43),
       ('Ambiguous', 'chat456', 45), ('Empty', 'chat789', 45);
     INSERT INTO handle VALUES ('+15555550100'), ('+15555550101');
     INSERT INTO chat_handle_join VALUES (1,1), (2,1), (2,2), (3,1), (3,2);
-    INSERT INTO message VALUES ('Incoming fixture',0,1,1000000000),
-      ('Outgoing fixture',1,0,2000000000), ('Group fixture',0,2,3000000000);
+    INSERT INTO message VALUES ('Incoming fixture',0,1,1000000000,NULL),
+      ('Outgoing fixture',1,0,2000000000,NULL), ('Group fixture',0,2,3000000000,NULL);
     INSERT INTO chat_message_join VALUES (1,1), (1,2), (2,3);
   `,
   ]);
@@ -108,4 +108,59 @@ test("native iMessage sending rejects groups, stale recipients and unavailable c
   assert.equal(sends.length, 0);
   await channels.send("imessage", "1", "Fixture only", "+15555550100");
   assert.deepEqual(sends, [["+15555550100", "Fixture only"]]);
+});
+
+// Synthetic Foundation NSArchiver output, generated on macOS (no user messages).
+for (const [index, archive] of require("./imessage-archives.json").entries()) {
+  test(`iMessage reads archived ${archive.mutable ? "mutable" : "immutable"} body ${index}`, async (t) => {
+    const { channels, directory } = await fixture(t);
+    const bytes = archive.gzipBase64
+      ? require("node:zlib").gunzipSync(Buffer.from(archive.gzipBase64, "base64"))
+      : Buffer.from(archive.base64, "base64");
+    const hex = bytes.toString("hex");
+    await promisify(childProcess.execFile)("/usr/bin/sqlite3", [
+      channels.imessageDatabase,
+      `INSERT INTO message VALUES (NULL,0,1,4000000000,X'${hex}');
+       INSERT INTO chat_message_join VALUES (1,last_insert_rowid());`,
+    ]);
+    const history = await channels.messages("imessage", "1", 1);
+    const text = archive.text ?? archive.repeat.repeat(archive.length);
+    const expected = text.replaceAll("\uFFFC", "[Attachment]") || "[Message content unavailable]";
+    assert.equal(history[0].content, expected);
+    const packet = await createKnowledgePacket(directory, channels, "imessage", "1");
+    if (text)
+      assert.ok(
+        (await fs.readFile(path.join(packet.folder, "transcript.md"), "utf8")).includes(
+          expected.slice(0, 10000),
+        ),
+      );
+  });
+}
+
+test("iMessage preserves plain text and handles corrupt or unsupported archives without leaking metadata", async (t) => {
+  const { channels } = await fixture(t);
+  for (const [text, hex, expected] of [
+    ["Plain fixture", "1234", "Plain fixture"],
+    [null, "1234", "[Message content unavailable]"],
+    [
+      null,
+      Buffer.from(require("./imessage-archives.json")[0].base64, "base64")
+        .subarray(0, 90)
+        .toString("hex"),
+      "[Message content unavailable]",
+    ],
+    [null, "", "[Message content unavailable]"],
+  ]) {
+    const plain = text === null ? "NULL" : "'Plain fixture'";
+    await promisify(childProcess.execFile)("/usr/bin/sqlite3", [
+      channels.imessageDatabase,
+      `INSERT INTO message VALUES (${plain},0,1,4000000000,X'${hex}');
+       INSERT INTO chat_message_join VALUES (1,last_insert_rowid());`,
+    ]);
+    assert.equal((await channels.messages("imessage", "1", 1))[0].content, expected);
+    await promisify(childProcess.execFile)("/usr/bin/sqlite3", [
+      channels.imessageDatabase,
+      "DELETE FROM chat_message_join WHERE message_id=(SELECT MAX(ROWID) FROM message); DELETE FROM message WHERE ROWID=(SELECT MAX(ROWID) FROM message);",
+    ]);
+  }
 });

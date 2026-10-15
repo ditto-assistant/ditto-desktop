@@ -7,6 +7,7 @@ const { promisify } = require("node:util");
 const readline = require("node:readline");
 const QRCode = require("qrcode");
 const { GoogleMessagesLocal } = require("./googlemessages-local.cjs");
+const { imessageText } = require("./imessage-text.cjs");
 
 const execFileAsync = promisify(execFile);
 
@@ -352,6 +353,7 @@ class LocalChannels {
       const rows = await sqliteRows(
         this.imessageDatabase,
         `SELECT m.ROWID AS id,m.text,m.is_from_me,h.id AS handle,
+        CASE WHEN length(m.text)>0 THEN NULL ELSE hex(m.attributedBody) END AS attributed_body,
         datetime(m.date/1000000000 + 978307200, 'unixepoch') AS timestamp
         FROM message m JOIN chat_message_join cmj ON cmj.message_id=m.ROWID
         LEFT JOIN handle h ON h.ROWID=m.handle_id WHERE cmj.chat_id=${conversationId}
@@ -360,7 +362,7 @@ class LocalChannels {
       return rows.reverse().map((row) => ({
         id: String(row.id),
         channelId: conversationId,
-        content: row.text || "",
+        content: imessageText(row.text, row.attributed_body),
         timestamp: row.timestamp,
         author: {
           displayName: row.is_from_me ? "You" : row.handle || "Unknown",
