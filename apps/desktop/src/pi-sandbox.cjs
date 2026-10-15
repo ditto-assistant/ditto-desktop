@@ -26,7 +26,7 @@ function spawnSandboxedPi(
   { workspace, agentDir, dataDir, extraEnv = {} },
 ) {
   if (os.platform() !== "darwin" || !fs.existsSync(SANDBOX)) {
-    throw new Error("The local Pi filesystem sandbox is unavailable on this Mac.");
+    throw new Error("The local Ditto Code filesystem sandbox is unavailable on this Mac.");
   }
   fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
   const tempDir = fs.mkdtempSync(path.join(dataDir, "pi-task-"));
@@ -37,6 +37,7 @@ function spawnSandboxedPi(
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
       PI_CODING_AGENT_DIR: agentDir,
+      DITTO_CODING_AGENT_DIR: agentDir,
       ...extraEnv,
       TMPDIR: tempDir,
       TMP: tempDir,

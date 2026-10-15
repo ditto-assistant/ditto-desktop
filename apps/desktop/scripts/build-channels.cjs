@@ -74,3 +74,5 @@ const data = fs.existsSync(binary)
 fs.writeFileSync(path.join(output, "grok"), data, { mode: 0o755 });
 fs.chmodSync(path.join(output, "grok"), 0o755);
 console.log("Official Grok Build CLI bundled.");
+
+require("./build-google-messages.cjs");

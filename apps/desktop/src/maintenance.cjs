@@ -10,7 +10,7 @@ const PACKAGES = {
   grok: "@xai-official/grok",
 };
 const NAMES = {
-  pi: "Ditto Code · Pi",
+  pi: "Ditto Code",
   codex: "Codex",
   claude: "Claude Code",
   cursor: "Cursor Agent",
@@ -30,7 +30,8 @@ const processEnv = () => ({
 // app's bundled binary or turn an unknown installation into an npm install.
 function updatePlan(provider, binary) {
   if (!Object.hasOwn(NAMES, provider)) throw new Error("Unsupported coding engine.");
-  if (provider === "pi") return { supported: false, detail: "Pi updates with Ditto Desktop." };
+  if (provider === "pi")
+    return { supported: false, detail: "Ditto Code updates with Ditto Desktop." };
   if (!binary || !fs.existsSync(binary))
     return { supported: false, detail: "Not installed on this Mac." };
   const real = fs.realpathSync(binary);

@@ -6,6 +6,7 @@ const { spawn, execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const readline = require("node:readline");
 const QRCode = require("qrcode");
+const { GoogleMessagesLocal } = require("./googlemessages-local.cjs");
 
 const execFileAsync = promisify(execFile);
 
@@ -125,7 +126,16 @@ async function sqliteRows(database, sql) {
 }
 
 class LocalChannels {
-  constructor(binaryDir, stateDir, onEvent = () => {}) {
+  constructor(binaryDir, stateDir, onEvent = () => {}, options = {}) {
+    this._googleMessages = null;
+    this.cancelGoogleSignIn = options.googleCancelSignIn;
+    this.createGoogleMessages = () =>
+      new GoogleMessagesLocal(
+        binaryDir,
+        stateDir,
+        options.secureStorage || { isEncryptionAvailable: () => false },
+        options.googleSignIn,
+      );
     const hooks = (service) => ({
       onEvent: (message) => {
         // Message contents only travel to the inbox; diagnostics contain no content or credentials.
@@ -167,6 +177,10 @@ class LocalChannels {
     this.loginCodes = new Map();
   }
 
+  get googleMessages() {
+    return (this._googleMessages ||= this.createGoogleMessages());
+  }
+
   client(service) {
     if (!["discord", "telegram"].includes(service))
       throw new Error("Unsupported local chat service.");
@@ -199,6 +213,7 @@ class LocalChannels {
   }
 
   async readStatus(service) {
+    if (service === "googlemessages") return this.googleMessages.status();
     if (service === "imessage") {
       try {
         await sqliteRows(this.imessageDatabase, "SELECT COUNT(*) AS count FROM chat LIMIT 1");
@@ -236,7 +251,8 @@ class LocalChannels {
     return { ...current, restoring: true, detail: "Checking saved Telegram sign-in…" };
   }
 
-  async startLogin(service) {
+  async startLogin(service, method) {
+    if (service === "googlemessages") return this.googleMessages.login(method);
     const client = this.client(service);
     const current = await client.request("status");
     if (current.configured === false)
@@ -258,13 +274,28 @@ class LocalChannels {
     return result;
   }
 
+  async cancelLogin(service) {
+    if (service === "googlemessages") {
+      this.cancelGoogleSignIn?.();
+      this.googleMessages.cancelLogin();
+      return this.googleMessages.status();
+    }
+    if (service === "discord") {
+      this.loginCodes.delete(service);
+      return this.client(service).request("login.cancel");
+    }
+    throw new Error("Use Disconnect to end this sign-in attempt.");
+  }
+
   async logout(service) {
+    if (service === "googlemessages") return this.googleMessages.logout();
     this.cache.delete(service);
     this.loginCodes.delete(service);
     return this.client(service).request("logout");
   }
 
   async conversations(service) {
+    if (service === "googlemessages") return this.googleMessages.conversations();
     const cached = this.cache.get(service);
     if (cached && Date.now() - cached.at < 15000) return cached.value;
     let value;
@@ -291,7 +322,13 @@ class LocalChannels {
     return value;
   }
 
-  async messages(service, conversationId, limit = 80) {
+  async messages(service, conversationId, limit = 80, beforeId = "") {
+    if (service === "googlemessages")
+      return this.googleMessages.messages(
+        conversationId,
+        Math.max(1, Math.min(200, Math.trunc(limit))),
+        beforeId,
+      );
     const safeLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
     if (service === "imessage") {
       if (!/^\d+$/.test(conversationId)) throw new Error("Invalid iMessage conversation.");
@@ -317,7 +354,7 @@ class LocalChannels {
     }
     return this.client(service).request(
       "messages.list",
-      { channelId: conversationId, limit: safeLimit },
+      { channelId: conversationId, limit: safeLimit, ...(beforeId ? { beforeId } : {}) },
       90000,
     );
   }
@@ -325,6 +362,7 @@ class LocalChannels {
   async send(service, conversationId, content, handle) {
     if (typeof content !== "string" || !content.trim() || content.length > 8000)
       throw new Error("Enter a message under 8,000 characters.");
+    if (service === "googlemessages") return this.googleMessages.send(conversationId, content);
     if (service === "imessage") {
       if (!/^\d+$/.test(conversationId)) throw new Error("Invalid iMessage conversation.");
       // Recheck the database rather than trusting a renderer's cached recipient.
@@ -361,6 +399,7 @@ class LocalChannels {
   }
 
   close() {
+    this._googleMessages?.close();
     for (const client of Object.values(this.clients)) client.close();
   }
 }

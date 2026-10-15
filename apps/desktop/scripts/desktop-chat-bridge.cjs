@@ -129,7 +129,15 @@ function feedOverlay(source) {
   return source;
 }
 function shellOverlay(source) {
-  source = localImport("localHeaderSession") + source;
+  source =
+    'import { initializeDesktopChatSync } from "@/desktop/chat-sync"\n' +
+    localImport("localHeaderSession") +
+    source;
+  source = replace(
+    source,
+    "  const { user } = useAuth()",
+    "  const { user } = useAuth()\n  initializeDesktopChatSync(user)",
+  );
   source = replace(
     source,
     "  const connectorSession = createMemo(() => {",

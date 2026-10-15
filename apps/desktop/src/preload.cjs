@@ -44,6 +44,15 @@ contextBridge.exposeInMainWorld("ditto", {
   teleportList: () => ipcRenderer.invoke("ditto:teleport-list"),
   teleportPush: (launchCloud, endpoint) =>
     ipcRenderer.invoke("ditto:teleport-push", launchCloud, endpoint),
+  chatSyncStatus: (uid) => ipcRenderer.invoke("ditto:chat-sync-status", uid),
+  chatSyncSelect: (uid, provider, id, enabled) =>
+    ipcRenderer.invoke("ditto:chat-sync-select", uid, provider, id, enabled),
+  chatSyncPrepare: (uid) => ipcRenderer.invoke("ditto:chat-sync-prepare", uid),
+  chatSyncRegistered: (uid, key, receipt) =>
+    ipcRenderer.invoke("ditto:chat-sync-registered", uid, key, receipt),
+  chatSyncAck: (uid, key, receipt) => ipcRenderer.invoke("ditto:chat-sync-ack", uid, key, receipt),
+  chatSyncPaused: (uid, key) => ipcRenderer.invoke("ditto:chat-sync-paused", uid, key),
+  chatSyncFailed: (uid, key) => ipcRenderer.invoke("ditto:chat-sync-failed", uid, key),
   channelStatus: (service) => ipcRenderer.invoke("ditto:channel-status", service),
   onChannelEvent: (listener) => {
     const handler = (_event, event) => listener(event);
@@ -51,7 +60,8 @@ contextBridge.exposeInMainWorld("ditto", {
     return () => ipcRenderer.removeListener("ditto:channel-event", handler);
   },
   messagesSettings: () => ipcRenderer.invoke("ditto:messages-settings"),
-  channelLogin: (service) => ipcRenderer.invoke("ditto:channel-login", service),
+  channelCancelLogin: (service) => ipcRenderer.invoke("ditto:channel-cancel-login", service),
+  channelLogin: (service, method) => ipcRenderer.invoke("ditto:channel-login", service, method),
   channelLogout: (service) => ipcRenderer.invoke("ditto:channel-logout", service),
   channelConversations: (service) => ipcRenderer.invoke("ditto:channel-conversations", service),
   channelMessages: (service, conversationId, limit) =>

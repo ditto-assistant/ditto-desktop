@@ -107,7 +107,7 @@
     heading.append(element("span", "ditto-desktop-code-heading", "Execution"));
     group.append(heading);
     for (const [mode, title, description, glyph] of [
-      ["local", "Local · Ditto Code", "Pi agent on this Mac", "⌂"],
+      ["local", "Local · Ditto Code", "Ditto Code on this Mac", "⌂"],
       ["cloud", "Cloud · Ditto", "Ditto cloud tasks and projects", "☁"],
       ["browser", "Browser · Local", "Shared with Ditto Code", "◎"],
     ]) {
@@ -219,17 +219,17 @@
       <section class="ditto-local-card"><div class="ditto-local-row between"><div><h2>Local sources</h2><p>Scans selected code folders and your Codex and Cursor histories.</p></div>
         <div class="ditto-local-row"><button id="dl-scan" class="primary">Scan this Mac</button><button id="dl-add-root">Add code folder</button><button id="dl-export">Prepare Ditto import</button></div></div>
         <div id="dl-progress" class="ditto-local-status" role="status"></div><div id="dl-roots" class="ditto-local-list"></div></section>
-      <section class="ditto-local-card"><h2>Search local memory</h2><p>Find relevant code and agent work before you ask Pi.</p>
+      <section class="ditto-local-card"><h2>Search local memory</h2><p>Find relevant code and agent work before you ask Ditto Code.</p>
         <form id="dl-search-form" class="ditto-local-form"><input id="dl-query" type="search" placeholder="Search code, Codex, and Cursor" aria-label="Search local memory"><button class="primary">Search</button></form>
         <div id="dl-results" class="ditto-local-list"></div></section>
-      <section class="ditto-local-card"><div class="ditto-local-row between"><div><h2>Ditto Code on this Mac</h2><p id="dl-pi-status">Checking model…</p></div><button id="dl-pi-login" hidden>Sign in to Pi</button></div>
+      <section class="ditto-local-card"><div class="ditto-local-row between"><div><h2>Ditto Code on this Mac</h2><p id="dl-pi-status">Checking model…</p></div><button id="dl-pi-login" hidden>Set up Ditto Code model</button></div>
         <div class="ditto-local-row" style="margin-top:12px"><span class="ditto-local-muted">Working folder: <span id="dl-workspace" class="ditto-local-path"></span></span><button id="dl-choose-workspace">Change folder</button></div>
         <div class="ditto-local-row" style="margin-top:12px"><label for="dl-provider" class="ditto-local-muted">Coding engine</label><select id="dl-provider" aria-label="Coding engine">
-          <option value="pi">Ditto Code · Pi (default)</option><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="cursor">Cursor Agent</option><option value="grok">Grok</option>
+          <option value="pi">Ditto Code (default)</option><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="cursor">Cursor Agent</option><option value="grok">Grok</option>
         </select><button id="dl-provider-login" type="button" hidden>Sign in to provider</button></div>
-        <div class="ditto-local-row ditto-computer-control" style="margin-top:12px"><label><input id="dl-computer-enable" type="checkbox"> Allow Mac computer control for the next Pi task</label><span id="dl-computer-status" class="ditto-local-muted"></span><button id="dl-computer-settings">Open Accessibility settings</button><button id="dl-computer-refresh">Check permission</button></div>
-        <form id="dl-chat-form" style="margin-top:13px"><textarea id="dl-prompt" placeholder="Ask Pi to use your local memory and work on a project…" aria-label="Ask Pi"></textarea>
-          <div class="ditto-local-row" style="margin-top:9px"><button id="dl-run" class="primary">Run locally with Pi</button><button id="dl-cancel" type="button" hidden>Stop</button><span id="dl-context" class="ditto-local-muted"></span></div></form>
+        <div class="ditto-local-row ditto-computer-control" style="margin-top:12px"><label><input id="dl-computer-enable" type="checkbox"> Allow Mac computer control for the next Ditto Code task</label><span id="dl-computer-status" class="ditto-local-muted"></span><button id="dl-computer-settings">Open Accessibility settings</button><button id="dl-computer-refresh">Check permission</button></div>
+        <form id="dl-chat-form" style="margin-top:13px"><textarea id="dl-prompt" placeholder="Ask Ditto Code to use your local memory and work on a project…" aria-label="Ask Ditto Code"></textarea>
+          <div class="ditto-local-row" style="margin-top:9px"><button id="dl-run" class="primary">Run Ditto Code locally</button><button id="dl-cancel" type="button" hidden>Stop</button><span id="dl-context" class="ditto-local-muted"></span></div></form>
         <div id="dl-output" class="ditto-local-output" aria-live="polite"></div></section>
       <section class="ditto-local-card"><h2>Recent local executions</h2><p>Saved privately on this Mac.</p><div id="dl-runs" class="ditto-local-list"></div></section>
       <section class="ditto-local-card"><h2>Remote Control</h2><p>Keep a coding session on this Mac available from your signed-in Ditto apps.</p>
@@ -351,7 +351,7 @@
   const localChat = element("div", "v2-code-start ditto-desktop-code-chat");
   localChat.setAttribute("aria-label", "Local Ditto Code conversation");
   localChat.innerHTML =
-    '<header class="v2-code-start-header"><h1>What should Ditto Code do?</h1><p>Describe the task. Ditto Code uses Pi and your private memory to work on this Mac.</p></header><div id="dl-transcript" aria-live="polite"></div><div id="dl-chat-status" role="status"></div>';
+    '<header class="v2-code-start-header"><h1>What should Ditto Code do?</h1><p>Describe the task. Ditto Code uses your private memory to work on this Mac.</p></header><div id="dl-transcript" aria-live="polite"></div><div id="dl-chat-status" role="status"></div>';
   const sharedOutput = $("#dl-output");
   sharedOutput.classList.add("ditto-desktop-code-response");
   localChat.querySelector("#dl-transcript").append(sharedOutput);
@@ -390,13 +390,13 @@
     const engineName = provider.selectedOptions[0]?.textContent || "Ditto Code";
     const description =
       provider.value === "pi"
-        ? "Describe the task. Ditto Code uses Pi and your private memory to work on this Mac."
+        ? "Describe the task. Ditto Code uses your private memory to work on this Mac."
         : `Describe the task. ${engineName} runs through its installed CLI on this Mac.`;
     const subtitle = localChat.querySelector("header p");
     if (subtitle.textContent !== description) subtitle.textContent = description;
     const modeDescription = document.querySelector('[data-ditto-code-mode="local"] small');
     const localDescription =
-      provider.value === "pi" ? "Pi agent on this Mac" : `${engineName} on this Mac`;
+      provider.value === "pi" ? "Ditto Code on this Mac" : `${engineName} on this Mac`;
     if (modeDescription && modeDescription.textContent !== localDescription)
       modeDescription.textContent = localDescription;
     const main = document.querySelector(".v2-code-surface-main");
@@ -575,7 +575,7 @@
         show(`#dl-${name}`, number(status.stats[name]));
       show(
         "#dl-pi-status",
-        status.pi.ready ? `Ready · ${status.pi.model}` : "Pi needs a model to run.",
+        status.pi.ready ? `Ready · ${status.pi.model}` : "Ditto Code needs a model to run.",
       );
       $("#dl-pi-login").hidden = status.pi.ready;
       for (const provider of status.providers) {
@@ -608,7 +608,7 @@
         list.append(
           item(
             run.prompt,
-            `${new Date(run.started_at).toLocaleString()} · ${run.provider || "pi"} · ${run.status} · ${run.workspace}`,
+            `${new Date(run.started_at).toLocaleString()} · ${run.provider === "pi" || !run.provider ? "Ditto Code" : run.provider} · ${run.status} · ${run.workspace}`,
             run.response || run.error,
           ),
         );
@@ -625,7 +625,7 @@
           if (run.session_id) seenSessions.add(run.session_id);
           const button = element("button", "v2-studio-recent", run.prompt.slice(0, 70));
           button.type = "button";
-          button.title = `${run.provider || "pi"} · ${run.status}`;
+          button.title = `${run.provider === "pi" || !run.provider ? "Ditto Code" : run.provider} · ${run.status}`;
           button.addEventListener("click", () => {
             if (running) return;
             cloudCodeMode = false;
@@ -656,7 +656,7 @@
             show(
               "#dl-context",
               resumable
-                ? "Continue this local Pi conversation"
+                ? "Continue this local Ditto Code conversation"
                 : "Saved execution · A new task will start on this Mac",
             );
           });
@@ -751,7 +751,7 @@
   $("#dl-pi-login").addEventListener("click", async () => {
     try {
       await window.ditto.piLogin();
-      show("#dl-pi-status", "Pi sign-in opened in Terminal.");
+      show("#dl-pi-status", "Ditto Code model setup opened in Terminal.");
     } catch (error) {
       show("#dl-pi-status", error.message);
     }
@@ -773,8 +773,8 @@
       $("#dl-run").textContent = `Dispatch locally to ${label}`;
       show("#dl-context", `${label} runs through its installed local CLI. Sign in here if needed.`);
     } else {
-      $("#dl-run").textContent = "Run locally with Pi";
-      show("#dl-context", "Ditto Code · Pi · On this Mac");
+      $("#dl-run").textContent = "Run Ditto Code locally";
+      show("#dl-context", "Ditto Code · On this Mac");
     }
     void refresh();
   });
@@ -808,7 +808,7 @@
     show("#dl-output", "");
     show(
       "#dl-context",
-      `Starting ${provider === "pi" ? "Pi" : $("#dl-provider").selectedOptions[0]?.textContent || provider} on this Mac…`,
+      `Starting ${provider === "pi" ? "Ditto Code" : $("#dl-provider").selectedOptions[0]?.textContent || provider} on this Mac…`,
     );
     try {
       if (provider === "pi") await window.ditto.chat(prompt);
@@ -1228,7 +1228,7 @@
       setCodeResponse(box, (responseSources.get(box) || "") + event.text);
       box.scrollTop = box.scrollHeight;
     }
-    if (event.type === "tool") show("#dl-context", `Pi used ${event.name}`);
+    if (event.type === "tool") show("#dl-context", `Ditto Code used ${event.name}`);
     if (event.type === "tool-error") show("#dl-context", `${event.name}: ${event.message}`);
     if (event.type === "error") show("#dl-context", event.message);
     if (event.type === "done") show("#dl-context", "Complete");

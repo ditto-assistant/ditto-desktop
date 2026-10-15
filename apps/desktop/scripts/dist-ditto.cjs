@@ -23,6 +23,8 @@ for (const file of [
   "resources/web/index.html",
   "native/ditto-harness.node",
   "native/bin/ditto-discord-sidecar",
+  "native/bin/ditto-google-messages-bridge",
+  "native/google-messages-sign-in.cjs",
   "native/bin/ditto-telegram-sidecar",
   "native/bin/ditto-computer-use",
   "native/bin/grok",
@@ -58,6 +60,18 @@ fs.copyFileSync(
   path.join(stage, "electron-builder.yml"),
 );
 run("npm", ["ci", "--no-audit", "--no-fund"], stage);
+// Use the runtime's supported app-name setting for model setup. Keep its
+// credential directory unchanged so existing model sign-ins survive updates.
+const runtimeManifestPath = path.join(
+  stage,
+  "node_modules",
+  "@earendil-works",
+  "pi-coding-agent",
+  "package.json",
+);
+const runtimeManifest = JSON.parse(fs.readFileSync(runtimeManifestPath, "utf8"));
+runtimeManifest.piConfig = { ...runtimeManifest.piConfig, name: "ditto" };
+fs.writeFileSync(runtimeManifestPath, JSON.stringify(runtimeManifest, null, 2));
 run(
   process.execPath,
   [

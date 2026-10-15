@@ -1,7 +1,12 @@
-export type LocalService = "discord" | "telegram" | "imessage";
-export const localServices: LocalService[] = ["discord", "telegram", "imessage"];
+export type LocalService = "discord" | "telegram" | "imessage" | "googlemessages";
+export const localServices: LocalService[] = ["discord", "telegram", "imessage", "googlemessages"];
 export const localServiceName = (service: LocalService) =>
-  ({ discord: "Discord", telegram: "Telegram", imessage: "iMessage" })[service];
+  ({
+    discord: "Discord",
+    telegram: "Telegram",
+    imessage: "iMessage",
+    googlemessages: "Google Messages",
+  })[service];
 
 export interface LocalConversation {
   id: string;
@@ -19,7 +24,7 @@ export interface LocalStatus {
   qrDataUrl?: string;
   qrExpiresAt?: string;
   detail?: string;
-  user?: { displayName?: string };
+  user?: { id?: string; displayName?: string };
 }
 export interface LocalMessage {
   id: string;

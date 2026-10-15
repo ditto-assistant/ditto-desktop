@@ -384,7 +384,7 @@ html[data-ditto-mode="dark"] .ditto-browser-viewport {
   color: #24384e;
 }
 .ditto-local-output:empty::before {
-  content: "Pi’s response will appear here.";
+  content: "Ditto Code’s response will appear here.";
   color: #91a1b4;
 }
 .ditto-local-path {
@@ -728,4 +728,41 @@ body:is(.ditto-local-open, .ditto-browser-open) .ditto-desktop-local-history {
   width: 220px;
   max-width: 100%;
   border-radius: 12px;
+}
+
+.ditto-chat-sync {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 18px;
+  font-size: 12px;
+  color: var(--text-secondary, #aaa);
+}
+.ditto-chat-sync:empty {
+  display: none;
+}
+.ditto-chat-sync button {
+  border: 1px solid var(--border-color, #3b3c40);
+  border-radius: 8px;
+  padding: 5px 9px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.ditto-chat-sync button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ditto-chat-sync-consent {
+  width: 100%;
+  max-width: 650px;
+  padding: 12px;
+  border: 1px solid var(--border-color, #3b3c40);
+  border-radius: 10px;
+  background: var(--bg-secondary, #242529);
+}
+.ditto-chat-sync-consent p {
+  margin: 0 0 10px;
+  line-height: 1.5;
 }

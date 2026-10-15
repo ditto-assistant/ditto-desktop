@@ -8,6 +8,7 @@ import {
   Show,
   untrack,
 } from "solid-js";
+import { LocalChatCloudSync } from "./chat-sync";
 import { toast } from "sonner-solid";
 import type { ConnectorMessage, Connection } from "@/api/connectors";
 import type { Session } from "@/api/sessions";
@@ -50,7 +51,11 @@ interface DesktopBridge {
     text: string,
     handle?: string,
   ) => Promise<unknown>;
-  channelLogin: (service: LocalService) => Promise<LocalStatus & { expiresInSeconds?: number }>;
+  channelLogin: (
+    service: LocalService,
+    method?: string,
+  ) => Promise<LocalStatus & { expiresInSeconds?: number }>;
+  channelCancelLogin: (service: LocalService) => Promise<unknown>;
   channelLogout: (service: LocalService) => Promise<unknown>;
   messagesSettings: () => Promise<unknown>;
   createPacket: (
@@ -465,13 +470,13 @@ export function LocalChatSurface() {
     ++loginGeneration;
     clearTimeout(loginTimer);
   });
-  const connect = async () => {
+  const connect = async (method?: string) => {
     const provider = service(),
       generation = ++loginGeneration;
     setBusy(true);
     setError("");
     try {
-      const result = await bridge().channelLogin(provider);
+      const result = await bridge().channelLogin(provider, method);
       if (generation !== loginGeneration) return;
       setQR(result.qrDataUrl || "");
       void pollLogin(provider, generation, Date.now() + (result.expiresInSeconds || 180) * 1000);
@@ -480,6 +485,21 @@ export function LocalChatSurface() {
         setError(localError(failure));
         setBusy(false);
       }
+    }
+  };
+  const cancelLogin = async () => {
+    const provider = service();
+    ++loginGeneration;
+    clearTimeout(loginTimer);
+    setQR("");
+    setError("");
+    try {
+      await bridge().channelCancelLogin(provider);
+      await refreshChannel(provider);
+    } catch (failure) {
+      if (service() === provider) setError(localError(failure));
+    } finally {
+      setBusy(false);
     }
   };
   const disconnect = async () => {
@@ -511,6 +531,7 @@ export function LocalChatSurface() {
   };
   return (
     <section class="ditto-integrated-chat" aria-label={`${localServiceName(service())} local chat`}>
+      <LocalChatCloudSync selection={selection()} accountId={state()?.status?.user?.id} />
       <Show when={!selection().conversation}>
         <header class="ditto-integrated-chat-head">
           <ConnectorLogo provider={service()} size={22} />
@@ -534,7 +555,7 @@ export function LocalChatSurface() {
                   {service() === "imessage"
                     ? "Allow Ditto Desktop in System Settings → Privacy & Security → Full Disk Access to read Messages."
                     : state()?.status?.configured === false
-                      ? "This build needs Ditto’s Telegram app credentials before local sign-in is available."
+                      ? "This build needs the local chat component configured before sign-in is available."
                       : "Connect your account on this Mac to read chats and send messages as yourself. Your cloud chats stay in the same app group."}
                 </p>
               }
@@ -553,7 +574,9 @@ export function LocalChatSurface() {
               <p>
                 {service() === "discord"
                   ? "Discord → You → Scan QR Code"
-                  : "Telegram → Settings → Devices → Link Desktop Device"}
+                  : service() === "googlemessages"
+                    ? "Google Messages → Device pairing → Scan QR code"
+                    : "Telegram → Settings → Devices → Link Desktop Device"}
               </p>
             </Show>
             <div class="ditto-local-setup-actions">
@@ -570,6 +593,22 @@ export function LocalChatSurface() {
                   onClick={() => void connect()}
                 >
                   {busy() ? "Waiting for sign-in…" : "Connect on this Mac"}
+                </button>
+              </Show>
+              <Show
+                when={
+                  busy() &&
+                  ["discord", "googlemessages"].includes(service()) &&
+                  !state()?.status?.connected
+                }
+              >
+                <button type="button" onClick={() => void cancelLogin()}>
+                  Cancel sign-in
+                </button>
+              </Show>
+              <Show when={service() === "googlemessages" && !state()?.status?.connected}>
+                <button type="button" disabled={busy()} onClick={() => void connect("google")}>
+                  Sign in with Google
                 </button>
               </Show>
               <Show when={service() === "imessage" && !state()?.status?.connected}>

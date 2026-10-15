@@ -54,3 +54,5 @@ apps/desktop/native/bin/
 apps/desktop/.build/
 apps/desktop/dist-ditto/
 !apps/desktop/.env.desktop.example
+
+apps/desktop/native/google-messages-sign-in.cjs
