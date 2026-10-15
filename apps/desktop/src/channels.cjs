@@ -138,6 +138,8 @@ class LocalChannels {
       );
     const hooks = (service) => ({
       onEvent: (message) => {
+        if (["login.completed", "connection.ready", "connection.status"].includes(message.event))
+          this.invalidateConversations(service);
         // Message contents only travel to the inbox; diagnostics contain no content or credentials.
         if (/^(connection\.|login\.|message\.)/.test(message.event))
           onEvent({ service, ...message });
@@ -171,6 +173,7 @@ class LocalChannels {
     };
     this.imessageDatabase = path.join(os.homedir(), "Library", "Messages", "chat.db");
     this.cache = new Map();
+    this.conversationVersions = new Map();
     this.telegramRestore = null;
     this.telegramRestoreSettled = false;
     this.statusRequests = new Map();
@@ -254,6 +257,7 @@ class LocalChannels {
   async startLogin(service, method) {
     if (service === "googlemessages") return this.googleMessages.login(method);
     const client = this.client(service);
+    this.invalidateConversations(service);
     const current = await client.request("status");
     if (current.configured === false)
       throw new Error(
@@ -289,15 +293,21 @@ class LocalChannels {
 
   async logout(service) {
     if (service === "googlemessages") return this.googleMessages.logout();
-    this.cache.delete(service);
+    this.invalidateConversations(service);
     this.loginCodes.delete(service);
     return this.client(service).request("logout");
+  }
+
+  invalidateConversations(service) {
+    this.cache.delete(service);
+    this.conversationVersions.set(service, (this.conversationVersions.get(service) || 0) + 1);
   }
 
   async conversations(service) {
     if (service === "googlemessages") return this.googleMessages.conversations();
     const cached = this.cache.get(service);
     if (cached && Date.now() - cached.at < 15000) return cached.value;
+    const version = this.conversationVersions.get(service);
     let value;
     if (service === "imessage") {
       const rows = await sqliteRows(
@@ -318,6 +328,9 @@ class LocalChannels {
         handle: row.handle || row.chat_identifier || null,
       }));
     } else value = await this.client(service).request("conversations.list", undefined, 60000);
+    // A response from before Disconnect/sign-in must not refill the next account's cache.
+    if (version !== this.conversationVersions.get(service))
+      throw new Error("Chat connection changed. Refresh the conversation list.");
     this.cache.set(service, { at: Date.now(), value });
     return value;
   }
