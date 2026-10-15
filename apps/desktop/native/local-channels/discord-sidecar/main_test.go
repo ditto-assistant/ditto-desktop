@@ -250,3 +250,47 @@ func TestCurrentLoginFailureStillReportsItsStatus(t *testing.T) {
 		t.Fatalf("wrong login event: %#v", result)
 	}
 }
+
+func TestMessageReadFailuresPreserveHTTPStatus(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		want   string
+	}{
+		{http.StatusForbidden, "permission_denied"},
+		{http.StatusNotFound, "not_found"},
+		{http.StatusUnauthorized, "authentication_failed"},
+		{http.StatusBadRequest, "invalid_request"},
+	} {
+		t.Run(strconv.Itoa(tc.status), func(t *testing.T) {
+			session, err := discordgo.New("synthetic-qa-token")
+			if err != nil {
+				t.Fatal(err)
+			}
+			requests := 0
+			session.Client = &http.Client{Transport: directoryTransport(func(req *http.Request) (*http.Response, error) {
+				requests++
+				if req.Method != http.MethodGet || !strings.Contains(req.URL.Path, "/channels/qa-channel/messages") {
+					t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+				}
+				return &http.Response{
+					StatusCode: tc.status, Status: fmt.Sprintf("%d %s", tc.status, http.StatusText(tc.status)),
+					Header: http.Header{"Content-Type": []string{"application/json"}},
+					Body:   io.NopCloser(strings.NewReader(`{"message":"Synthetic channel read failure","code":0}`)), Request: req,
+				}, nil
+			})}
+			var encoded bytes.Buffer
+			app := &sidecar{session: session, out: &output{encoder: json.NewEncoder(&encoded)}}
+			app.handle(request{ID: "qa-read", Method: "messages.list", Params: json.RawMessage(`{"channelId":"qa-channel","limit":80}`)})
+			var reply response
+			if err := json.Unmarshal(encoded.Bytes(), &reply); err != nil {
+				t.Fatal(err)
+			}
+			if reply.Error == nil || reply.Error.Code != tc.want {
+				t.Fatalf("want %s protocol error, got %#v", tc.want, reply.Error)
+			}
+			if reply.ID != "qa-read" || requests != 1 {
+				t.Fatalf("unexpected reply/request count: %#v / %d", reply, requests)
+			}
+		})
+	}
+}

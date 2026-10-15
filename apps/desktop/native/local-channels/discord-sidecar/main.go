@@ -850,6 +850,19 @@ func guildIconURL(guild *discordgo.UserGuild) string {
 }
 
 func errorCode(err error) string {
+	var apiError *discordgo.RESTError
+	if errors.As(err, &apiError) && apiError.Response != nil {
+		switch apiError.Response.StatusCode {
+		case http.StatusForbidden:
+			return "permission_denied"
+		case http.StatusNotFound:
+			return "not_found"
+		case http.StatusUnauthorized:
+			return "authentication_failed"
+		case http.StatusBadRequest:
+			return "invalid_request"
+		}
+	}
 	message := err.Error()
 	switch {
 	case strings.Contains(message, "not connected"):
