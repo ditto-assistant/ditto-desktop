@@ -481,7 +481,6 @@ function registerIpc() {
     if (!workspace) throw new Error("Choose a project folder before planning Teleport.");
     return JSON.parse(
       await runCli(["teleport", "plan", workspace, "--json"], {
-        key: linkedKey(),
         cwd: workspace,
         stateDir: path.join(dataDir(), "cli"),
       }),
