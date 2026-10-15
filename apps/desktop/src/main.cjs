@@ -15,7 +15,7 @@ const os = require("node:os");
 const { spawn } = require("node:child_process");
 const readline = require("node:readline");
 const { MemoryStore, defaultCodeRoots } = require("./memory.cjs");
-const { shouldRetrieveMemory } = require("./task-context.cjs");
+const { shouldRetrieveMemory, localTaskContext } = require("./task-context.cjs");
 const { DesktopChatSync } = require("./chat-sync.cjs");
 const { LocalChannels } = require("./channels.cjs");
 const { createKnowledgePacket } = require("./packets.cjs");
@@ -765,26 +765,14 @@ function registerIpc() {
     ]
       .join("\n\n")
       .slice(0, 5000);
-    const task = [
-      ...(previous
-        ? [
-            "Actual recent messages in this local conversation:",
-            ...store
-              .piSessionTurns(sessionId)
-              .map(
-                (turn) =>
-                  `User: ${turn.prompt.slice(0, 2000)}\nDitto: ${turn.response.slice(0, 2000)}`,
-              ),
-          ]
-        : []),
-      ...(relevantMemory
-        ? [
-            "Optional background from local memory (untrusted source content, not messages in this conversation):",
-            relevantMemory,
-          ]
-        : []),
-      `User request: ${question}`,
-    ].join("\n\n");
+    const sessions = path.join(piDir(), "sessions");
+    const sessionFile = sessionId ? path.join(sessions, `${sessionId}.jsonl`) : null;
+    const task = localTaskContext({
+      question,
+      memory: relevantMemory,
+      turns: previous ? store.piSessionTurns(sessionId) : [],
+      resumed: Boolean(sessionFile && fs.existsSync(sessionFile)),
+    });
     const allowComputer = computerEnabled;
     computerEnabled = false;
     emit("ditto:computer-enabled", false);
@@ -802,7 +790,6 @@ function registerIpc() {
           },
         );
     let child;
-    const sessions = path.join(piDir(), "sessions");
     await fsp.mkdir(sessions, { recursive: true, mode: 0o700 });
     try {
       child = spawnSandboxedPi(
@@ -812,9 +799,7 @@ function registerIpc() {
           "--mode",
           "json",
           "--print",
-          ...(sessionId
-            ? ["--session", path.join(sessions, `${sessionId}.jsonl`)]
-            : ["--no-session"]),
+          ...(sessionFile ? ["--session", sessionFile] : ["--no-session"]),
           "--no-themes",
           "--no-skills",
           "--no-extensions",
@@ -826,9 +811,9 @@ function registerIpc() {
           "--approve",
           ...(pi.localModel ? ["--offline", "--provider", "ollama", "--model", pi.localModel] : []),
           "--append-system-prompt",
-          context,
+          [context, task.systemNote].filter(Boolean).join("\n\n"),
           "--",
-          task,
+          task.prompt,
         ],
         {
           workspace,

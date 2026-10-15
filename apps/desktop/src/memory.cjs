@@ -296,7 +296,9 @@ class MemoryStore {
 
   piSessionTurns(sessionId) {
     return this.db
-      .prepare("SELECT prompt,response FROM pi_runs WHERE session_id=? ORDER BY id DESC LIMIT 6")
+      .prepare(
+        "SELECT prompt,response,status FROM pi_runs WHERE session_id=? ORDER BY id DESC LIMIT 6",
+      )
       .all(sessionId)
       .reverse();
   }
