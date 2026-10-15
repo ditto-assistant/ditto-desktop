@@ -50,7 +50,7 @@ async function download(url, maxBytes) {
 }
 
 async function createKnowledgePacket(dataDir, channels, service, conversationId) {
-  if (!["discord", "telegram", "imessage"].includes(service))
+  if (!["discord", "telegram", "imessage", "googlemessages"].includes(service))
     throw new Error("Unsupported chat source.");
   const conversations = await channels.conversations(service);
   const conversation = conversations.find((item) => String(item.id) === conversationId);
