@@ -1,8 +1,8 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
 const { binaryFor } = require("./code-providers.cjs");
+const { spawnLocalTask, cancelLocalTask } = require("./local-task.cjs");
 
 const PACKAGES = {
   codex: "@openai/codex",
@@ -97,9 +97,9 @@ function updatePlan(provider, binary) {
   return { supported: false, detail: "Update this installation through its original installer." };
 }
 
-function runCommand(executable, args, { timeoutMs = 300000, spawnImpl = spawn } = {}) {
+function runCommand(executable, args, { timeoutMs = 300000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawnImpl(executable, args, {
+    const child = spawnLocalTask(executable, args, {
       cwd: os.homedir(),
       env: processEnv(),
       stdio: ["ignore", "pipe", "pipe"],
@@ -111,16 +111,12 @@ function runCommand(executable, args, { timeoutMs = 300000, spawnImpl = spawn } 
     };
     child.stdout.on("data", append);
     child.stderr.on("data", append);
-    let killTimer;
     const timer = setTimeout(() => {
       expired = true;
-      child.kill("SIGTERM");
-      killTimer = setTimeout(() => child.kill("SIGKILL"), 3000);
-      killTimer.unref();
+      cancelLocalTask(child);
     }, timeoutMs);
     const clear = () => {
       clearTimeout(timer);
-      clearTimeout(killTimer);
     };
     child.once("error", (error) => {
       clear();
