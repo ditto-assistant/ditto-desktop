@@ -45,3 +45,14 @@ node_modules/
 
 # pnpm content-addressable store; never belongs in the repo.
 .pnpm-store/
+
+# Ditto Desktop web renderer and local native builds
+apps/desktop/.env.desktop.local
+apps/desktop/resources/web/
+apps/desktop/native/*.node
+apps/desktop/native/bin/
+apps/desktop/.build/
+apps/desktop/dist-ditto/
+!apps/desktop/.env.desktop.example
+
+apps/desktop/native/google-messages-sign-in.cjs

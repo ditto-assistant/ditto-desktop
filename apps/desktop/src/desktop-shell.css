@@ -1,0 +1,768 @@
+:root {
+  --ditto-desktop-rail-width: 56px;
+  --ditto-desktop-sidebar-width: 320px;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  margin: 0;
+}
+.ditto-desktop-group-name {
+  cursor: default;
+}
+.ditto-desktop-code-heading {
+  display: block;
+  padding: 9px 12px 5px;
+  color: var(--ditto-muted);
+  font-size: 12px;
+}
+.ditto-desktop-code-group .v2-studio-recent small {
+  display: block;
+  opacity: 0.65;
+  font-size: 10px;
+}
+.ditto-desktop-code-group .ditto-desktop-code-mode.is-selected {
+  background: color-mix(in oklch, #2b75d0 20%, transparent);
+}
+.ditto-desktop-local-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: #2b75d0;
+  color: #fff;
+  font:
+    700 11px/1 Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+}
+body.ditto-local-open .v2-shell-stage,
+body.ditto-browser-open .v2-shell-stage {
+  visibility: hidden;
+}
+.ditto-local-page {
+  display: none;
+  position: fixed;
+  inset: 0 0 0 var(--ditto-desktop-sidebar-width);
+  z-index: 2147483000;
+  overflow: auto;
+  background: #f7f8fa;
+  color: #172238;
+  font:
+    14px/1.5 Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+}
+body.ditto-local-from-chat .ditto-local-page {
+  left: var(--ditto-desktop-rail-width);
+}
+body.ditto-local-from-chat .v2-studio-panel {
+  visibility: hidden;
+}
+body.ditto-local-open .ditto-local-page {
+  display: block;
+}
+.ditto-browser-page {
+  display: none;
+  position: fixed;
+  inset: 0 0 0 var(--ditto-desktop-sidebar-width);
+  z-index: 2147483000;
+  background: var(--ditto-surface, #f7f8fa);
+  color: var(--ditto-ink, #172238);
+  font:
+    14px/1.5 "Ditto Brand Local",
+    -apple-system,
+    system-ui,
+    sans-serif;
+  flex-direction: column;
+  padding: 18px 22px 16px;
+  box-sizing: border-box;
+}
+body.ditto-browser-open .ditto-browser-page {
+  display: flex;
+}
+.ditto-browser-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.ditto-browser-head h1 {
+  font-family: inherit;
+  font-size: 30px;
+  font-weight: 730;
+  letter-spacing: -0.045em;
+  line-height: 1.1;
+  margin: 3px 0;
+}
+.ditto-browser-head p {
+  margin: 0;
+  color: #718199;
+}
+.ditto-browser-actions,
+.ditto-browser-address,
+.ditto-browser-inspect {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.ditto-browser-page button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid #d6e0ed;
+  border-radius: 9px;
+  color: #35506f;
+  background: #f9fbfd;
+  padding: 9px 13px;
+}
+.ditto-browser-page button.primary {
+  color: white;
+  background: #2b75d0;
+  border-color: #2b75d0;
+}
+.ditto-browser-page button:disabled {
+  opacity: 0.5;
+}
+.ditto-browser-address {
+  margin-top: 15px;
+}
+.ditto-browser-address input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #d5e0ed;
+  border-radius: 9px;
+  padding: 10px 12px;
+  background: var(--ditto-raised, #fff);
+  color: var(--ditto-ink, #172238);
+  font: inherit;
+}
+.ditto-browser-viewport {
+  flex: 1;
+  min-height: 180px;
+  border: 1px solid #dfe5ee;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.ditto-browser-inspect {
+  margin-top: 9px;
+  color: #718199;
+  font-size: 12px;
+  overflow: hidden;
+}
+.ditto-browser-inspect span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+html.dark .ditto-browser-page button,
+html[data-ditto-mode="dark"] .ditto-browser-page button {
+  background: #1c2b3b;
+  border-color: #344960;
+  color: #c9dcf3;
+}
+html.dark .ditto-browser-page button.primary,
+html[data-ditto-mode="dark"] .ditto-browser-page button.primary {
+  background: #2b75d0;
+  border-color: #2b75d0;
+  color: #fff;
+}
+html.dark .ditto-browser-address input,
+html[data-ditto-mode="dark"] .ditto-browser-address input {
+  background: #101924;
+  color: #eaf0f8;
+  border-color: #344960;
+}
+html.dark .ditto-browser-viewport,
+html[data-ditto-mode="dark"] .ditto-browser-viewport {
+  border-color: #344960;
+}
+.ditto-local-inner {
+  max-width: 1060px;
+  margin: auto;
+  padding: 38px 36px 80px;
+}
+.ditto-local-eyebrow {
+  color: #3975ca;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+.ditto-local-page h1 {
+  font-size: clamp(32px, 4vw, 49px);
+  line-height: 1.1;
+  letter-spacing: -0.055em;
+  margin: 10px 0;
+  font-weight: 730;
+}
+.ditto-local-page h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  letter-spacing: -0.03em;
+}
+.ditto-local-page h3 {
+  margin: 0 0 5px;
+  font-size: 13px;
+}
+.ditto-local-page p {
+  margin: 0;
+  color: #647389;
+}
+.ditto-local-hero {
+  margin-bottom: 25px;
+}
+.ditto-local-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 11px;
+  margin-bottom: 18px;
+}
+.ditto-local-stat,
+.ditto-local-card {
+  border: 1px solid #dfe5ee;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 2px 10px #1b3b7010;
+}
+.ditto-local-stat {
+  padding: 16px 18px;
+}
+.ditto-local-stat strong {
+  display: block;
+  color: #286cc5;
+  font-size: 27px;
+  line-height: 1.15;
+  letter-spacing: -0.05em;
+}
+.ditto-local-stat span {
+  display: block;
+  color: #69788c;
+  font-size: 12px;
+  margin-top: 6px;
+}
+.ditto-local-card {
+  padding: 20px;
+  margin-top: 14px;
+}
+.ditto-local-execution-card {
+  margin-top: 0;
+}
+.ditto-local-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.ditto-local-row.between {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.ditto-local-page button {
+  font:
+    600 12px/1.2 Inter,
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+  cursor: pointer;
+  border-radius: 9px;
+  border: 1px solid #d6e0ed;
+  color: #35506f;
+  background: #f9fbfd;
+  padding: 10px 13px;
+}
+.ditto-local-page button:hover {
+  background: #eaf2fe;
+}
+.ditto-local-page button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ditto-local-page button.primary {
+  color: #fff;
+  background: #2b75d0;
+  border-color: #2b75d0;
+}
+.ditto-local-page button.primary:hover {
+  background: #1d61b6;
+}
+.ditto-local-page input,
+.ditto-local-page textarea,
+.ditto-local-page select {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #d5e0ed;
+  border-radius: 10px;
+  background: #fff;
+  color: #172238;
+  padding: 11px 12px;
+  font: inherit;
+}
+.ditto-local-page select {
+  width: auto;
+  min-width: 230px;
+}
+.ditto-computer-control label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #536b88;
+  font-size: 12px;
+}
+.ditto-local-page .ditto-computer-control input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  accent-color: #2b75d0;
+}
+.ditto-local-page textarea {
+  resize: vertical;
+  min-height: 96px;
+}
+.ditto-local-form {
+  display: flex;
+  gap: 9px;
+  margin-top: 14px;
+}
+.ditto-local-form input {
+  flex: 1;
+}
+.ditto-local-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 13px;
+}
+.ditto-local-item {
+  border: 1px solid #e5eaf0;
+  border-radius: 11px;
+  background: #fbfcfe;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.ditto-local-item strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.ditto-local-item small {
+  display: block;
+  color: #718199;
+  margin: 3px 0 5px;
+  overflow-wrap: anywhere;
+}
+.ditto-local-item p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 120px;
+  overflow: auto;
+}
+.ditto-local-muted {
+  color: #748399;
+  font-size: 12px;
+}
+.ditto-local-status {
+  color: #3975ca;
+  font-size: 12px;
+  margin-top: 8px;
+  min-height: 18px;
+}
+.ditto-local-output {
+  margin-top: 12px;
+  min-height: 72px;
+  max-height: 330px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 10px;
+  padding: 14px;
+  background: #f2f6fc;
+  color: #24384e;
+}
+.ditto-local-output:empty::before {
+  content: "Ditto Code’s response will appear here.";
+  color: #91a1b4;
+}
+.ditto-local-path {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 800px) {
+  .ditto-local-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .ditto-local-inner {
+    padding: 24px 18px 70px;
+  }
+}
+html.dark .ditto-local-page,
+html[data-ditto-mode="dark"] .ditto-local-page {
+  background: #0d121a;
+  color: #eaf0f8;
+}
+html.dark .ditto-local-stat,
+html.dark .ditto-local-card,
+html[data-ditto-mode="dark"] .ditto-local-stat,
+html[data-ditto-mode="dark"] .ditto-local-card {
+  background: #141c27;
+  border-color: #2b3645;
+  box-shadow: none;
+}
+html.dark .ditto-local-item,
+html[data-ditto-mode="dark"] .ditto-local-item {
+  background: #111924;
+  border-color: #2b3645;
+}
+html.dark .ditto-local-page button,
+html[data-ditto-mode="dark"] .ditto-local-page button {
+  background: #1c2b3b;
+  border-color: #344960;
+  color: #c9dcf3;
+}
+html.dark .ditto-local-page button.primary,
+html[data-ditto-mode="dark"] .ditto-local-page button.primary {
+  background: #2b75d0;
+  border-color: #2b75d0;
+  color: #fff;
+}
+html.dark .ditto-local-page input,
+html.dark .ditto-local-page textarea,
+html.dark .ditto-local-page select,
+html[data-ditto-mode="dark"] .ditto-local-page input,
+html[data-ditto-mode="dark"] .ditto-local-page textarea,
+html[data-ditto-mode="dark"] .ditto-local-page select {
+  background: #101924;
+  color: #eaf0f8;
+  border-color: #344960;
+}
+html.dark .ditto-local-output,
+html[data-ditto-mode="dark"] .ditto-local-output {
+  background: #0f1b2a;
+  color: #d6e7fa;
+}
+.ditto-local-page {
+  font-family:
+    "Ditto Brand Local",
+    -apple-system,
+    system-ui,
+    "Segoe UI",
+    sans-serif;
+  background: var(--ditto-surface);
+  color: var(--ditto-ink);
+}
+.ditto-local-page h1,
+.ditto-local-page h2,
+.ditto-local-page button,
+.ditto-local-page input,
+.ditto-local-page textarea,
+.ditto-local-page select {
+  font-family: inherit;
+}
+.ditto-local-card,
+.ditto-local-stat {
+  background: var(--ditto-raised);
+  border-color: color-mix(in oklch, var(--ditto-ink) 12%, transparent);
+}
+html.dark .ditto-local-page,
+html[data-ditto-mode="dark"] .ditto-local-page {
+  background: var(--ditto-surface);
+  color: var(--ditto-ink);
+}
+html.dark .ditto-local-card,
+html.dark .ditto-local-stat,
+html[data-ditto-mode="dark"] .ditto-local-card,
+html[data-ditto-mode="dark"] .ditto-local-stat {
+  background: var(--ditto-raised);
+  border-color: color-mix(in oklch, var(--ditto-ink) 12%, transparent);
+}
+/* Keep the exact web composer mounted for either execution location. */
+body.ditto-local-open:not(.ditto-desktop-settings) .v2-shell-stage {
+  visibility: visible;
+}
+body.ditto-local-open .ditto-local-page {
+  display: none;
+}
+body.ditto-desktop-settings.ditto-local-open .ditto-local-page {
+  display: block;
+}
+.v2-code-start.ditto-desktop-code-chat {
+  display: none;
+}
+body.ditto-local-open:not(.ditto-desktop-settings)
+  .v2-code-surface-main
+  > :not(.ditto-desktop-code-chat) {
+  display: none;
+}
+body.ditto-local-open:not(.ditto-desktop-settings) .ditto-desktop-code-chat {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: clamp(24px, 8vh, 88px) 16px 200px;
+  box-sizing: border-box;
+}
+.ditto-desktop-code-chat .v2-code-start-header {
+  margin: 0;
+}
+.ditto-desktop-code-chat.has-turns .v2-code-start-header {
+  display: none;
+}
+#dl-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.ditto-desktop-code-question {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 12px 18px;
+  border-radius: 20px;
+  background: var(--ditto-raised);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ditto-desktop-code-response {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ditto-ink);
+  min-height: 0;
+  font: inherit;
+  max-height: none;
+}
+.ditto-desktop-code-response:empty {
+  display: none;
+}
+.ditto-desktop-code-response:has(.markdown-content) {
+  white-space: normal;
+}
+#dl-chat-status {
+  font-size: 12px;
+  color: var(--ditto-muted);
+  margin-top: 18px;
+}
+.ditto-desktop-local-actions {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+}
+body:is(.ditto-local-open, .ditto-browser-open) .ditto-desktop-local-actions {
+  display: flex;
+}
+.ditto-desktop-local-actions label {
+  font-size: 11px;
+  color: var(--ditto-muted);
+}
+.ditto-desktop-local-actions select {
+  font: inherit;
+  width: 100%;
+  border: 1px solid color-mix(in oklch, var(--ditto-ink) 15%, transparent);
+  background: var(--ditto-raised);
+  color: var(--ditto-ink);
+  border-radius: 9px;
+  padding: 8px;
+}
+.ditto-desktop-workspace {
+  display: none;
+}
+body.ditto-local-open .ditto-desktop-workspace {
+  display: inline-flex;
+}
+body.ditto-local-open .v2-code-workspace-chip {
+  display: none;
+}
+body.ditto-desktop-settings #dl-chat-form {
+  display: none;
+}
+.ditto-desktop-workspace {
+  display: none !important;
+}
+body.ditto-local-open .ditto-desktop-workspace {
+  display: inline-flex !important;
+}
+body:is(.ditto-local-open, .ditto-browser-open) .v2-code-panel > .v2-code-panel-toolbar,
+body:is(.ditto-local-open, .ditto-browser-open) .v2-code-panel > .v2-code-repo-section,
+body:is(.ditto-local-open, .ditto-browser-open)
+  .v2-code-panel
+  > .v2-studio-section:not(.ditto-desktop-code-group),
+body:is(.ditto-local-open, .ditto-browser-open) .v2-code-panel > .v2-studio-sidebar-status {
+  display: none;
+}
+.ditto-desktop-local-history {
+  display: none;
+  gap: 3px;
+  padding: 10px;
+}
+body:is(.ditto-local-open, .ditto-browser-open) .ditto-desktop-local-history {
+  display: grid;
+}
+.ditto-desktop-local-history button {
+  display: block;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ditto-desktop-local-actions > [hidden] {
+  display: none;
+}
+
+/* Native and cloud conversations share the web transcript and sidebar. */
+.ditto-local-badge {
+  flex: none;
+  font-weight: 500;
+  line-height: 1.5;
+  font-size: 10px;
+  padding: 0 5px;
+  border: 1px solid color-mix(in oklch, #2b75d0 35%, transparent);
+  border-radius: 5px;
+  color: var(--ditto-muted);
+  background: color-mix(in oklch, #2b75d0 8%, transparent);
+}
+.v2-studio-recent .ditto-local-badge {
+  margin-left: auto;
+}
+.ditto-local-connection {
+  font-size: 11px;
+  color: var(--ditto-muted);
+}
+.ditto-local-connection > span:first-child {
+  flex: 1;
+}
+.ditto-chat-search {
+  width: calc(100% - 20px);
+  margin: 5px 10px 8px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in oklch, var(--ditto-ink) 12%, transparent);
+  border-radius: 8px;
+  background: var(--ditto-canvas);
+  color: var(--ditto-ink);
+  font: inherit;
+  font-size: 12px;
+}
+.ditto-integrated-chat {
+  --connector-destination-space: 0px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--ditto-ink);
+}
+.ditto-integrated-chat > .v2-connector-chat {
+  flex: 1;
+  min-height: 0;
+}
+.ditto-integrated-chat > .ditto-local-destination-shelf {
+  position: static;
+  flex: none;
+  width: min(calc(100% - 40px), calc(var(--v2-command-rail-max, 720px) - 16px));
+  max-width: none;
+  margin: 8px auto;
+  pointer-events: auto;
+}
+.ditto-integrated-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  border-bottom: 1px solid color-mix(in oklch, var(--ditto-ink) 10%, transparent);
+}
+.ditto-integrated-chat-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ditto-integrated-chat-head button {
+  margin-left: auto;
+}
+.ditto-integrated-chat-head button,
+.ditto-local-setup button {
+  border: 1px solid color-mix(in oklch, var(--ditto-ink) 14%, transparent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--ditto-raised);
+  color: var(--ditto-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.ditto-integrated-chat button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ditto-local-setup {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  overflow: auto;
+  text-align: center;
+}
+.ditto-local-setup h2 {
+  font-size: 24px;
+  margin: 0;
+}
+.ditto-local-setup p {
+  max-width: 460px;
+  color: var(--ditto-muted);
+  margin: 0;
+}
+.ditto-local-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.ditto-inbox-qr {
+  width: 220px;
+  max-width: 100%;
+  border-radius: 12px;
+}
+
+.ditto-chat-sync {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 18px;
+  font-size: 12px;
+  color: var(--text-secondary, #aaa);
+}
+.ditto-chat-sync:empty {
+  display: none;
+}
+.ditto-chat-sync button {
+  border: 1px solid var(--border-color, #3b3c40);
+  border-radius: 8px;
+  padding: 5px 9px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.ditto-chat-sync button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ditto-chat-sync-consent {
+  width: 100%;
+  max-width: 650px;
+  padding: 12px;
+  border: 1px solid var(--border-color, #3b3c40);
+  border-radius: 10px;
+  background: var(--bg-secondary, #242529);
+}
+.ditto-chat-sync-consent p {
+  margin: 0 0 10px;
+  line-height: 1.5;
+}

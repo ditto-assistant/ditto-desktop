@@ -79,7 +79,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
       - name: Build JS bundle
-        run: vp run build:desktop
+        run: vp run build:desktop:workbench
 
       # Same layout as release.yml's js-bundle so release-desktop.yml can
       # package it unchanged.

@@ -31,6 +31,7 @@
       "ignoreDependencies": ["@effect/platform-node-shared", "@t3tools/web"],
     },
     "apps/desktop": {
+      "ignore": ["web/**", ".build/**", "dist-ditto/**", "resources/web/**"],
       // Electron loads these bundles by filename rather than importing them.
       "entry": [
         "gnome-extension/extension.js!",
@@ -39,6 +40,15 @@
         "src/snapShot/RegionSnapShotWorker.ts!",
         "src/snapShot/SnapShotAccessibilityWorker.ts!",
         "src/main.ts!",
+        "src/main.cjs!",
+        "src/preload.cjs!",
+        "src/desktop-shell.js!",
+        "src/desktop-shell.css!",
+        "src/pi-browser-extension.mjs!",
+        "src/pi-local-tools.mjs!",
+        "scripts/*.cjs",
+        "renderer/*",
+        "tests/*.node-test.cjs",
         "src/preload.ts!",
         "src/preview-pick-preload.ts!",
         "src/preview-pip-preload.ts!",
@@ -47,7 +57,11 @@
       ],
       // The injected runtime resolves Playwright by string; release tooling runs
       // electron-builder from this workspace, outside its package scripts.
-      "ignoreDependencies": ["playwright-core", "electron-builder"],
+      "ignoreDependencies": [
+        "playwright-core",
+        "electron-builder",
+        "@earendil-works/pi-coding-agent",
+      ],
     },
     "apps/web": {
       // Worktree setup invokes this directly from t3.json.
