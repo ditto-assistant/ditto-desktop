@@ -1,0 +1,119 @@
+:root {
+  color-scheme: dark;
+  font:
+    13px/1.45 -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  background: #101113;
+  color: #edeeef;
+}
+body {
+  margin: 0;
+}
+main {
+  padding: 24px;
+}
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: #999da3;
+}
+h1 {
+  font-size: 23px;
+  letter-spacing: -0.03em;
+  margin: 9px 0;
+}
+h2 {
+  font-size: 13px;
+  margin: 20px 0 8px;
+}
+p {
+  color: #a7abb2;
+  margin: 10px 0;
+}
+.hint {
+  font-size: 11px;
+  line-height: 1.5;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: #24262a;
+  border: 1px solid #393b40;
+  border-radius: 9px;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+button:focus-visible {
+  outline: 2px solid #a999ff;
+  outline-offset: 3px;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.permission {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #2c2e33;
+  padding: 11px 0;
+}
+.permission span {
+  display: block;
+  font-size: 11px;
+  color: #999da3;
+  margin-top: 3px;
+}
+.permission button {
+  font-size: 11px;
+}
+.row {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+.row button {
+  flex: 1;
+}
+.primary {
+  background: #e9e7f7;
+  color: #17151e;
+  border-color: #e9e7f7;
+}
+.danger {
+  color: #f5b4b4;
+}
+#app-tile {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  column-gap: 10px;
+  text-align: left;
+  width: 100%;
+  margin-top: 15px;
+  padding: 12px;
+  cursor: grab;
+}
+#app-tile .app-icon {
+  grid-row: span 2;
+  font-size: 25px;
+  line-height: 38px;
+  text-align: center;
+  background: #e9e7f7;
+  color: #19171f;
+  border-radius: 10px;
+  font-weight: 700;
+}
+#app-tile strong {
+  font-size: 12px;
+  align-self: end;
+}
+#app-tile > span:last-child {
+  font-size: 11px;
+  color: #aaaeb7;
+}
+#status {
+  font-size: 12px;
+  min-height: 35px;
+  margin: 13px 0;
+}

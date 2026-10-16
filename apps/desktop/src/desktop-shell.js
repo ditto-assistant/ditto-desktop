@@ -8,6 +8,21 @@
     if (text !== undefined) node.textContent = text;
     return node;
   };
+  const computerBar = element("aside", "ditto-computer-session");
+  computerBar.setAttribute("aria-label", "Computer Use controls");
+  computerBar.hidden = true;
+  computerBar.append(element("span", "", "Computer Use is on"));
+  const computerSetupButton = element("button", "", "Setup");
+  computerSetupButton.addEventListener("click", () => {
+    void window.ditto.computerSettings();
+  });
+  const computerStopButton = element("button", "", "Stop computer use");
+  computerStopButton.addEventListener("click", () => {
+    computerBar.hidden = true;
+    void window.ditto.computerEnable(false);
+  });
+  computerBar.append(computerSetupButton, computerStopButton);
+  document.body.append(computerBar);
   const number = (value) => Number(value || 0).toLocaleString();
   const desktopError = (error) =>
     String(error.message || error).replace(
@@ -172,6 +187,18 @@
         "--ditto-desktop-sidebar-width",
         `${sidebarWidth}px`,
       );
+    if (!rail.querySelector("[data-ditto-computer]")) {
+      const control = element("button", "v2-studio-rail-button");
+      control.type = "button";
+      control.dataset.dittoComputer = "true";
+      control.setAttribute("aria-label", "Computer Use setup");
+      control.title = "Computer Use setup";
+      control.textContent = "⌘";
+      control.addEventListener("click", () => {
+        void window.ditto.computerSettings();
+      });
+      rail.append(control);
+    }
     markActive();
     mountCodeSource();
     mountLocalCode();
@@ -317,7 +344,7 @@
         <div class="ditto-local-row" style="margin-top:12px"><label for="dl-provider" class="ditto-local-muted">Coding engine</label><select id="dl-provider" aria-label="Coding engine">
           <option value="pi">Ditto Code (default)</option><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="cursor">Cursor Agent</option><option value="grok">Grok</option>
         </select><button id="dl-provider-login" type="button" hidden>Sign in to provider</button></div>
-        <div class="ditto-local-row ditto-computer-control" style="margin-top:12px"><label><input id="dl-computer-enable" type="checkbox"> Allow Mac computer control for the next Ditto Code task</label><span id="dl-computer-status" class="ditto-local-muted"></span><button id="dl-computer-settings">Open Accessibility settings</button><button id="dl-computer-refresh">Check permission</button></div>
+        <div class="ditto-local-row ditto-computer-control" style="margin-top:12px"><label><input id="dl-computer-enable" type="checkbox"> Allow computer use in Ditto Desktop</label><span id="dl-computer-status" class="ditto-local-muted"></span><button id="dl-computer-settings">Computer Use setup</button><button id="dl-computer-refresh">Check permission</button></div>
         <form id="dl-chat-form" style="margin-top:13px"><textarea id="dl-prompt" placeholder="Ask Ditto Code to use your local memory and work on a project…" aria-label="Ask Ditto Code"></textarea>
           <div class="ditto-local-row" style="margin-top:9px"><button id="dl-run" class="primary">Run Ditto Code locally</button><button id="dl-cancel" type="button" hidden>Stop</button><span id="dl-context" class="ditto-local-muted"></span></div></form>
         <div id="dl-output" class="ditto-local-output" aria-live="polite"></div></section>
@@ -895,7 +922,7 @@
           ? "Local · Ditto Code"
           : `Local · ${$("#dl-provider").selectedOptions[0]?.textContent || provider}`;
     if (localTurns.length && localTurns.at(-1).provider !== provider) newLocalTask();
-    $("#dl-computer-enable").disabled = provider !== "pi";
+
     $("#dl-provider-login").hidden = provider === "pi";
     if (provider !== "pi") {
       const label = $("#dl-provider").selectedOptions[0]?.textContent || provider;
@@ -960,13 +987,15 @@
     window.ditto
       .computerStatus()
       .then((status) => {
+        $("#dl-computer-enable").checked = status.enabled;
+        computerBar.hidden = !status.enabled;
         show(
           "#dl-computer-status",
-          status.locked
-            ? "Unlock this Mac to use computer control."
-            : status.trusted
-              ? "Accessibility is ready."
-              : "Grant Ditto Desktop Accessibility in macOS Settings.",
+          status.enabled
+            ? "Computer Use is on."
+            : status.running
+              ? "Computer Use is off. Open setup to check access."
+              : "Computer Use is stopped.",
         );
       })
       .catch((error) => show("#dl-computer-status", error.message));
@@ -986,6 +1015,7 @@
     }
   });
   window.ditto.onComputerEnabled((enabled) => {
+    computerBar.hidden = !enabled;
     $("#dl-computer-enable").checked = enabled;
   });
   const remoteStatus = (status) => {

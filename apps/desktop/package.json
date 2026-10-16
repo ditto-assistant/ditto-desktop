@@ -19,7 +19,7 @@
     "build:channels": "node scripts/build-channels.cjs",
     "scan:local": "node scripts/scan-local.cjs",
     "build:ditto": "node scripts/build-web.cjs && node scripts/build-channels.cjs && node scripts/build-computer.cjs && node scripts/build-native.cjs",
-    "test:ditto": "node --test tests/*.node-test.cjs",
+    "test:ditto": "node --experimental-strip-types --test tests/*.node-test.cjs",
     "dist:ditto:mac": "node scripts/dist-ditto.cjs"
   },
   "dependencies": {
