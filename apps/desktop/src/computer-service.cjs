@@ -332,8 +332,8 @@ class ComputerService {
       call: (name, args = {}) => {
         const call = tail.then(async () => {
           check();
-          if (!this.catalog.some((tool) => tool.name === name))
-            throw new Error("Unsupported computer tool.");
+          const tool = this.catalog.find((tool) => tool.name === name);
+          if (!tool) throw new Error("Unsupported computer tool.");
           if (
             !args ||
             typeof args !== "object" ||
@@ -343,18 +343,13 @@ class ComputerService {
             throw new Error("Invalid computer tool arguments.");
           // Changing background delivery to foreground must not repeat input
           // that may already have landed. Observe the target before retrying.
-          const signature = JSON.stringify([
-            name,
-            Object.fromEntries(
-              Object.entries(args)
-                .filter(([key]) => key !== "delivery_mode" && key !== "session")
-                .sort(([a], [b]) => a.localeCompare(b)),
-            ),
-          ]);
-          if (unverified?.signature === signature)
+          const action = !tool.annotations.readOnlyHint;
+          if (unverified && action)
             throw new Error(
               "This action may already have completed. Inspect this app with computer_get_window_state before retrying, including before changing delivery mode.",
             );
+          // Keep the barrier if transport fails with an unknown outcome too.
+          if (action) unverified = { pid: args.pid, window: args.window_id };
           const result = await this.request({
             method: "call",
             name: name.slice(9),
@@ -365,12 +360,19 @@ class ComputerService {
           if (
             !result.isError &&
             name === "computer_get_window_state" &&
-            args.pid === unverified?.pid &&
-            args.window_id === unverified?.window
+            unverified &&
+            (unverified.pid === undefined || args.pid === unverified.pid) &&
+            (unverified.window === undefined || args.window_id === unverified.window)
           )
             unverified = null;
-          if (result.structuredContent?.effect === "unverifiable")
-            unverified = { signature, pid: args.pid, window: args.window_id };
+          if (
+            !result.isError &&
+            name === "computer_get_desktop_state" &&
+            result.content?.some((part) => part.type === "image")
+          )
+            unverified = null;
+          if (action && !result.isError && result.structuredContent?.effect !== "unverifiable")
+            unverified = null;
           return result;
         });
         tail = call.catch(() => {});

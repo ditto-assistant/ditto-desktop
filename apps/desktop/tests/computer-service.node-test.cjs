@@ -38,6 +38,7 @@ async function fixture(t, permissions = true) {
                   name,
                   input_schema: { type: "object", properties: {} },
                   description: name,
+                  read_only: name === "get_window_state",
                 }),
               ),
             };
@@ -154,6 +155,10 @@ test("unverified input cannot be retried with another delivery mode until its ta
     /Inspect this app/,
   );
   assert.equal(f.requests.filter((request) => request.name === "press_key").length, 1);
+  await assert.rejects(
+    session.call("computer_press_key", { ...args, key: "2" }),
+    /Inspect this app/,
+  );
   await session.call("computer_get_window_state", { pid: 42, window_id: 999 });
   await assert.rejects(session.call("computer_press_key", args), /Inspect this app/);
   await session.call("computer_get_window_state", { pid: 42, window_id: 791 });
