@@ -17,6 +17,14 @@ const {
   codeSurfaceOverlay,
 } = require("./desktop-code-bridge.cjs");
 const chatOverlays = require("./desktop-chat-bridge.cjs");
+const computerOverlays = require("./desktop-computer-bridge.cjs");
+const computerSources = new Map(
+  [
+    ["FullApp.tsx", computerOverlays.appOverlay],
+    ["components/SendMessage.tsx", computerOverlays.composerOverlay],
+    ["api/LLM.ts", computerOverlays.promptOverlay],
+  ].map(([file, transform]) => [path.join(web, "src", file), transform]),
+);
 const chatSources = new Map(
   [
     ["components/v2/V2StudioSidebar.tsx", chatOverlays.sidebarOverlay],
@@ -52,9 +60,14 @@ for (const key of [
 }
 const previousProductionEnv = fs.existsSync(productionEnv) ? fs.readFileSync(productionEnv) : null;
 const originals = new Map(
-  [appSource, codeComposerSource, codeModeSource, codeSurfaceSource, ...chatSources.keys()].map(
-    (file) => [file, fs.readFileSync(file, "utf8")],
-  ),
+  [
+    appSource,
+    codeComposerSource,
+    codeModeSource,
+    codeSurfaceSource,
+    ...chatSources.keys(),
+    ...computerSources.keys(),
+  ].map((file) => [file, fs.readFileSync(file, "utf8")]),
 );
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -85,6 +98,8 @@ try {
   desktopRendererCreated = true;
   fs.cpSync(path.join(root, "renderer"), desktopRenderer, { recursive: true });
   for (const [file, transform] of chatSources)
+    fs.writeFileSync(file, transform(originals.get(file)));
+  for (const [file, transform] of computerSources)
     fs.writeFileSync(file, transform(originals.get(file)));
   if (!fs.existsSync(path.join(web, "node_modules"))) run("bun", ["install", "--frozen-lockfile"]);
   run("bun", ["run", "build"]);

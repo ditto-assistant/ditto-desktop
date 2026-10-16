@@ -1,6 +1,17 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+let computerLease = "";
+ipcRenderer.on("ditto:computer-cloud", (_event, status) => {
+  computerLease = status.leaseID || "";
+});
 contextBridge.exposeInMainWorld("ditto", {
+  computerLease: () => computerLease,
+  onComputerCloud: (listener) => {
+    const handler = (_event, status) => listener(status);
+    ipcRenderer.on("ditto:computer-cloud", handler);
+    return () => ipcRenderer.removeListener("ditto:computer-cloud", handler);
+  },
+  computerCloudLink: (token) => ipcRenderer.invoke("ditto:computer-cloud-link", token),
   status: () => ipcRenderer.invoke("ditto:status"),
   scan: () => ipcRenderer.invoke("ditto:scan"),
   search: (query) => ipcRenderer.invoke("ditto:search", query),
@@ -107,6 +118,8 @@ contextBridge.exposeInMainWorld("ditto", {
   computerSettings: () => ipcRenderer.invoke("ditto:computer-settings"),
   computerEnable: (enabled) => ipcRenderer.invoke("ditto:computer-enable", enabled),
   onComputerEnabled: (listener) => {
-    ipcRenderer.on("ditto:computer-enabled", (_event, enabled) => listener(enabled));
+    const handler = (_event, enabled) => listener(enabled);
+    ipcRenderer.on("ditto:computer-enabled", handler);
+    return () => ipcRenderer.removeListener("ditto:computer-enabled", handler);
   },
 });

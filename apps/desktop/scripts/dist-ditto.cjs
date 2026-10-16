@@ -26,7 +26,8 @@ for (const file of [
   "native/bin/ditto-google-messages-bridge",
   "native/google-messages-sign-in.cjs",
   "native/bin/ditto-telegram-sidecar",
-  "native/bin/ditto-computer-use",
+  "native/bin/Ditto Computer Use.app/Contents/MacOS/DittoComputerUse",
+  "native/bin/ditto-computer-launcher",
   "native/bin/grok",
 ]) {
   if (!fs.existsSync(path.join(root, file))) throw new Error(`Missing build resource: ${file}`);
