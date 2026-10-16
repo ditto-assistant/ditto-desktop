@@ -29,8 +29,21 @@ export default async function (pi) {
       parameters: tool.inputSchema,
       async execute(_id, args) {
         const result = await rpc("tools/call", { name: tool.name, arguments: args });
+        const content = [...result.content];
+        // Native discovery returns IDs/bounds in structuredContent; its text
+        // may only say "Found 1 window". Pi consumes content blocks, so give
+        // the model the grounding data as well as the human-readable summary.
+        if (result.structuredContent !== undefined)
+          content.push({ type: "text", text: JSON.stringify(result.structuredContent) });
         // Preserve screenshots as images; never turn image bytes into prompt text.
-        return { content: result.content, details: { isError: result.isError === true } };
+        if (result.isError) {
+          const message = content
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join("\n");
+          throw new Error(message || "Computer Use could not complete this action.");
+        }
+        return { content, details: {} };
       },
     });
   }

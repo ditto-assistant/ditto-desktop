@@ -49,7 +49,13 @@ async function fixture(t, permissions = true) {
           if (request.method === "call")
             result = {
               content: [{ type: "image", mimeType: "image/png", data: "fixture-image" }],
+              structuredContent: { windows: [{ pid: 42, window_id: 791, title: "Calculator" }] },
               isError: false,
+            };
+          if (request.method === "call" && request.name === "click")
+            result = {
+              content: [{ type: "text", text: "Stale element: inspect the window again." }],
+              isError: true,
             };
           socket.write(JSON.stringify({ ok: true, result }) + "\n");
         });
@@ -153,4 +159,12 @@ test("the actual Ditto Code extension consumes the authenticated MCP catalog and
   const result = await inspect.execute("fixture-call", {});
   assert.equal(result.content[0].type, "image");
   assert.equal(result.content[0].data, "fixture-image");
+  const grounding = result.content.find((part) => part.type === "text");
+  assert.deepEqual(JSON.parse(grounding.text), {
+    windows: [{ pid: 42, window_id: 791, title: "Calculator" }],
+  });
+  await assert.rejects(
+    tools.find((tool) => tool.name === "computer_click").execute("stale-click", {}),
+    /Stale element: inspect the window again/,
+  );
 });
