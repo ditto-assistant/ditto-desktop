@@ -2,7 +2,6 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnLocalTask, wasLocalTaskCancelled } = require("./local-task.cjs");
-const readline = require("node:readline");
 
 const names = { codex: "Codex", claude: "Claude Code", cursor: "Cursor Agent", grok: "Grok" };
 const MAX_RESPONSE_CHARS = 200000;
@@ -49,43 +48,25 @@ function providerAvailability() {
   }));
 }
 
-function startProvider(provider, prompt, workspace, onText) {
+function startProvider(provider, prompt, workspace, onText, options = {}) {
   const binary = binaryFor(provider);
   if (!binary) throw new Error(`${names[provider]} CLI is not installed on this Mac.`);
-  let args;
-  let stdinPrompt = prompt;
-  let grokPromptDir = null;
-  if (provider === "codex")
-    args = ["exec", "--json", "--approve-for-me", "--skip-git-repo-check", "-C", workspace, "-"];
-  else if (provider === "claude")
-    args = ["-p", "--output-format", "text", "--permission-mode", "acceptEdits"];
-  else if (provider === "cursor") {
-    args = ["-p", "--output-format", "text", "--workspace", workspace, prompt];
-    stdinPrompt = "";
-  } else if (provider === "grok") {
-    grokPromptDir = fs.mkdtempSync(path.join(os.tmpdir(), "ditto-grok-"));
-    const promptFile = path.join(grokPromptDir, "task.txt");
-    fs.writeFileSync(promptFile, prompt, { mode: 0o600 });
-    args = [
-      "--no-auto-update",
-      "--prompt-file",
-      promptFile,
-      "--permission-mode",
-      "acceptEdits",
-      "--output-format",
-      "plain",
-      "--cwd",
-      workspace,
-    ];
-    stdinPrompt = "";
-  }
-  const child = spawnLocalTask(binary, args, {
-    // Codex uses its interactive interrupt path to abort detached tool groups.
-    cancelSignal: provider === "codex" ? "SIGINT" : "SIGTERM",
+  const worker = path.join(
+    __dirname,
+    "..",
+    "native",
+    "provider-runtime",
+    "desktop-provider-worker.mjs",
+  );
+  if (!fs.existsSync(worker))
+    throw new Error("Coding runtime is missing. Rebuild Ditto Desktop before running this engine.");
+  const child = spawnLocalTask(process.execPath, [worker], {
+    onCancel: () => send({ type: "cancel" }),
     cwd: workspace,
-    stdio: ["pipe", "pipe", "pipe"],
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
     env: {
       ...process.env,
+      ELECTRON_RUN_AS_NODE: "1",
       PATH: [
         path.join(os.homedir(), ".local", "bin"),
         "/opt/homebrew/bin",
@@ -94,67 +75,83 @@ function startProvider(provider, prompt, workspace, onText) {
       ].join(":"),
     },
   });
-  // Pipe chunks need not end on a UTF-8 character boundary.
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  if (grokPromptDir)
-    child.once("close", () => {
-      fs.rmSync(grokPromptDir, { recursive: true, force: true });
-    });
-  let inputError;
-  // A CLI can exit (for example, on expired authentication) before reading its prompt.
-  // Keep the stream error local and report failure after stdout/stderr have drained.
-  child.stdin.on("error", (error) => {
-    inputError = error;
-  });
-  child.stdin.end(stdinPrompt);
   let answer = "";
-  let stderr = "";
-  const appendAnswer = (text) => {
-    if (!text || answer.length >= MAX_RESPONSE_CHARS) return;
-    const available = MAX_RESPONSE_CHARS - answer.length;
-    const part = text.slice(0, available);
-    answer += part;
-    onText(part);
+  let response;
+  let resumeCursor = options.resumeCursor;
+  let failure;
+  let diagnostic = "";
+  const send = (message) => {
+    if (!child.connected || (wasLocalTaskCancelled(child) && message.type !== "cancel")) return;
+    child.send(message, (error) => {
+      if (error && !wasLocalTaskCancelled(child)) failure = error.message;
+    });
   };
-  if (provider === "codex") {
-    readline.createInterface({ input: child.stdout }).on("line", (line) => {
-      try {
-        const event = JSON.parse(line);
-        if (
-          event.type === "item.completed" &&
-          event.item?.type === "agent_message" &&
-          event.item.text
-        ) {
-          appendAnswer(`${answer ? "\n\n" : ""}${event.item.text}`);
-        }
-      } catch {
-        /* Ignore non-protocol lines. */
-      }
-    });
-  } else
-    child.stdout.on("data", (chunk) => {
-      const text = chunk.toString().replace(/\x1b\[[0-9;]*m/g, "");
-      appendAnswer(text);
-    });
+  child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => {
-    stderr = (stderr + chunk.toString()).slice(-5000);
+    diagnostic = (diagnostic + chunk).slice(-5000);
+  });
+  // SDK diagnostics belong on stderr, never in the assistant transcript.
+  child.stdout.resume();
+  child.on("message", (message) => {
+    if (message.type === "event") {
+      const event = message.event;
+      options.onEvent?.(event, message.live === true);
+      if (message.tool) options.onTool?.(message.tool);
+      if (
+        message.live &&
+        event.type === "content.delta" &&
+        event.payload.streamKind === "assistant_text"
+      ) {
+        const text = event.payload.delta.slice(0, Math.max(0, MAX_RESPONSE_CHARS - answer.length));
+        answer += text;
+        if (text) onText(text);
+      }
+    } else if (message.type === "session") {
+      resumeCursor = message.resumeCursor;
+      options.onResumeCursor?.(resumeCursor);
+    } else if (message.type === "approval") {
+      // A missing or failed presentation handler must never silently approve.
+      Promise.resolve()
+        .then(() => options.approve?.(message.event) ?? "decline")
+        .then(
+          (decision) => send({ type: "approval", requestId: message.event.requestId, decision }),
+          () => send({ type: "approval", requestId: message.event.requestId, decision: "decline" }),
+        );
+    } else if (message.type === "result") response = message.result;
+    else if (message.type === "error") failure = message.message;
   });
   const result = new Promise((resolve, reject) => {
     child.once("error", reject);
     child.once("close", (code) => {
-      if (wasLocalTaskCancelled(child)) resolve({ text: answer.trim(), cancelled: true });
-      else if (code === 0 && !inputError) resolve({ text: answer.trim() });
+      if (wasLocalTaskCancelled(child))
+        resolve({
+          text: answer.trim(),
+          cancelled: true,
+          resumeCursor: response?.resumeCursor || resumeCursor,
+        });
+      else if (code === 0 && response && !failure) resolve({ ...response, text: answer.trim() });
       else
         reject(
           new Error(
-            stderr.trim() ||
-              (inputError
-                ? `Could not send the task to ${names[provider]}. Check that it is signed in and try again.`
-                : answer.trim().slice(-1000) || `${names[provider]} exited with code ${code}.`),
+            failure ||
+              diagnostic.trim() ||
+              `${names[provider]} runtime exited before completing the task.`,
           ),
         );
     });
+  });
+  send({
+    type: "start",
+    provider,
+    binaryPath: binary,
+    prompt,
+    stateDir: options.stateDir || path.join(os.tmpdir(), "ditto-provider-runtime"),
+    session: {
+      threadId: options.sessionId || require("node:crypto").randomUUID(),
+      cwd: workspace,
+      runtimeMode: "auto-accept-edits",
+      ...(options.resumeCursor ? { resumeCursor: options.resumeCursor } : {}),
+    },
   });
   return { child, result };
 }

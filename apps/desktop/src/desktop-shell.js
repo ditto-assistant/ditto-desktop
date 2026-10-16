@@ -620,7 +620,7 @@
     mountLocalCode();
     try {
       if (provider === "pi") await window.ditto.chat(prompt, localSessionId);
-      else await window.ditto.runProvider(provider, prompt);
+      else await window.ditto.runProvider(provider, prompt, localSessionId);
     } catch (error) {
       show("#dl-context", error.message);
     } finally {
@@ -748,8 +748,7 @@
             if (running) return;
             cloudCodeMode = false;
             openPanel("Local");
-            const resumable =
-              run.provider === "pi" && run.session_id && run.workspace === localWorkspace;
+            const resumable = run.session_id && run.workspace === localWorkspace;
             localSessionId = resumable ? run.session_id : crypto.randomUUID();
             localTurns = [{ prompt: run.prompt, provider: run.provider }];
             $("#dl-provider").value = run.provider || "pi";
@@ -942,7 +941,7 @@
     );
     try {
       if (provider === "pi") await window.ditto.chat(prompt);
-      else await window.ditto.runProvider(provider, prompt);
+      else await window.ditto.runProvider(provider, prompt, localSessionId);
       $("#dl-prompt").value = "";
     } catch (error) {
       show("#dl-context", error.message);

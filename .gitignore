@@ -56,3 +56,6 @@ apps/desktop/dist-ditto/
 !apps/desktop/.env.desktop.example
 
 apps/desktop/native/google-messages-sign-in.cjs
+
+# Bundled adapter sidecar, rebuilt from apps/server.
+apps/desktop/native/provider-runtime/

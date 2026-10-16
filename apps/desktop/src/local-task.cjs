@@ -3,12 +3,12 @@ const os = require("node:os");
 
 const tasks = new WeakMap();
 
-function spawnLocalTask(command, args, { cancelSignal = "SIGTERM", ...options }) {
+function spawnLocalTask(command, args, { cancelSignal = "SIGTERM", onCancel, ...options }) {
   // Each task owns its process group. Stop must include tool subprocesses,
   // without signalling Desktop itself or another coding task.
   const grouped = os.platform() !== "win32";
   const child = spawn(command, args, { ...options, detached: grouped });
-  const state = { cancelled: false, timer: null, grouped, cancelSignal };
+  const state = { cancelled: false, timer: null, grouped, cancelSignal, onCancel };
   tasks.set(child, state);
   child.once("exit", () => {
     clearTimeout(state.timer);
@@ -35,7 +35,8 @@ function cancelLocalTask(child) {
   if (!state || child.exitCode !== null || child.signalCode !== null) return false;
   if (state.cancelled) return true;
   state.cancelled = true;
-  signalTask(child, state.cancelSignal);
+  if (state.onCancel) state.onCancel();
+  else signalTask(child, state.cancelSignal);
   state.timer = setTimeout(() => {
     if (child.exitCode === null && child.signalCode === null) signalTask(child, "SIGKILL");
   }, 2000);
