@@ -345,9 +345,15 @@ class ComputerService {
           // that may already have landed. Observe the target before retrying.
           const action = !tool.annotations.readOnlyHint;
           if (unverified && action)
-            throw new Error(
-              "This action may already have completed. Inspect this app with computer_get_window_state before retrying, including before changing delivery mode.",
-            );
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: "This action may already have completed. Inspect this app with computer_get_window_state before retrying, including before changing delivery mode.",
+                },
+              ],
+            };
           // Keep the barrier if transport fails with an unknown outcome too.
           if (action) unverified = { pid: args.pid, window: args.window_id };
           const result = await this.request({

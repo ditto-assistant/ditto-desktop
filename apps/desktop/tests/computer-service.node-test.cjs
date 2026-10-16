@@ -144,23 +144,23 @@ test("unverified input cannot be retried with another delivery mode until its ta
   await f.service.enable();
   const session = await f.service.createSession();
   const args = { pid: 42, window_id: 791, key: "1" };
+  const observationRequired = (result) => {
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Inspect this app/);
+  };
   await session.call("computer_press_key", { ...args, delivery_mode: "background" });
-  await assert.rejects(
-    session.call("computer_press_key", {
+  observationRequired(
+    await session.call("computer_press_key", {
       delivery_mode: "foreground",
       key: "1",
       window_id: 791,
       pid: 42,
     }),
-    /Inspect this app/,
   );
   assert.equal(f.requests.filter((request) => request.name === "press_key").length, 1);
-  await assert.rejects(
-    session.call("computer_press_key", { ...args, key: "2" }),
-    /Inspect this app/,
-  );
+  observationRequired(await session.call("computer_press_key", { ...args, key: "2" }));
   await session.call("computer_get_window_state", { pid: 42, window_id: 999 });
-  await assert.rejects(session.call("computer_press_key", args), /Inspect this app/);
+  observationRequired(await session.call("computer_press_key", args));
   await session.call("computer_get_window_state", { pid: 42, window_id: 791 });
   await session.call("computer_press_key", { ...args, delivery_mode: "foreground" });
   assert.equal(f.requests.filter((request) => request.name === "press_key").length, 2);
