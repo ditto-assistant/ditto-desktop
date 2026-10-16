@@ -4,7 +4,7 @@ const net = require("node:net");
 const { once } = require("node:events");
 const { ComputerService } = require("../src/computer-service.cjs");
 
-async function fixture(t, permissions = true) {
+async function fixture(t, permissions = true, configError = false) {
   const requests = [];
   const connections = new Set();
   let config;
@@ -65,6 +65,15 @@ async function fixture(t, permissions = true) {
               content: [{ type: "text", text: "Key sent; inspect the display to verify." }],
               structuredContent: { effect: "unverifiable" },
             };
+          if (request.method === "call" && request.name === "set_config") {
+            assert.equal(
+              envelope.host_auth_token,
+              input.environment.CMUX_CUA_SOCKET_HOST_AUTH_TOKEN,
+            );
+            assert.equal(request.args.capture_scope, "desktop");
+            result = { content: [{ type: "text", text: "Desktop capture enabled." }] };
+            if (configError) result.isError = true;
+          }
           socket.write(JSON.stringify({ ok: true, result }) + "\n");
         });
       });
@@ -98,6 +107,19 @@ test("setup runs independently with private authentication and cannot enable mis
   );
 });
 
+test("failed desktop configuration revokes external readiness instead of enabling unusable tools", async (t) => {
+  const f = await fixture(t, true, true);
+  await assert.rejects(f.service.enable(), /could not enable desktop capture/);
+  assert.equal(f.service.enabled, false);
+  assert.deepEqual(
+    f.requests
+      .filter((request) => request.method === "set_external_permission_ready")
+      .map((request) => request.args.ready),
+    [true, false],
+  );
+  await assert.rejects(f.service.createSession(), /Enable Computer Use/);
+});
+
 test("MCP retains images, binds actions to a session, and revokes queued access on Stop", async (t) => {
   const f = await fixture(t);
   await f.service.enable();
@@ -123,7 +145,7 @@ test("MCP retains images, binds actions to a session, and revokes queued access 
   assert.deepEqual(result.result.content, [
     { type: "image", mimeType: "image/png", data: "fixture-image" },
   ]);
-  const call = f.requests.find((request) => request.method === "call");
+  const call = f.requests.find((request) => request.name === "get_window_state");
   assert.equal(call.session_id, session.id);
   assert.equal(call.args.session, session.id);
   await assert.rejects(session.call("computer_set_config", {}), /Unsupported/);
@@ -136,7 +158,8 @@ test("MCP retains images, binds actions to a session, and revokes queued access 
   await stopped;
   assert.deepEqual(f.terminated, [12345]);
   assert.equal(f.service.sessions.size, 0);
-  assert.equal(f.requests.filter((request) => request.method === "call").length, 1);
+  assert.equal(f.requests.filter((request) => request.name === "set_config").length, 1);
+  assert.equal(f.requests.filter((request) => request.name === "get_window_state").length, 1);
 });
 
 test("unverified input cannot be retried with another delivery mode until its target is inspected", async (t) => {

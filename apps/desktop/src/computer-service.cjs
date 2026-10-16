@@ -279,6 +279,21 @@ class ComputerService {
       { method: "set_external_permission_ready", args: { ready: true } },
       { host: true },
     );
+    try {
+      // The engine defaults to window-only capture. Configure its advertised
+      // desktop tool here; configuration itself is never exposed to agents.
+      const configured = await this.request(
+        { method: "call", name: "set_config", args: { capture_scope: "desktop" } },
+        { host: true },
+      );
+      if (configured.isError) throw new Error("Computer Use could not enable desktop capture.");
+    } catch (error) {
+      await this.request(
+        { method: "set_external_permission_ready", args: { ready: false } },
+        { host: true },
+      ).catch(() => {});
+      throw error;
+    }
     this.enabled = true;
     this.onChange(await this.status());
     return this.status();
