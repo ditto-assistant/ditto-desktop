@@ -263,7 +263,9 @@ class DesktopChatSync {
     }
     const fresh = this.get(uid, key);
     fresh.sourceId = receipt.sourceId;
-    fresh.needsRegistration = false;
+    // This receipt confirms server-active state; local consent may have changed
+    // while the request was in flight. Preserve the opposite pending transition.
+    fresh.needsRegistration = !fresh.chats.some((chat) => chat.enabled);
     fresh.error = "";
     fresh.lastAttempt = Date.now();
     this.save(fresh);
@@ -299,7 +301,7 @@ class DesktopChatSync {
   paused(uid, key) {
     const source = this.get(uid, key);
     if (source) {
-      source.needsRegistration = false;
+      source.needsRegistration = source.chats.some((chat) => chat.enabled);
       this.save(source);
     }
   }

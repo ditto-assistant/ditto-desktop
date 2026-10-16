@@ -218,3 +218,72 @@ for (const provider of ["discord", "googlemessages"]) {
     });
   }
 }
+
+for (const provider of ["discord", "googlemessages"]) {
+  for (const resumed of [false, true]) {
+    test(`${provider} late ${resumed ? "resume" : "initial"} registration receipt preserves a newer pause across restart`, async (t) => {
+      const f = fixture(t);
+      await f.queue.select("owner", provider, "room", true);
+      let registration = await f.queue.prepare("owner");
+      if (resumed) {
+        f.queue.registered("owner", registration.key, { sourceId, cursor: "" });
+        const page = await f.queue.prepare("owner");
+        assert.equal(page.kind, "ingest");
+        await f.queue.select("owner", provider, "room", false);
+        const pause = await f.queue.prepare("owner");
+        assert.equal(pause.kind, "pause");
+        f.queue.paused("owner", pause.key);
+        await f.queue.select("owner", provider, "room", true);
+        registration = await f.queue.prepare("owner");
+      }
+      assert.equal(registration.kind, "register");
+      const response = Promise.withResolvers();
+      const applying = response.promise.then((receipt) =>
+        f.queue.registered("owner", registration.key, receipt),
+      );
+      // The cloud registration is already in flight when local consent changes.
+      await f.queue.select("owner", provider, "room", false);
+      response.resolve({ sourceId, cursor: "" });
+      await applying;
+      assert.equal(f.queue.status("owner")[0].chats[0].enabled, false);
+      assert.equal(f.queue.status("owner")[0].queued, false);
+      f.restart();
+      const pause = await f.queue.prepare("owner");
+      assert.equal(pause?.kind, "pause", "the server must still receive the newer pause");
+      assert.equal(pause.sourceId, sourceId);
+      f.queue.paused("owner", pause.key);
+      f.restart();
+      assert.equal(await f.queue.prepare("owner"), null);
+    });
+  }
+
+  test(`${provider} late pause receipt preserves a newer resume before any upload`, async (t) => {
+    const f = fixture(t);
+    await f.queue.select("owner", provider, "room", true);
+    const registration = await f.queue.prepare("owner");
+    f.queue.registered("owner", registration.key, { sourceId, cursor: "" });
+    const original = await f.queue.prepare("owner");
+    await f.queue.select("owner", provider, "room", false);
+    const pause = await f.queue.prepare("owner");
+    assert.equal(pause.kind, "pause");
+    const response = Promise.withResolvers();
+    const applying = response.promise.then(() => f.queue.paused("owner", pause.key));
+    await f.queue.select("owner", provider, "room", true);
+    response.resolve();
+    await applying;
+    f.restart();
+    const resume = await f.queue.prepare("owner");
+    assert.equal(resume?.kind, "register", "resume cloud consent before returning any page");
+    assert.equal(f.queue.status("owner")[0].chats[0].enabled, true);
+    // The pause cancelled the old page; registration reconciles its checkpoint.
+    f.queue.registered("owner", resume.key, { sourceId, cursor: "" });
+    const page = await f.queue.prepare("owner");
+    assert.equal(page.kind, "ingest");
+    assert.notEqual(page.batch.cursor, original.batch.cursor);
+    assert.deepEqual(page.batch.messages, original.batch.messages);
+    f.queue.acknowledge("owner", page.key, { sourceId, cursor: page.batch.cursor });
+    f.restart();
+    assert.equal(await f.queue.prepare("owner"), null);
+    assert.equal(f.queue.status("owner")[0].queued, false);
+  });
+}
