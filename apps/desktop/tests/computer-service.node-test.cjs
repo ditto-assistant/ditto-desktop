@@ -33,11 +33,13 @@ async function fixture(t, permissions = true) {
           if (request.method === "list")
             result = {
               profile: "native",
-              tools: ["click", "get_window_state", "set_config", "kill_app"].map((name) => ({
-                name,
-                input_schema: { type: "object", properties: {} },
-                description: name,
-              })),
+              tools: ["click", "get_window_state", "press_key", "set_config", "kill_app"].map(
+                (name) => ({
+                  name,
+                  input_schema: { type: "object", properties: {} },
+                  description: name,
+                }),
+              ),
             };
           if (request.method === "permissions_status") {
             assert.equal(
@@ -56,6 +58,11 @@ async function fixture(t, permissions = true) {
             result = {
               content: [{ type: "text", text: "Stale element: inspect the window again." }],
               isError: true,
+            };
+          if (request.method === "call" && request.name === "press_key")
+            result = {
+              content: [{ type: "text", text: "Key sent; inspect the display to verify." }],
+              structuredContent: { effect: "unverifiable" },
             };
           socket.write(JSON.stringify({ ok: true, result }) + "\n");
         });
@@ -104,7 +111,7 @@ test("MCP retains images, binds actions to a session, and revokes queued access 
   const catalog = await (await rpc("tools/list")).json();
   assert.deepEqual(
     catalog.result.tools.map((tool) => tool.name),
-    ["computer_click", "computer_get_window_state"],
+    ["computer_click", "computer_get_window_state", "computer_press_key"],
   );
   const result = await (
     await rpc("tools/call", {
@@ -129,6 +136,29 @@ test("MCP retains images, binds actions to a session, and revokes queued access 
   assert.deepEqual(f.terminated, [12345]);
   assert.equal(f.service.sessions.size, 0);
   assert.equal(f.requests.filter((request) => request.method === "call").length, 1);
+});
+
+test("unverified input cannot be retried with another delivery mode until its target is inspected", async (t) => {
+  const f = await fixture(t);
+  await f.service.enable();
+  const session = await f.service.createSession();
+  const args = { pid: 42, window_id: 791, key: "1" };
+  await session.call("computer_press_key", { ...args, delivery_mode: "background" });
+  await assert.rejects(
+    session.call("computer_press_key", {
+      delivery_mode: "foreground",
+      key: "1",
+      window_id: 791,
+      pid: 42,
+    }),
+    /Inspect this app/,
+  );
+  assert.equal(f.requests.filter((request) => request.name === "press_key").length, 1);
+  await session.call("computer_get_window_state", { pid: 42, window_id: 999 });
+  await assert.rejects(session.call("computer_press_key", args), /Inspect this app/);
+  await session.call("computer_get_window_state", { pid: 42, window_id: 791 });
+  await session.call("computer_press_key", { ...args, delivery_mode: "foreground" });
+  assert.equal(f.requests.filter((request) => request.name === "press_key").length, 2);
 });
 
 test("the actual Ditto Code extension consumes the authenticated MCP catalog and image results", async (t) => {

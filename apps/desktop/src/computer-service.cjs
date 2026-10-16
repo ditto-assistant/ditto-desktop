@@ -321,6 +321,7 @@ class ComputerService {
     );
     let closed = false;
     let tail = Promise.resolve();
+    let unverified;
     const check = () => {
       if (closed || generation !== this.generation || !this.enabled)
         throw new Error("This computer-use session has ended.");
@@ -340,6 +341,20 @@ class ComputerService {
             JSON.stringify(args).length > 64000
           )
             throw new Error("Invalid computer tool arguments.");
+          // Changing background delivery to foreground must not repeat input
+          // that may already have landed. Observe the target before retrying.
+          const signature = JSON.stringify([
+            name,
+            Object.fromEntries(
+              Object.entries(args)
+                .filter(([key]) => key !== "delivery_mode" && key !== "session")
+                .sort(([a], [b]) => a.localeCompare(b)),
+            ),
+          ]);
+          if (unverified?.signature === signature)
+            throw new Error(
+              "This action may already have completed. Inspect this app with computer_get_window_state before retrying, including before changing delivery mode.",
+            );
           const result = await this.request({
             method: "call",
             name: name.slice(9),
@@ -347,6 +362,15 @@ class ComputerService {
             session_id: id,
           });
           check();
+          if (
+            !result.isError &&
+            name === "computer_get_window_state" &&
+            args.pid === unverified?.pid &&
+            args.window_id === unverified?.window
+          )
+            unverified = null;
+          if (result.structuredContent?.effect === "unverifiable")
+            unverified = { signature, pid: args.pid, window: args.window_id };
           return result;
         });
         tail = call.catch(() => {});
