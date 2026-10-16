@@ -97,6 +97,7 @@ function desktopFixture(t, options = {}) {
       __dirname: path.dirname(sourcePath),
       process,
       Buffer,
+      AbortController,
       setTimeout,
       clearTimeout,
       setInterval,

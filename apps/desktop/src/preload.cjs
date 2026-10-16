@@ -18,7 +18,8 @@ contextBridge.exposeInMainWorld("ditto", {
   chat: (question, sessionId) => ipcRenderer.invoke("ditto:chat", question, sessionId),
   providerStatus: () => ipcRenderer.invoke("ditto:provider-status"),
   providerLogin: (provider) => ipcRenderer.invoke("ditto:provider-login", provider),
-  runProvider: (provider, question) => ipcRenderer.invoke("ditto:run-provider", provider, question),
+  runProvider: (provider, question, sessionId) =>
+    ipcRenderer.invoke("ditto:run-provider", provider, question, sessionId),
   recentRuns: () => ipcRenderer.invoke("ditto:recent-runs"),
   remoteStatus: () => ipcRenderer.invoke("ditto:remote-status"),
   remoteStart: (provider, endpoint) => ipcRenderer.invoke("ditto:remote-start", provider, endpoint),
@@ -77,6 +78,11 @@ contextBridge.exposeInMainWorld("ditto", {
   },
   onScanFinished: (listener) => {
     ipcRenderer.on("ditto:scan-finished", (_event, result) => listener(result));
+  },
+  onProviderEvent: (listener) => {
+    const wrapped = (_event, message) => listener(message);
+    ipcRenderer.on("ditto:provider-event", wrapped);
+    return () => ipcRenderer.removeListener("ditto:provider-event", wrapped);
   },
   onChatEvent: (listener) => {
     ipcRenderer.on("ditto:chat-event", (_event, event) => listener(event));

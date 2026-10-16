@@ -62,7 +62,7 @@ const packExecutableTargets = packExecutableTarget
     ]
   : undefined;
 
-export default mergeConfig(
+const serverConfig = mergeConfig(
   baseConfig,
   defineConfig({
     run: {
@@ -142,3 +142,20 @@ export default mergeConfig(
     },
   }),
 );
+
+export default process.env.DITTO_DESKTOP_PROVIDER_BUILD === "1"
+  ? defineConfig({
+      pack: {
+        entry: ["src/desktop-provider-worker.ts", "src/claude-history-worker.ts"],
+        outDir: "../desktop/native/provider-runtime",
+        format: "esm",
+        dts: false,
+        sourcemap: false,
+        clean: true,
+        deps: {
+          alwaysBundle: (id) => !id.startsWith("node:"),
+          onlyBundle: false,
+        },
+      },
+    })
+  : serverConfig;

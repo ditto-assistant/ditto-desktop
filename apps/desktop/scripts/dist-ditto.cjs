@@ -15,13 +15,15 @@ function run(command, args, cwd = root) {
 if (os.platform() !== "darwin")
   throw new Error("This Ditto Desktop release currently targets macOS.");
 if (!process.argv.includes("--skip-build")) {
-  for (const name of ["web", "channels", "computer", "native"]) {
+  for (const name of ["provider-runtime", "web", "channels", "computer", "native"]) {
     run(process.execPath, [path.join(__dirname, `build-${name}.cjs`)]);
   }
 }
 for (const file of [
   "resources/web/index.html",
   "native/ditto-harness.node",
+  "native/provider-runtime/desktop-provider-worker.mjs",
+  "native/provider-runtime/claude-history-worker.mjs",
   "native/bin/ditto-discord-sidecar",
   "native/bin/ditto-google-messages-bridge",
   "native/google-messages-sign-in.cjs",

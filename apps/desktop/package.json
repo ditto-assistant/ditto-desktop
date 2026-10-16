@@ -14,13 +14,15 @@
     "smoke-test": "node scripts/smoke-test.mjs",
     "start:workbench": "node scripts/start-electron.mjs",
     "build:web": "node scripts/build-web.cjs",
+    "build:providers": "node scripts/build-provider-runtime.cjs",
     "build:native": "node scripts/build-native.cjs",
     "build:computer": "node scripts/build-computer.cjs",
     "build:channels": "node scripts/build-channels.cjs",
     "scan:local": "node scripts/scan-local.cjs",
-    "build:ditto": "node scripts/build-web.cjs && node scripts/build-channels.cjs && node scripts/build-computer.cjs && node scripts/build-native.cjs",
+    "build:ditto": "node scripts/build-provider-runtime.cjs && node scripts/build-web.cjs && node scripts/build-channels.cjs && node scripts/build-computer.cjs && node scripts/build-native.cjs",
     "test:ditto": "node --test tests/*.node-test.cjs",
-    "dist:ditto:mac": "node scripts/dist-ditto.cjs"
+    "dist:ditto:mac": "node scripts/dist-ditto.cjs",
+    "test:providers:packaged": "cross-env ELECTRON_RUN_AS_NODE=1 electron --test tests/provider-runtime.node-test.cjs"
   },
   "dependencies": {
     "@clerk/electron": "catalog:",
@@ -51,6 +53,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@electron/asar": "^4.3.0",
     "@types/node": "catalog:",
     "acorn": "8.16.0",
     "cross-env": "^10.1.0",
