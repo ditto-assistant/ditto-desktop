@@ -193,11 +193,36 @@
       control.dataset.dittoComputer = "true";
       control.setAttribute("aria-label", "Computer Use setup");
       control.title = "Computer Use setup";
-      control.textContent = "⌘";
+      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      for (const [name, value] of Object.entries({
+        width: "24",
+        height: "24",
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "currentColor",
+        "stroke-width": "1.6",
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round",
+        "aria-hidden": "true",
+      }))
+        icon.setAttribute(name, value);
+      const screen = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      for (const [name, value] of Object.entries({
+        x: "3",
+        y: "3",
+        width: "18",
+        height: "14",
+        rx: "2",
+      }))
+        screen.setAttribute(name, value);
+      const stand = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      stand.setAttribute("d", "M12 17v4M8 21h8");
+      icon.append(screen, stand);
+      control.append(icon);
       control.addEventListener("click", () => {
         void window.ditto.computerSettings();
       });
-      rail.append(control);
+      rail.insertBefore(control, rail.querySelector(".v2-studio-rail-spacer"));
     }
     markActive();
     mountCodeSource();
