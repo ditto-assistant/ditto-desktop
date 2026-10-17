@@ -578,6 +578,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["allow simulator emulator ios android drive tools sessions"],
   },
   {
+    id: "agent-omnisynth-access",
+    title: "Agent OmniSynth access",
+    to: "/settings/integrations",
+    targetId: "omnisynth",
+    scope: "project-defaults",
+    searchTerms: ["music daw synth song omnisynth tools sessions project override"],
+  },
+  {
     id: "device-hub",
     title: "Device hub",
     to: "/settings/integrations",

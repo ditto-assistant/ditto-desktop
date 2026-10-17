@@ -1429,6 +1429,37 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
   );
 }
 
+// DITTO: OmniSynth integration.
+export const agentOmniSynthDescription =
+  "Allow agent sessions to build and edit music in OmniSynth, the open-source LLM-native DAW, while it is open on this machine. Agents get omnisynth_* tools; the user hears every change.";
+
+function OmniSynthIntegrationSettings() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const { connectedEnvironments } = useSettingsScope();
+  return (
+    <SettingsSection id="omnisynth" title="OmniSynth">
+      <SettingsRow
+        {...searchableSetting("agent-omnisynth-access")}
+        serverScoped
+        settingKeys={["enableAgentOmniSynthAccess"]}
+        description={agentOmniSynthDescription}
+        control={
+          <ScopedSwitch
+            settingKeys={["enableAgentOmniSynthAccess"]}
+            checked={settings.enableAgentOmniSynthAccess}
+            disabled={connectedEnvironments.length === 0}
+            aria-label="Agent OmniSynth access"
+            onCheckedChange={(checked) =>
+              updateSettings({ enableAgentOmniSynthAccess: Boolean(checked) })
+            }
+          />
+        }
+      />
+    </SettingsSection>
+  );
+}
+
 export function IntegrationsSettingsPanel() {
   // Client-local preview defaults are editable only where the preview exists.
   const previewDefaultsDisabled = !isElectron;
@@ -1460,6 +1491,7 @@ export function IntegrationsSettingsPanel() {
         )}
       </SettingsSection>
       <DeviceIntegrationSettings />
+      <OmniSynthIntegrationSettings />
     </SettingsPageContainer>
   );
 }
