@@ -4,7 +4,12 @@ const net = require("node:net");
 const { once } = require("node:events");
 const { ComputerService } = require("../src/computer-service.cjs");
 
-async function fixture(t, permissions = true, configError = false) {
+async function fixture(
+  t,
+  permissions = true,
+  configError = false,
+  onCall = (_request, result) => result,
+) {
   const requests = [];
   const connections = new Set();
   let config;
@@ -22,7 +27,7 @@ async function fixture(t, permissions = true, configError = false) {
         socket.on("close", () => connections.delete(socket));
         socket.setEncoding("utf8");
         let buffer = "";
-        socket.on("data", (chunk) => {
+        socket.on("data", async (chunk) => {
           buffer += chunk;
           if (!buffer.includes("\n")) return;
           const envelope = JSON.parse(buffer.split("\n")[0]);
@@ -74,6 +79,7 @@ async function fixture(t, permissions = true, configError = false) {
             result = { content: [{ type: "text", text: "Desktop capture enabled." }] };
             if (configError) result.isError = true;
           }
+          if (request.method === "call") result = await onCall(request, result);
           socket.write(JSON.stringify({ ok: true, result }) + "\n");
         });
       });
@@ -225,4 +231,83 @@ test("the actual Ditto Code extension consumes the authenticated MCP catalog and
     tools.find((tool) => tool.name === "computer_click").execute("stale-click", {}),
     /Stale element: inspect the window again/,
   );
+});
+
+test("interleaved local and cloud snapshots cannot dispatch another session's element index", async (t) => {
+  let snapshotStarted;
+  let releaseSnapshot;
+  const started = new Promise((resolve) => {
+    snapshotStarted = resolve;
+  });
+  const released = new Promise((resolve) => {
+    releaseSnapshot = resolve;
+  });
+  let snapshots = 0;
+  const clicked = [];
+  const f = await fixture(t, true, false, async (request, result) => {
+    if (request.name === "get_window_state") {
+      snapshots++;
+      if (snapshots === 2) {
+        snapshotStarted();
+        await released;
+      }
+      return {
+        ...result,
+        structuredContent: {
+          elements: [{ element_index: 1, element_token: `snapshot-${snapshots}:1` }],
+        },
+      };
+    }
+    if (request.name === "click") {
+      clicked.push({ snapshot: snapshots, session: request.session_id });
+      return { content: [{ type: "text", text: "Clicked" }] };
+    }
+    return result;
+  });
+  await f.service.enable();
+  const local = await f.service.createSession();
+  const cloud = await f.service.createSession();
+  const target = { pid: 42, window_id: 791 };
+  const stale = (result) => {
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Stale element observation/);
+  };
+  stale(await local.call("computer_click", { ...target, element_index: 1 }));
+  await local.call("computer_get_window_state", target);
+  const cloudSnapshot = cloud.call("computer_get_window_state", target);
+  await started;
+  const oldIndex = local.call("computer_click", { ...target, element_index: 1 });
+  releaseSnapshot();
+  await cloudSnapshot;
+  stale(await oldIndex);
+  stale(await local.call("computer_click", { ...target, element_token: "snapshot-1:1" }));
+  stale(await local.call("computer_click", { ...target, element_token: "snapshot-2:1" }));
+  assert.deepEqual(clicked, []);
+  await cloud.call("computer_click", { pid: 42, element_token: "snapshot-2:1" });
+  assert.deepEqual(clicked, [{ snapshot: 2, session: cloud.id }]);
+  stale(await cloud.call("computer_click", { ...target, element_index: 1 }));
+  await local.call("computer_get_window_state", target);
+  await local.call("computer_click", { ...target, element_index: 1 });
+  assert.deepEqual(clicked[1], { snapshot: 3, session: local.id });
+});
+
+test("failed replacement snapshots and closed sessions do not leave usable element observations", async (t) => {
+  let failSnapshot = false;
+  const f = await fixture(t, true, false, (request, result) =>
+    request.name === "get_window_state" && failSnapshot ? { ...result, isError: true } : result,
+  );
+  await f.service.enable();
+  const local = await f.service.createSession();
+  const cloud = await f.service.createSession();
+  const target = { pid: 42, window_id: 791 };
+  await local.call("computer_get_window_state", target);
+  failSnapshot = true;
+  await cloud.call("computer_get_window_state", target);
+  assert.equal((await local.call("computer_click", { ...target, element_index: 1 })).isError, true);
+  assert.equal(f.requests.filter((request) => request.name === "click").length, 0);
+  failSnapshot = false;
+  await local.call("computer_get_window_state", target);
+  local.close();
+  assert.equal((await cloud.call("computer_click", { ...target, element_index: 1 })).isError, true);
+  assert.equal(f.requests.filter((request) => request.name === "click").length, 0);
 });

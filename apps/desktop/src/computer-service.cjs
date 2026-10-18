@@ -134,6 +134,8 @@ class ComputerService {
     this.generation = 0;
     this.sessions = new Map();
     this.sockets = new Set();
+    this.callTail = Promise.resolve();
+    this.observations = new Map();
   }
 
   async prepare() {
@@ -302,6 +304,7 @@ class ComputerService {
   async stop() {
     ++this.generation;
     this.enabled = false;
+    this.observations.clear();
     for (const session of this.sessions.values()) session.close();
     this.sessions.clear();
     for (const socket of this.sockets) socket.destroy();
@@ -335,7 +338,6 @@ class ComputerService {
       { keep: true },
     );
     let closed = false;
-    let tail = Promise.resolve();
     let unverified;
     const check = () => {
       if (closed || generation !== this.generation || !this.enabled)
@@ -345,7 +347,9 @@ class ComputerService {
       id,
       tools: this.catalog,
       call: (name, args = {}) => {
-        const call = tail.then(async () => {
+        // The helper's element cache is shared by all local and cloud sessions.
+        // Serialize dispatch AND check observation ownership inside that queue.
+        const call = this.callTail.then(async () => {
           check();
           const tool = this.catalog.find((tool) => tool.name === name);
           if (!tool) throw new Error("Unsupported computer tool.");
@@ -369,6 +373,33 @@ class ComputerService {
                 },
               ],
             };
+          const target = `${args.pid}:${args.window_id}`;
+          const indexed = args.element_index != null || args.element_token != null;
+          if (indexed) {
+            const observation =
+              args.element_token != null
+                ? [...this.observations.values()].find(
+                    (entry) =>
+                      entry.tokens.has(args.element_token) &&
+                      entry.pid === args.pid &&
+                      (args.window_id == null || entry.window === args.window_id),
+                  )
+                : this.observations.get(target);
+            if (observation?.session !== id)
+              return {
+                isError: true,
+                content: [
+                  {
+                    type: "text",
+                    text: "Stale element observation. Call computer_get_window_state for this pid and window_id again, then use its new element index or token.",
+                  },
+                ],
+              };
+          }
+          // A failed snapshot may still have replaced the native cache. Input
+          // may also change the UI, so require a new observation after dispatch.
+          if (action) this.observations.clear();
+          if (name === "computer_get_window_state") this.observations.delete(target);
           // Keep the barrier if transport fails with an unknown outcome too.
           if (action) unverified = { pid: args.pid, window: args.window_id };
           const result = await this.request({
@@ -378,6 +409,17 @@ class ComputerService {
             session_id: id,
           });
           check();
+          if (!result.isError && name === "computer_get_window_state")
+            this.observations.set(target, {
+              session: id,
+              pid: args.pid,
+              window: args.window_id,
+              tokens: new Set(
+                (result.structuredContent?.elements ?? [])
+                  .map((element) => element.element_token)
+                  .filter((token) => typeof token === "string"),
+              ),
+            });
           if (
             !result.isError &&
             name === "computer_get_window_state" &&
@@ -396,13 +438,15 @@ class ComputerService {
             unverified = null;
           return result;
         });
-        tail = call.catch(() => {});
+        this.callTail = call.catch(() => {});
         return call;
       },
       close: () => {
         closed = true;
         socket.destroy();
         this.sessions.delete(id);
+        for (const [target, observation] of this.observations)
+          if (observation.session === id) this.observations.delete(target);
       },
     };
     try {
