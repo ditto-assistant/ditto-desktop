@@ -767,35 +767,40 @@ body:is(.ditto-local-open, .ditto-browser-open) .ditto-desktop-local-history {
   line-height: 1.5;
 }
 
-.ditto-computer-session:not([hidden]) {
-  position: fixed;
-  z-index: 100000;
-  top: 12px;
-  right: 18px;
+.ditto-computer-controls {
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  gap: 4px;
   align-items: center;
-  padding: 8px 10px;
-  border: 1px solid #52505f;
-  border-radius: 12px;
-  background: #1c1b23;
-  color: #f2efff;
-  font:
-    12px -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
-  box-shadow: 0 4px 24px #0005;
 }
-.ditto-computer-session button {
-  border: 1px solid #676170;
-  border-radius: 7px;
-  background: #302b3b;
-  color: inherit;
-  padding: 5px 9px;
-  cursor: pointer;
-  font: inherit;
+.ditto-computer-controls [data-ditto-computer][data-enabled="true"]::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ditto-success, #34a87a);
+  box-shadow: 0 0 0 2px var(--v2-surface, #fff);
 }
-.ditto-computer-session button:focus-visible {
-  outline: 2px solid #c7b8f3;
-  outline-offset: 2px;
+.v2-studio-rail .ditto-computer-stop[hidden] {
+  display: none;
+}
+.v2-studio-rail .ditto-computer-stop > .ditto-computer-stop-icon {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--ditto-danger, #cf514d);
+}
+.ditto-computer-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

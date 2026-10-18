@@ -8,21 +8,41 @@
     if (text !== undefined) node.textContent = text;
     return node;
   };
-  const computerBar = element("aside", "ditto-computer-session");
-  computerBar.setAttribute("aria-label", "Computer Use controls");
-  computerBar.hidden = true;
-  computerBar.append(element("span", "", "Computer Use is on"));
-  const computerSetupButton = element("button", "", "Setup");
-  computerSetupButton.addEventListener("click", () => {
-    void window.ditto.computerSettings();
+  let computerEnabled = false;
+  const computerControls = element("div", "ditto-computer-controls");
+  computerControls.setAttribute("role", "group");
+  computerControls.setAttribute("aria-label", "Computer Use controls");
+  const computerStatus = element("span", "ditto-computer-status");
+  computerStatus.setAttribute("role", "status");
+  const computerStopButton = element("button", "v2-studio-rail-button ditto-computer-stop");
+  computerStopButton.type = "button";
+  computerStopButton.hidden = true;
+  computerStopButton.title = "Stop computer use";
+  computerStopButton.setAttribute("aria-label", "Stop computer use");
+  const stopIcon = element("span", "ditto-computer-stop-icon");
+  stopIcon.setAttribute("aria-hidden", "true");
+  computerStopButton.append(stopIcon);
+  computerStopButton.addEventListener("click", async () => {
+    computerStopButton.disabled = true;
+    try {
+      await window.ditto.computerEnable(false);
+      updateComputerControls(false);
+    } finally {
+      computerStopButton.disabled = false;
+    }
   });
-  const computerStopButton = element("button", "", "Stop computer use");
-  computerStopButton.addEventListener("click", () => {
-    computerBar.hidden = true;
-    void window.ditto.computerEnable(false);
-  });
-  computerBar.append(computerSetupButton, computerStopButton);
-  document.body.append(computerBar);
+  function updateComputerControls(enabled) {
+    computerEnabled = enabled;
+    computerStopButton.hidden = !enabled;
+    const control = computerControls.querySelector("[data-ditto-computer]");
+    if (!control) return;
+    const label = enabled ? "Computer Use is on — Open setup" : "Computer Use setup";
+    control.dataset.enabled = String(enabled);
+    control.title = label;
+    control.setAttribute("aria-label", label);
+    const status = enabled ? "Computer Use is on" : "Computer Use is off";
+    if (computerStatus.textContent !== status) computerStatus.textContent = status;
+  }
   const number = (value) => Number(value || 0).toLocaleString();
   const desktopError = (error) =>
     String(error.message || error).replace(
@@ -222,7 +242,9 @@
       control.addEventListener("click", () => {
         void window.ditto.computerSettings();
       });
-      rail.insertBefore(control, rail.querySelector(".v2-studio-rail-spacer"));
+      computerControls.replaceChildren(control, computerStatus, computerStopButton);
+      rail.insertBefore(computerControls, rail.querySelector(".v2-studio-rail-spacer"));
+      updateComputerControls(computerEnabled);
     }
     markActive();
     mountCodeSource();
@@ -1013,7 +1035,7 @@
       .computerStatus()
       .then((status) => {
         $("#dl-computer-enable").checked = status.enabled;
-        computerBar.hidden = !status.enabled;
+        updateComputerControls(status.enabled);
         show(
           "#dl-computer-status",
           status.enabled
@@ -1040,7 +1062,7 @@
     }
   });
   window.ditto.onComputerEnabled((enabled) => {
-    computerBar.hidden = !enabled;
+    updateComputerControls(enabled);
     $("#dl-computer-enable").checked = enabled;
   });
   const remoteStatus = (status) => {
