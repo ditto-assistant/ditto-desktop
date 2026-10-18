@@ -21,10 +21,11 @@ concurrency:
   group: mobile-fingerprint-check-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# The ci:github-hosted PR label opts into GitHub runners; defaults stay on Blacksmith.
 jobs:
   fingerprint:
     name: Native fingerprint diff
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:github-hosted') && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       issues: write
