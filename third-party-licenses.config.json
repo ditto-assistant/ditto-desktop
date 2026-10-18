@@ -153,6 +153,95 @@
   ],
   "packageOverrides": [
     {
+      "repositoryUrl": "https://github.com/earendil-works/pi",
+      "version": "1.0.0",
+      "sourceUrl": "https://github.com/earendil-works/pi/blob/a13d35a742c6ef8462812a28fbe1d8c8b7431c32/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Mario Zechner"]
+      }
+    },
+    {
+      "repositoryUrl": "https://github.com/earendil-works/pi",
+      "version": "1.0.2",
+      "sourceUrl": "https://github.com/earendil-works/pi/blob/cd32f7725fdbddbaecdff5b1e68491563394e0ca/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Mario Zechner"]
+      }
+    },
+    {
+      "name": "data-uri-to-buffer",
+      "version": "4.0.1",
+      "sourceUrl": "https://github.com/TooTallNate/node-data-uri-to-buffer/blob/85cd8c854aefbf1bb636789d80364cfac8ea1583/README.md#license",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>"]
+      }
+    },
+    {
+      "name": "@xai-official/grok",
+      "version": "1.0.46",
+      "sourceUrl": "https://registry.npmjs.org/@xai-official%2fgrok/1.0.46",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0"
+      }
+    },
+    {
+      "name": "@xai-official/grok-linux-x64",
+      "version": "1.0.46",
+      "sourceUrl": "https://registry.npmjs.org/@xai-official%2fgrok-linux-x64/1.0.46",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0"
+      }
+    },
+    {
+      "name": "@xai-official/grok-darwin-arm64",
+      "version": "1.0.46",
+      "sourceUrl": "https://registry.npmjs.org/@xai-official%2fgrok-darwin-arm64/1.0.46",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0"
+      }
+    },
+    {
+      "name": "@xai-official/grok-win32-arm64",
+      "version": "1.0.46",
+      "sourceUrl": "https://registry.npmjs.org/@xai-official%2fgrok-win32-arm64/1.0.46",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0"
+      }
+    },
+    {
+      "name": "@xai-official/grok-linux-arm64",
+      "version": "1.0.46",
+      "sourceUrl": "https://registry.npmjs.org/@xai-official%2fgrok-linux-arm64/1.0.46",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0"
+      }
+    },
+    {
+      "name": "@xai-official/grok-darwin-x64",
+      "version": "1.0.46",
+      "sourceUrl": "https://registry.npmjs.org/@xai-official%2fgrok-darwin-x64/1.0.46",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0"
+      }
+    },
+    {
+      "name": "@xai-official/grok-win32-x64",
+      "version": "1.0.46",
+      "sourceUrl": "https://registry.npmjs.org/@xai-official%2fgrok-win32-x64/1.0.46",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0"
+      }
+    },
+    {
+      "name": "standardwebhooks",
+      "version": "1.0.0",
+      "sourceUrl": "https://raw.githubusercontent.com/standard-webhooks/standard-webhooks/929bf0c1928b188287eaf88d0a9f0a4e87df6499/LICENSE",
+      "noticeFile": "third-party-notices/standardwebhooks-1.0.0.txt"
+    },
+    {
       "license": "MIT",
       "name": "@react-grab/cli",
       "sourceUrl": "https://github.com/aidenybai/react-grab/tree/main/packages/cli",
