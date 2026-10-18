@@ -55,7 +55,12 @@ test("Desktop previews local workspaces without an account but keeps transfers a
             },
           };
         }
-        if (name.startsWith("./") && name !== "./workspace.cjs") return {};
+        if (name === "./computer-setup.cjs") return { createComputerSetup: () => ({ show() {} }) };
+        if (
+          name.startsWith("./") &&
+          !["./workspace.cjs", "./computer-service.cjs", "./computer-relay.cjs"].includes(name)
+        )
+          return {};
         return load(name);
       },
     },

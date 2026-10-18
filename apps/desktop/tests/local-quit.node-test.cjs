@@ -125,15 +125,21 @@ function desktopFixture(t, options = {}) {
             },
           };
         if (name === "./pi-sandbox.cjs") return { spawnSandboxedPi: start };
+        if (name === "./computer-setup.cjs") return { createComputerSetup: () => ({ show() {} }) };
         if (name === "./browser-agent.cjs")
           return {
             startAgentBrowser: options.browser || (async () => ({ close: async () => {} })),
           };
         if (
           name.startsWith("./") &&
-          !["./memory.cjs", "./task-context.cjs", "./local-task.cjs", "./workspace.cjs"].includes(
-            name,
-          )
+          ![
+            "./memory.cjs",
+            "./task-context.cjs",
+            "./local-task.cjs",
+            "./workspace.cjs",
+            "./computer-service.cjs",
+            "./computer-relay.cjs",
+          ].includes(name)
         )
           return {};
         return sourceRequire(name);
