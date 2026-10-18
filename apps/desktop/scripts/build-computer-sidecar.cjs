@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 
@@ -11,7 +12,7 @@ const cache = path.join(root, ".build", "computer-use");
 const archive = path.join(cache, archiveName);
 const app = path.join(root, "native", "bin", "Ditto Computer Use.app");
 async function build() {
-  if (process.platform !== "darwin") return;
+  if (os.platform() !== "darwin") return;
   fs.mkdirSync(cache, { recursive: true });
   if (!fs.existsSync(archive)) {
     const response = await fetch(
