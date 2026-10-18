@@ -532,4 +532,4 @@ class ComputerService {
   }
 }
 
-module.exports = { ComputerService, sidecarPaths, socketRequest };
+module.exports = { ComputerService };
