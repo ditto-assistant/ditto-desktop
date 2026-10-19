@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { copyCodeTerminalAssets } = require("./code-terminal-assets.cjs");
 
 const root = path.resolve(__dirname, "..");
 const web = path.join(root, "web", "ditto-app");
@@ -105,6 +106,7 @@ try {
   run("bun", ["run", "build"]);
   fs.rmSync(output, { recursive: true, force: true });
   fs.cpSync(path.join(web, "build"), output, { recursive: true });
+  copyCodeTerminalAssets(output);
   fs.copyFileSync(
     path.join(root, "src", "desktop-shell.css"),
     path.join(output, "desktop-shell.css"),
@@ -116,8 +118,14 @@ try {
   const index = path.join(output, "index.html");
   let html = fs.readFileSync(index, "utf8");
   html = html
-    .replace("</head>", '<link rel="stylesheet" href="/desktop-shell.css"></head>')
-    .replace("</body>", '<script defer src="/desktop-shell.js"></script></body>')
+    .replace(
+      "</head>",
+      '<link rel="stylesheet" href="/terminal/xterm.css"><link rel="stylesheet" href="/desktop-shell.css"></head>',
+    )
+    .replace(
+      "</body>",
+      '<script defer src="/terminal/xterm.js"></script><script defer src="/terminal/addon-fit.js"></script><script defer src="/desktop-shell.js"></script></body>',
+    )
     .replace(/<title>[^<]*<\/title>/, "<title>Ditto Desktop</title>");
   fs.writeFileSync(index, html);
   console.log(`Built Ditto Desktop renderer from ${web}`);

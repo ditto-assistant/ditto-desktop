@@ -67,6 +67,7 @@ let piStartup = null;
 let quittingLocalTask = null;
 let remoteHost;
 let desktopBrowser;
+let desktopTerminal;
 const computer = new ComputerService({
   onChange: (status) => {
     if (!status.enabled) computerRelay?.stop();
@@ -997,6 +998,39 @@ function registerIpc() {
     return cancelLocalTask(piProcess);
   });
   ipcMain.handle("ditto:recent-runs", async () => store.recentPiRuns());
+  const codeIpc = (name, handler) =>
+    ipcMain.handle(name, (event, ...args) => {
+      if (
+        !win ||
+        event.sender !== win.webContents ||
+        event.senderFrame !== win.webContents.mainFrame
+      )
+        throw new Error("Only Ditto Desktop can access local Code tools.");
+      return handler(...args);
+    });
+  codeIpc("ditto:code-threads", () => store.codeThreads());
+  codeIpc("ditto:code-thread-update", (id, patch) => store.updateCodeThread(id, patch));
+  codeIpc("ditto:code-thread-open", (id) => {
+    if (piProcess || piStartup) throw new Error("Wait for the current task to finish.");
+    const runs = store.codeThreadRuns(id);
+    if (!runs.length) throw new Error("Code conversation not found.");
+    const folder = runs.at(-1).workspace;
+    if (!fs.statSync(folder).isDirectory()) throw new Error("The working folder is unavailable.");
+    store.setSetting("workspace", folder);
+    return runs;
+  });
+  const terminal = () => {
+    desktopTerminal ??= new (require("./terminal.cjs").DesktopTerminal)({
+      onEvent: (event) => emit("ditto:terminal-event", event),
+    });
+    return desktopTerminal;
+  };
+  codeIpc("ditto:terminal-open", (key, cols, rows) =>
+    terminal().open(key, selectedWorkspace(), cols, rows),
+  );
+  codeIpc("ditto:terminal-write", (key, data) => terminal().write(key, data));
+  codeIpc("ditto:terminal-resize", (key, cols, rows) => terminal().resize(key, cols, rows));
+  codeIpc("ditto:terminal-close", (key) => terminal().close(key));
 }
 
 app
@@ -1131,6 +1165,7 @@ app.on("before-quit", (event) => {
     return;
   }
   void computer.stop();
+  desktopTerminal?.closeAll();
   devices?.stop();
   remoteHost?.stop();
   channels?.close();

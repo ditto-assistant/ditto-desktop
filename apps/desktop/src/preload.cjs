@@ -31,6 +31,18 @@ contextBridge.exposeInMainWorld("ditto", {
   providerLogin: (provider) => ipcRenderer.invoke("ditto:provider-login", provider),
   runProvider: (provider, question) => ipcRenderer.invoke("ditto:run-provider", provider, question),
   recentRuns: () => ipcRenderer.invoke("ditto:recent-runs"),
+  codeThreads: () => ipcRenderer.invoke("ditto:code-threads"),
+  updateCodeThread: (id, patch) => ipcRenderer.invoke("ditto:code-thread-update", id, patch),
+  openCodeThread: (id) => ipcRenderer.invoke("ditto:code-thread-open", id),
+  terminalOpen: (key, cols, rows) => ipcRenderer.invoke("ditto:terminal-open", key, cols, rows),
+  terminalWrite: (key, data) => ipcRenderer.invoke("ditto:terminal-write", key, data),
+  terminalResize: (key, cols, rows) => ipcRenderer.invoke("ditto:terminal-resize", key, cols, rows),
+  terminalClose: (key) => ipcRenderer.invoke("ditto:terminal-close", key),
+  onTerminalEvent: (listener) => {
+    const handler = (_event, event) => listener(event);
+    ipcRenderer.on("ditto:terminal-event", handler);
+    return () => ipcRenderer.removeListener("ditto:terminal-event", handler);
+  },
   remoteStatus: () => ipcRenderer.invoke("ditto:remote-status"),
   remoteStart: (provider, endpoint) => ipcRenderer.invoke("ditto:remote-start", provider, endpoint),
   remoteStop: () => ipcRenderer.invoke("ditto:remote-stop"),

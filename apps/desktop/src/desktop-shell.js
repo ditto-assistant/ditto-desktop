@@ -171,7 +171,7 @@
     document.body.classList.remove("ditto-local-from-chat");
     document.body.classList.toggle("ditto-local-open", name === "Local");
     document.body.classList.toggle("ditto-browser-open", name === "Browser");
-    if (name !== "Browser") void window.ditto.browserHide();
+    if (name !== "Browser" && codeTool !== "browser") void window.ditto.browserHide();
     markActive();
     if (name === "Local") void refresh();
     else if (name === "Browser") void showBrowser();
@@ -249,6 +249,8 @@
     markActive();
     mountCodeSource();
     mountLocalCode();
+    mountCodeTools();
+    syncCodeTools();
     if (
       location.pathname === "/code" &&
       !activePanel &&
@@ -265,58 +267,78 @@
   function mountCodeSource() {
     const panel = document.querySelector(".v2-code-panel");
     if (!panel || panel.querySelector(".ditto-desktop-code-group")) return;
-    const group = element("section", "v2-studio-section ditto-desktop-code-group");
-    group.setAttribute("aria-label", "Code execution");
-    const heading = element("div", "v2-studio-section-head");
-    heading.append(element("span", "ditto-desktop-code-heading", "Execution"));
-    group.append(heading);
-    for (const [mode, title, description, glyph] of [
-      ["local", "Local · Ditto Code", "Ditto Code on this Mac", "⌂"],
-      ["cloud", "Cloud · Ditto", "Ditto cloud tasks and projects", "☁"],
-      ["browser", "Browser · Local", "Shared with Ditto Code", "◎"],
+    const group = element("section", "ditto-desktop-code-group");
+    group.setAttribute("aria-label", "Code conversations");
+    const fresh = element("button", "v2-studio-create ditto-code-new", "＋  New chat");
+    fresh.type = "button";
+    fresh.addEventListener("click", () => {
+      if (running) return;
+      newLocalTask();
+      cloudCodeMode = false;
+      openPanel("Local");
+    });
+    const search = element("input", "ditto-code-search");
+    search.type = "search";
+    search.placeholder = "Search chats";
+    search.setAttribute("aria-label", "Search Code chats");
+    search.addEventListener("input", () => {
+      codeSearch = search.value;
+      renderCodeHistory();
+    });
+    const filters = element("div", "ditto-code-filters");
+    filters.setAttribute("aria-label", "Code chat views");
+    for (const [archived, text] of [
+      [false, "Chats"],
+      [true, "Archived"],
     ]) {
-      const row = element("div", "v2-studio-recent-row");
-      const button = element("button", "v2-studio-recent ditto-desktop-code-mode");
+      const button = element("button", "", text);
+      button.type = "button";
+      button.dataset.archived = String(archived);
+      button.setAttribute("aria-pressed", String(codeArchived === archived));
+      button.addEventListener("click", () => {
+        codeArchived = archived;
+        for (const item of filters.children)
+          item.setAttribute("aria-pressed", String(item === button));
+        renderCodeHistory();
+      });
+      filters.append(button);
+    }
+    const history = element("div", "ditto-desktop-local-history");
+    history.setAttribute("aria-label", "Code chats");
+    const footer = element("div", "ditto-code-sidebar-footer");
+    for (const [mode, text] of [
+      ["local", "On this Mac"],
+      ["cloud", "Cloud tasks"],
+    ]) {
+      const button = element("button", "ditto-desktop-code-mode", text);
       button.type = "button";
       button.dataset.dittoCodeMode = mode;
-      button.setAttribute(
-        "aria-label",
-        mode === "local"
-          ? "Run Ditto Code locally"
-          : mode === "cloud"
-            ? "Run Ditto Code in the cloud"
-            : "Open local browser",
-      );
-      button.append(element("span", "ditto-desktop-local-mark", glyph));
-      const copy = element("span");
-      copy.append(element("strong", "", title), element("small", "", description));
-      button.append(copy);
       button.addEventListener("click", () => {
         if (mode === "local") {
           cloudCodeMode = false;
-          $("#dl-provider").dispatchEvent(new Event("change"));
           openPanel("Local");
-        } else if (mode === "browser") {
-          cloudCodeMode = false;
-          openPanel("Browser");
         } else {
           cloudCodeMode = true;
           activePanel = null;
           desktopMode(false);
-          document.body.classList.remove(
-            "ditto-local-open",
-            "ditto-local-from-chat",
-            "ditto-browser-open",
-            "ditto-desktop-settings",
-          );
-          void window.ditto.browserHide();
+          document.body.classList.remove("ditto-local-open", "ditto-desktop-settings");
+          syncCodeTools();
           markActive();
         }
       });
-      row.append(button);
-      group.append(row);
+      footer.append(button);
     }
-    panel.insertBefore(group, panel.firstElementChild?.nextSibling || null);
+    const settings = element("button", "ditto-code-settings", "Desktop settings");
+    settings.type = "button";
+    settings.addEventListener("click", () => {
+      openPanel("Local");
+      document.body.classList.add("ditto-desktop-settings");
+      syncCodeTools();
+    });
+    footer.append(settings);
+    group.append(fresh, search, filters, history, footer);
+    panel.prepend(group);
+    renderCodeHistory();
     markActive();
   }
   let railFrame = 0;
@@ -337,8 +359,6 @@
       const railLink = event.target.closest("nav.v2-studio-rail a");
       if (railLink?.getAttribute("aria-label") === "Code") {
         cloudCodeMode = false;
-        $("#dl-provider").value = "pi";
-        $("#dl-provider").dispatchEvent(new Event("change"));
         openPanel("Local");
         return;
       }
@@ -445,7 +465,14 @@
   async function showBrowser() {
     try {
       const state = await window.ditto.browserStatus();
-      if (state.url) await window.ditto.browserShow(browserBounds());
+      if (
+        state.url &&
+        codePaneVisible &&
+        codeTool === "browser" &&
+        !document.body.classList.contains("ditto-code-resizing")
+      )
+        if (codePaneVisible && codeTool === "browser")
+          await window.ditto.browserShow(browserBounds());
       browserState(state);
     } catch (error) {
       browserPage.querySelector("#db-status").textContent = desktopError(error);
@@ -465,7 +492,11 @@
     if (state.url) browserPage.querySelector("#db-status").textContent = state.title || state.url;
   }
   new ResizeObserver(() => {
-    if (activePanel === "Browser") void showBrowser();
+    if (
+      (activePanel === "Browser" || (codePaneVisible && codeTool === "browser")) &&
+      !document.body.classList.contains("ditto-code-resizing")
+    )
+      void showBrowser();
   }).observe(browserPage.querySelector("#db-viewport"));
   browserPage.querySelector("#db-address-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -506,19 +537,23 @@
   });
   window.ditto.onBrowserState(browserState);
   window.ditto.onBrowserOpen(() => {
-    if (location.pathname === "/code") openPanel("Browser");
+    if (location.pathname === "/code") openCodeTool("browser");
   });
 
   let running = false;
   let workspaceReady = false;
   let localSessionId = crypto.randomUUID();
   let localTurns = [];
+  let activeCodeThread = null;
+  let codeThreads = [];
+  let codeArchived = false;
+  let codeSearch = "";
   let localWorkspace = "";
   let defaultLocalWorkspace = "";
   const localChat = element("div", "v2-code-start ditto-desktop-code-chat");
   localChat.setAttribute("aria-label", "Local Ditto Code conversation");
   localChat.innerHTML =
-    '<header class="v2-code-start-header"><h1>What should Ditto Code do?</h1><p>Describe the task. Ditto Code uses your private memory to work on this Mac.</p></header><div id="dl-transcript" aria-live="polite"></div><div id="dl-chat-status" role="status"></div>';
+    '<header class="v2-code-start-header"><h1>What can we build?</h1><p>Ask a question, explore an idea, or make something on this Mac.</p></header><div id="dl-transcript" aria-live="polite"></div><div id="dl-chat-status" role="status"></div>';
   const sharedOutput = $("#dl-output");
   sharedOutput.classList.add("ditto-desktop-code-response");
   localChat.querySelector("#dl-transcript").append(sharedOutput);
@@ -569,7 +604,7 @@
     const engineName = provider.selectedOptions[0]?.textContent || "Ditto Code";
     const description =
       provider.value === "pi"
-        ? "Describe the task. Ditto Code uses your private memory to work on this Mac."
+        ? "Ask a question, explore an idea, or make something on this Mac."
         : `Describe the task. ${engineName} runs through its installed CLI on this Mac.`;
     const subtitle = localChat.querySelector("header p");
     if (subtitle.textContent !== description) subtitle.textContent = description;
@@ -605,28 +640,12 @@
       });
       context.append(button);
     }
-    const group = document.querySelector(".ditto-desktop-code-group");
-    if (group && !group.querySelector(".ditto-desktop-local-actions")) {
-      const actions = element("div", "ditto-desktop-local-actions");
-      const label = element("label", "", "Local engine");
-      label.htmlFor = "dl-provider";
-      actions.append(label, $("#dl-provider"));
-      const fresh = element("button", "v2-studio-create", "New local task");
-      fresh.type = "button";
-      fresh.addEventListener("click", () => {
-        if (!running) {
-          newLocalTask();
-          cloudCodeMode = false;
-          openPanel("Local");
-        }
-      });
-      const settings = element("button", "v2-studio-create", "Desktop settings");
-      settings.type = "button";
-      settings.addEventListener("click", () => {
-        openPanel("Local");
-        document.body.classList.add("ditto-desktop-settings");
-      });
-      const home = element("button", "v2-studio-create", "Use Ditto workspace");
+    if (main && context && !context.querySelector("#dl-default-workspace")) {
+      const home = element(
+        "button",
+        "v2-composer-context-chip ditto-desktop-workspace",
+        "Use Ditto workspace",
+      );
       home.id = "dl-default-workspace";
       home.type = "button";
       home.addEventListener("click", async () => {
@@ -636,16 +655,16 @@
           workspaceReady = true;
           newLocalTask();
           openPanel("Local");
-        } catch (error) {
-          show("#dl-context", desktopError(error));
+          void refresh();
+        } catch {
+          show("#dl-context", "Couldn't open the Ditto workspace. Please try again.");
         }
       });
-      actions.append(fresh, home, settings, $("#dl-cancel"));
-      group.append(actions);
-      const history = element("div", "ditto-desktop-local-history");
-      history.setAttribute("aria-label", "Local tasks");
-      group.append(history);
+      context.append(home);
     }
+    mountCodeTools();
+    const fresh = document.querySelector(".ditto-code-new");
+    if (fresh) fresh.disabled = running;
     const status = localChat.querySelector("#dl-chat-status");
     const home = $("#dl-default-workspace");
     if (home) {
@@ -655,9 +674,513 @@
     if (status.textContent !== $("#dl-context").textContent)
       status.textContent = $("#dl-context").textContent;
   }
+  let codeTool = null;
+  let codePaneWidth = 440;
+  try {
+    codePaneWidth = Number(localStorage.getItem("ditto.code.paneWidth")) || 440;
+  } catch {}
+  const codeTools = element("div", "ditto-code-tools");
+  codeTools.setAttribute("aria-label", "Code tools");
+  const codePane = element("aside", "ditto-code-pane");
+  codePane.id = "ditto-code-pane";
+  codePane.setAttribute("aria-label", "Code tool pane");
+  codePane.hidden = true;
+  const paneHead = element("div", "ditto-code-pane-head");
+  const paneTabs = element("div", "ditto-code-pane-tabs");
+  paneTabs.setAttribute("role", "tablist");
+  paneTabs.setAttribute("aria-label", "Code tools");
+  const toolSymbols = { terminal: "terminal", browser: "browser", activity: "activity" };
+  function codeIcon(name) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "1.7");
+    svg.setAttribute("aria-hidden", "true");
+    const paths = {
+      terminal: "M4 5h16v14H4z M7 9l3 3-3 3 M13 15h4",
+      browser: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M3 12h18 M12 3c5 5 5 13 0 18-5-5-5-13 0-18",
+      activity: "M4 6h16 M4 12h16 M4 18h10",
+      close: "M6 6l12 12 M6 18L18 6",
+      more: "M5 12h1 M11 12h1 M17 12h1",
+    };
+    const path = document.createElementNS(svg.namespaceURI, "path");
+    path.setAttribute("d", paths[name]);
+    svg.append(path);
+    return svg;
+  }
+  for (const [name, label] of [
+    ["terminal", "Terminal"],
+    ["browser", "Browser"],
+    ["activity", "Activity"],
+  ]) {
+    const trigger = element("button", "v2-studio-icon-button ditto-code-tool-button");
+    trigger.type = "button";
+    trigger.title = label;
+    trigger.dataset.codeTool = name;
+    trigger.setAttribute("aria-label", `Open ${label.toLowerCase()}`);
+    trigger.setAttribute("aria-controls", codePane.id);
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.append(codeIcon(toolSymbols[name]));
+    trigger.addEventListener("click", () => openCodeTool(codeTool === name ? null : name));
+    codeTools.append(trigger);
+    const tab = element("button", "", label);
+    tab.type = "button";
+    tab.dataset.codeTool = name;
+    tab.id = `ditto-code-tab-${name}`;
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-controls", `ditto-code-panel-${name}`);
+    tab.addEventListener("click", () => openCodeTool(name));
+    tab.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const tabs = [...paneTabs.children];
+      const next =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? tabs.length - 1
+            : (tabs.indexOf(tab) + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) %
+              tabs.length;
+      tabs[next].click();
+      tabs[next].focus();
+    });
+    paneTabs.append(tab);
+  }
+  const closePane = element("button", "v2-studio-icon-button");
+  closePane.type = "button";
+  closePane.title = "Close tool pane";
+  closePane.setAttribute("aria-label", "Close tool pane");
+  closePane.append(codeIcon("close"));
+  closePane.addEventListener("click", () => {
+    const name = codeTool;
+    openCodeTool(null);
+    codeTools.querySelector(`[data-code-tool="${name}"]`)?.focus();
+  });
+  paneHead.append(paneTabs, closePane);
+  const paneResize = element("div", "ditto-code-pane-resize");
+  paneResize.setAttribute("role", "separator");
+  paneResize.tabIndex = 0;
+  paneResize.setAttribute("aria-label", "Resize tool pane");
+  paneResize.setAttribute("aria-orientation", "vertical");
+  let appliedCodePaneWidth = null;
+  function resizeCodePane(value) {
+    codePaneWidth = Math.round(Math.max(300, Math.min(value, window.innerWidth * 0.6, 900)));
+    if (appliedCodePaneWidth !== codePaneWidth) {
+      appliedCodePaneWidth = codePaneWidth;
+      document.documentElement.style.setProperty("--ditto-code-pane-width", `${codePaneWidth}px`);
+      try {
+        localStorage.setItem("ditto.code.paneWidth", String(codePaneWidth));
+      } catch {}
+    }
+    paneResize.setAttribute("aria-valuenow", String(codePaneWidth));
+    paneResize.setAttribute("aria-valuemin", "300");
+    paneResize.setAttribute(
+      "aria-valuemax",
+      String(Math.round(Math.min(window.innerWidth * 0.6, 900))),
+    );
+    fitCodeTerminal();
+  }
+  paneResize.addEventListener("pointerdown", (event) => {
+    paneResize.setPointerCapture(event.pointerId);
+    document.body.classList.add("ditto-code-resizing");
+    void window.ditto.browserHide();
+  });
+  paneResize.addEventListener("pointermove", (event) => {
+    if (paneResize.hasPointerCapture(event.pointerId))
+      resizeCodePane(window.innerWidth - event.clientX);
+  });
+  const endPaneResize = () => {
+    document.body.classList.remove("ditto-code-resizing");
+    if (codeTool === "browser") void showBrowser();
+  };
+  paneResize.addEventListener("pointerup", endPaneResize);
+  paneResize.addEventListener("lostpointercapture", endPaneResize);
+  paneResize.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
+    event.preventDefault();
+    resizeCodePane(
+      event.key === "Home" ? 440 : codePaneWidth + (event.key === "ArrowLeft" ? 32 : -32),
+    );
+  });
+  const terminalPanel = element("section", "ditto-code-tool-panel ditto-code-terminal-panel");
+  const terminalBar = element("div", "ditto-code-terminal-bar");
+  const terminalLocation = element("span", "", "Your working folder");
+  const restartTerminal = element("button", "", "Restart");
+  restartTerminal.type = "button";
+  restartTerminal.setAttribute("aria-label", "Restart terminal");
+  restartTerminal.addEventListener("click", async () => {
+    const key = codeTerminalKey();
+    try {
+      await window.ditto.terminalClose(key);
+      terminals.get(key)?.term.dispose();
+      terminals.delete(key);
+      await showCodeTerminal();
+    } catch {
+      terminalLocation.textContent = "Couldn't restart terminal. Try again.";
+    }
+  });
+  const stopTerminal = element("button", "", "Stop");
+  stopTerminal.type = "button";
+  stopTerminal.setAttribute("aria-label", "Stop terminal");
+  stopTerminal.addEventListener("click", () => {
+    void window.ditto.terminalClose(codeTerminalKey()).catch(() => {
+      terminalLocation.textContent = "Couldn't stop terminal. Try again.";
+    });
+  });
+  terminalBar.append(terminalLocation, restartTerminal, stopTerminal);
+  const terminalHost = element("div", "ditto-code-terminal-host");
+  terminalPanel.append(terminalBar, terminalHost);
+  const activityPanel = element("section", "ditto-code-tool-panel ditto-code-activity-panel");
+  activityPanel.append(
+    element("h2", "", "Tool activity"),
+    element("p", "ditto-code-empty", "Tool calls from the current task will appear here."),
+  );
+  for (const [name, panel] of [
+    ["terminal", terminalPanel],
+    ["browser", browserPage],
+    ["activity", activityPanel],
+  ]) {
+    panel.id = `ditto-code-panel-${name}`;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", `ditto-code-tab-${name}`);
+    panel.hidden = true;
+  }
+  codePane.append(paneResize, paneHead, terminalPanel, browserPage, activityPanel);
+  codePane.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      closePane.click();
+    }
+  });
+  document.body.append(codePane);
+  const terminals = new Map();
+  const activities = new Map();
+  let codePaneVisible = false;
+  let codePaneLastTool = null;
+  const codeTerminalKey = () => activeCodeThread?.threadId || `session:${localSessionId}`;
+  function mountCodeTools() {
+    const header = document.querySelector(".v2-shell-header");
+    if (header && !header.contains(codeTools)) {
+      header.insertBefore(codeTools, header.querySelector(".v2-header-search-trigger") || null);
+      const engine = $("#dl-provider");
+      engine.setAttribute("aria-label", "Coding engine");
+      const stop = $("#dl-cancel");
+      stop.classList.add("ditto-code-task-stop");
+      stop.textContent = "Stop task";
+      codeTools.prepend(engine, stop);
+    }
+    const title = document.querySelector(".v2-shell-header .v2-studio-header-title");
+    if (activePanel === "Local" && title) {
+      const text = activeCodeThread?.title || "New chat";
+      if (title.textContent !== text) title.textContent = text;
+    }
+  }
+  function syncCodeTools() {
+    const inCode =
+      activePanel === "Local" && !document.body.classList.contains("ditto-desktop-settings");
+    const visible = inCode && Boolean(codeTool);
+    codeTools.hidden = !inCode;
+    codePane.hidden = !visible;
+    document.body.classList.toggle("ditto-code-tools-open", visible);
+    for (const button of codeTools.querySelectorAll("[data-code-tool]"))
+      button.setAttribute("aria-expanded", String(visible && button.dataset.codeTool === codeTool));
+    for (const tab of paneTabs.children) {
+      tab.setAttribute("aria-selected", String(tab.dataset.codeTool === codeTool));
+      tab.tabIndex = tab.dataset.codeTool === codeTool ? 0 : -1;
+    }
+    for (const [name, panel] of [
+      ["terminal", terminalPanel],
+      ["browser", browserPage],
+      ["activity", activityPanel],
+    ])
+      panel.hidden = !visible || name !== codeTool;
+    const header = document.querySelector(".v2-shell-header");
+    if (header)
+      document.documentElement.style.setProperty(
+        "--ditto-code-pane-top",
+        `${Math.round(header.getBoundingClientRect().bottom)}px`,
+      );
+    resizeCodePane(codePaneWidth);
+    if (visible !== codePaneVisible || codeTool !== codePaneLastTool) {
+      codePaneVisible = visible;
+      codePaneLastTool = codeTool;
+      if (visible && codeTool === "browser") void showBrowser();
+      else void window.ditto.browserHide();
+      if (visible && codeTool === "terminal") void showCodeTerminal();
+    }
+  }
+  function openCodeTool(name) {
+    codeTool = name;
+    if (activePanel !== "Local") {
+      cloudCodeMode = false;
+      openPanel("Local");
+    }
+    syncCodeTools();
+    if (name === "terminal") void showCodeTerminal();
+    if (name === "activity") renderCodeActivity();
+    if (name === "browser") browserPage.querySelector("#db-address").focus();
+  }
+  let terminalFitFrame = 0;
+  function fitCodeTerminal() {
+    if (terminalFitFrame || !codePaneVisible || codeTool !== "terminal") return;
+    terminalFitFrame = requestAnimationFrame(() => {
+      terminalFitFrame = 0;
+      const current = terminals.get(codeTerminalKey());
+      if (!current || current.opening) return;
+      current.fit.fit();
+      if (
+        !current.closed &&
+        (current.cols !== current.term.cols || current.rows !== current.term.rows)
+      ) {
+        current.cols = current.term.cols;
+        current.rows = current.term.rows;
+        void window.ditto
+          .terminalResize(codeTerminalKey(), current.term.cols, current.term.rows)
+          .catch(() => {});
+      }
+    });
+  }
+  async function showCodeTerminal() {
+    if (typeof window.Terminal !== "function" || !window.FitAddon) {
+      terminalLocation.textContent = "Restart Ditto Desktop to load the terminal.";
+      return;
+    }
+    const key = codeTerminalKey();
+    for (const [id, session] of terminals) session.host.hidden = id !== key;
+    let current = terminals.get(key);
+    if (!current) {
+      const host = element("div", "ditto-code-terminal-instance");
+      terminalHost.append(host);
+      const term = new window.Terminal({
+        fontSize: 12,
+        fontFamily: '"SFMono-Regular", Consolas, monospace',
+        cursorBlink: false,
+        scrollback: 3000,
+        screenReaderMode: true,
+        theme: { background: "#101115", foreground: "#e3e5eb" },
+      });
+      const fit = new window.FitAddon.FitAddon();
+      term.loadAddon(fit);
+      term.open(host);
+      current = { term, fit, host, opening: true, closed: false };
+      terminals.set(key, current);
+      term.onData((data) => {
+        if (!current.closed)
+          void window.ditto.terminalWrite(key, data).catch(() => {
+            terminalLocation.textContent = "Terminal disconnected. Restart to reconnect.";
+          });
+      });
+      try {
+        fit.fit();
+        const state = await window.ditto.terminalOpen(key, term.cols, term.rows);
+        current.cwd = state.cwd;
+        term.write(state.output);
+      } catch {
+        current.closed = true;
+        term.writeln("\r\nCouldn't start the local terminal. Use Restart to try again.");
+      } finally {
+        current.opening = false;
+      }
+    }
+    if (key !== codeTerminalKey() || codeTool !== "terminal") return;
+    current.host.hidden = false;
+    terminalLocation.textContent = current.closed
+      ? "Terminal stopped · Restart to reopen"
+      : (current.cwd || localWorkspace).split("/").at(-1) || "Ditto workspace";
+    fitCodeTerminal();
+    current.term.focus();
+  }
+  window.ditto.onTerminalEvent((event) => {
+    const current = terminals.get(event.key);
+    if (!current) return;
+    if (event.type === "data") current.term.write(event.data);
+    if (event.type === "exit") {
+      current.closed = true;
+      current.term.writeln("\r\n[Terminal stopped]");
+      if (event.key === codeTerminalKey())
+        terminalLocation.textContent = "Terminal stopped · Restart to reopen";
+    }
+  });
+  new ResizeObserver(fitCodeTerminal).observe(terminalHost);
+  window.addEventListener("resize", syncCodeTools);
+  function recordCodeActivity(event) {
+    if (!["start", "tool", "tool-error", "done", "error", "cancelled"].includes(event.type)) return;
+    const key = codeTerminalKey();
+    const rows = activities.get(key) || [];
+    rows.push({
+      name:
+        event.type === "tool"
+          ? event.name
+          : event.type === "tool-error"
+            ? `${event.name} failed`
+            : {
+                start: "Task started",
+                done: "Task complete",
+                error: "Task failed",
+                cancelled: "Task stopped",
+              }[event.type],
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    });
+    activities.set(key, rows.slice(-100));
+    renderCodeActivity();
+  }
+  function renderCodeActivity() {
+    activityPanel.replaceChildren(element("h2", "", "Tool activity"));
+    const rows = activities.get(codeTerminalKey()) || [];
+    if (!rows.length)
+      activityPanel.append(
+        element("p", "ditto-code-empty", "Tool calls from the current task will appear here."),
+      );
+    for (const row of rows) {
+      const item = element("div", "ditto-code-activity-row");
+      item.append(element("span", "", row.name), element("time", "", row.time));
+      activityPanel.append(item);
+    }
+  }
+  async function openCodeConversation(thread) {
+    if (running) return;
+    try {
+      const turns = await window.ditto.openCodeThread(thread.threadId);
+      const latest = turns.at(-1);
+      activeCodeThread = thread;
+      localWorkspace = latest.workspace;
+      workspaceReady = true;
+      localSessionId = latest.session_id || crypto.randomUUID();
+      localTurns = turns.map((turn) => ({ prompt: turn.prompt, provider: turn.provider }));
+      $("#dl-provider").value = latest.provider || "pi";
+      const transcript = localChat.querySelector("#dl-transcript");
+      clearCodeResponses();
+      transcript.replaceChildren();
+      for (const turn of turns) {
+        const response = element("div", "ditto-desktop-code-response");
+        transcript.append(element("article", "ditto-desktop-code-question", turn.prompt), response);
+        setCodeResponse(response, turn.response || turn.error || "");
+      }
+      transcript.append(sharedOutput);
+      setCodeResponse(sharedOutput, "");
+      localChat.classList.add("has-turns");
+      cloudCodeMode = false;
+      openPanel("Local");
+      desktopMode(true, "");
+      scrollLocalCode(true);
+      renderCodeHistory();
+      renderCodeActivity();
+      if (codeTool === "terminal") void showCodeTerminal();
+      show(
+        "#dl-context",
+        latest.provider === "pi" && latest.session_id
+          ? "Continue this conversation"
+          : "Saved execution · Your next message starts a new task",
+      );
+    } catch {
+      show(
+        "#dl-context",
+        "Couldn't open this chat. Check that its working folder is still available.",
+      );
+    }
+  }
+  function renderCodeHistory() {
+    const history = document.querySelector(".ditto-desktop-local-history");
+    if (!history) return;
+    history.replaceChildren();
+    const matches = codeThreads.filter(
+      (thread) =>
+        Boolean(thread.archived) === codeArchived &&
+        `${thread.title} ${thread.provider}`.toLowerCase().includes(codeSearch.toLowerCase()),
+    );
+    for (const [pinned, label] of codeArchived
+      ? [[null, "Archived chats"]]
+      : [
+          [true, "Pinned"],
+          [false, "Recent"],
+        ]) {
+      const threads = matches.filter(
+        (thread) => pinned === null || Boolean(thread.pinned) === pinned,
+      );
+      if (!threads.length) continue;
+      history.append(element("h3", "ditto-code-history-heading", label));
+      for (const thread of threads) {
+        const row = element("div", "v2-studio-recent-row ditto-code-chat-row");
+        row.classList.toggle("is-active", activeCodeThread?.threadId === thread.threadId);
+        const button = element("button", "v2-studio-recent ditto-code-chat-title", thread.title);
+        button.type = "button";
+        button.title = thread.title;
+        if (activeCodeThread?.threadId === thread.threadId)
+          button.setAttribute("aria-current", "true");
+        button.addEventListener("click", () => {
+          void openCodeConversation(thread);
+        });
+        const menu = element("details", "ditto-code-chat-menu");
+        const toggle = element("summary", "v2-studio-icon-button");
+        toggle.title = `Chat actions for ${thread.title}`;
+        toggle.setAttribute("aria-label", toggle.title);
+        toggle.append(codeIcon("more"));
+        menu.addEventListener("toggle", () => {
+          if (menu.open)
+            menu.classList.toggle(
+              "opens-up",
+              menu.getBoundingClientRect().bottom + 88 > history.getBoundingClientRect().bottom,
+            );
+        });
+        menu.append(toggle);
+        const actions = element("div", "ditto-code-chat-menu-items");
+        for (const [field, text] of [
+          ["pinned", thread.pinned ? "Unpin chat" : "Pin chat"],
+          ["archived", thread.archived ? "Restore chat" : "Archive chat"],
+        ]) {
+          const action = element("button", "", text);
+          action.type = "button";
+          action.disabled = running && activeCodeThread?.threadId === thread.threadId;
+          action.addEventListener("click", async () => {
+            action.disabled = true;
+            try {
+              codeThreads = await window.ditto.updateCodeThread(thread.threadId, {
+                [field]: !thread[field],
+              });
+              if (
+                field === "archived" &&
+                !thread.archived &&
+                activeCodeThread?.threadId === thread.threadId
+              )
+                newLocalTask();
+              renderCodeHistory();
+            } catch {
+              show("#dl-context", "Couldn't update this chat. Please try again.");
+              action.disabled = false;
+            }
+          });
+          actions.append(action);
+        }
+        menu.append(actions);
+        row.append(button, menu);
+        history.append(row);
+      }
+    }
+    if (!matches.length)
+      history.append(
+        element(
+          "p",
+          "ditto-code-empty",
+          codeSearch
+            ? "No matching chats."
+            : codeArchived
+              ? "No archived chats."
+              : "Your Code chats will appear here.",
+        ),
+      );
+  }
+  document.addEventListener("click", (event) => {
+    for (const menu of document.querySelectorAll(".ditto-code-chat-menu[open]"))
+      if (!menu.contains(event.target)) menu.open = false;
+  });
+
   function newLocalTask() {
-    localSessionId = crypto.randomUUID();
+    if (activeCodeThread || localTurns.length) localSessionId = crypto.randomUUID();
+    activeCodeThread = null;
     localTurns = [];
+    renderCodeHistory();
+    syncCodeTools();
     clearCodeResponses();
     localChat.querySelector("#dl-transcript").replaceChildren(sharedOutput);
     setCodeResponse(sharedOutput, "");
@@ -684,7 +1207,10 @@
   }
   async function runLocalTask(prompt) {
     const provider = $("#dl-provider").value;
+    if (!activeCodeThread)
+      activeCodeThread = { threadId: `session:${localSessionId}`, title: prompt };
     running = true;
+    syncCodeTools();
     $("#dl-provider").disabled = true;
     if ($("#dl-default-workspace")) $("#dl-default-workspace").disabled = true;
     $("#dl-run").disabled = true;
@@ -788,7 +1314,9 @@
         home.hidden = status.workspace === status.defaultWorkspace;
         home.disabled = running;
       }
-      for (const button of document.querySelectorAll(".ditto-desktop-workspace"))
+      for (const button of document.querySelectorAll(
+        ".ditto-desktop-workspace:not(#dl-default-workspace)",
+      ))
         button.textContent =
           status.workspace === status.defaultWorkspace
             ? "Ditto workspace"
@@ -807,55 +1335,8 @@
       }
       if (!runs.length) list.append(element("p", "ditto-local-muted", "No local executions yet."));
       mountLocalCode();
-      const history = document.querySelector(".ditto-desktop-local-history");
-      if (history) {
-        history.replaceChildren();
-        const seenSessions = new Set();
-        for (const run of runs) {
-          if ((run.provider || "pi") !== $("#dl-provider").value) continue;
-          if (run.session_id && seenSessions.has(run.session_id)) continue;
-          if (run.session_id) seenSessions.add(run.session_id);
-          const button = element("button", "v2-studio-recent", run.prompt.slice(0, 70));
-          button.type = "button";
-          button.title = `${run.provider === "pi" || !run.provider ? "Ditto Code" : run.provider} · ${run.status}`;
-          button.addEventListener("click", () => {
-            if (running) return;
-            cloudCodeMode = false;
-            openPanel("Local");
-            const resumable =
-              run.provider === "pi" && run.session_id && run.workspace === localWorkspace;
-            localSessionId = resumable ? run.session_id : crypto.randomUUID();
-            localTurns = [{ prompt: run.prompt, provider: run.provider }];
-            $("#dl-provider").value = run.provider || "pi";
-            const transcript = localChat.querySelector("#dl-transcript");
-            clearCodeResponses();
-            transcript.replaceChildren();
-            const turns = run.session_id
-              ? runs.filter((turn) => turn.session_id === run.session_id).reverse()
-              : [run];
-            for (const turn of turns) {
-              const response = element("div", "ditto-desktop-code-response");
-              transcript.append(
-                element("article", "ditto-desktop-code-question", turn.prompt),
-                response,
-              );
-              setCodeResponse(response, turn.response || turn.error || "");
-            }
-            transcript.append(sharedOutput);
-            setCodeResponse(sharedOutput, "");
-            localChat.classList.add("has-turns");
-            desktopMode(true, "");
-            scrollLocalCode(true);
-            show(
-              "#dl-context",
-              resumable
-                ? "Continue this local Ditto Code conversation"
-                : "Saved execution · A new task will start on this Mac",
-            );
-          });
-          history.append(button);
-        }
-      }
+      codeThreads = await window.ditto.codeThreads();
+      renderCodeHistory();
     } catch (error) {
       show("#dl-progress", `Could not load local memory: ${error.message}`);
     }
@@ -1454,6 +1935,7 @@
     if (activePanel === "Local") void refresh();
   });
   window.ditto.onChatEvent((event) => {
+    recordCodeActivity(event);
     if (event.type === "start") show("#dl-context", `${event.memoryCount} local sources`);
     if (event.type === "text") {
       const box = $("#dl-output");
