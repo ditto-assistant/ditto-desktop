@@ -111,6 +111,8 @@ describe("provider compatibility", () => {
   it("bundles a compatibility policy for every built-in harness", () => {
     for (const builtIn of BUILT_IN_DRIVERS) {
       if (builtIn.driverKind === "acpRegistry") continue;
+      // DITTO: the Ditto harness is not a versioned CLI, so it has no policy.
+      if (builtIn.driverKind === "ditto") continue;
       assert.isDefined(
         resolveProviderCompatibility(
           ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
