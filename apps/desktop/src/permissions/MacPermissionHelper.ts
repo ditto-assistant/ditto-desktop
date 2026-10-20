@@ -19,7 +19,6 @@ const permissionGranted = (permission: MacPermission) => {
   return false;
 };
 
-/** Resolve the outer app bundle, never the executable or the ASAR inside it. */
 export function macAppBundlePath(executable: string): string | undefined {
   return /^(.+\.app)\/Contents\/MacOS\/[^/]+$/.exec(executable)?.[1];
 }
@@ -53,7 +52,7 @@ body { margin: 0; background: transparent; color: var(--text); font: 15px/22px -
 #panel { position: relative; margin: 2px; padding: 20px; height: 136px; border: 1px solid var(--line); border-radius: 24px; background: var(--base); }
 header { font-weight: 600; white-space: nowrap; }
 button { font: inherit; color: inherit; }
-button:focus-visible { outline: 2px solid #007aff; outline-offset: 3px; }
+button:focus-visible { outline: 2px solid #007aff; outline-offset: -2px; }
 #close { position: absolute; right: 8px; top: 6px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--base); font-size: 18px; cursor: pointer; opacity: 0; }
 #panel:hover #close, #close:focus-visible { opacity: 1; }
 #app { display: flex; align-items: center; gap: 12px; width: 100%; height: 52px; margin-top: 20px; padding: 8px 12px; border: 0; border-radius: 10px; background: var(--row); cursor: grab; text-align: left; font-size: 16px; font-weight: 600; }
@@ -66,7 +65,6 @@ img { width: 32px; height: 32px; pointer-events: none; }
 </main></body></html>`;
 }
 
-/** Owns one temporary panel and its IPC listener. Closing it releases all resources. */
 export class MacPermissionHelper {
   private generation = 0;
   private window: Electron.BrowserWindow | undefined;
@@ -131,7 +129,6 @@ export class MacPermissionHelper {
       try {
         if ((await isGranted()) && !window.isDestroyed()) finish();
       } catch {
-        // An unavailable probe is not evidence of a grant; the wizard can retry.
       } finally {
         checking = false;
       }

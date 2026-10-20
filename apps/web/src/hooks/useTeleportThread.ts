@@ -97,7 +97,7 @@ export function useTeleportThread() {
         input: {
           threadId: threadRef.threadId,
           cwd: workspacePath,
-          providerName: thread.session?.providerName ?? null,
+          providerName: thread.runtime?.providerName ?? null,
         },
       });
       if (result._tag === "Failure") {

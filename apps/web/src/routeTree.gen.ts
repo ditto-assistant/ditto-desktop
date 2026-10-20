@@ -13,28 +13,27 @@ import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PairRouteImport } from './routes/pair'
-import { Route as InboxRouteImport } from './routes/inbox'
+import { Route as ConnectAgentRouteImport } from './routes/connect-agent'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsStorageRouteImport } from './routes/settings.storage'
 import { Route as SettingsSourceControlRouteImport } from './routes/settings.source-control'
 import { Route as SettingsSnapShotRouteImport } from './routes/settings.snap-shot'
+import { Route as SettingsScheduledTasksRouteImport } from './routes/settings.scheduled-tasks'
 import { Route as SettingsProvidersRouteImport } from './routes/settings.providers'
 import { Route as SettingsProjectsRouteImport } from './routes/settings.projects'
 import { Route as SettingsOpenSourceLicensesRouteImport } from './routes/settings.open-source-licenses'
 import { Route as SettingsKeybindingsRouteImport } from './routes/settings.keybindings'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
-import { Route as SettingsDittoAccountRouteImport } from './routes/settings.ditto-account'
 import { Route as SettingsDiagnosticsRouteImport } from './routes/settings.diagnostics'
-import { Route as SettingsDevicesRouteImport } from './routes/settings.devices'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
-import { Route as RemoteHostIdThreadIdRouteImport } from './routes/remote.$hostId.$threadId'
+import { Route as ChatNewRouteImport } from './routes/_chat.new'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 
@@ -58,9 +57,9 @@ const PairRoute = PairRouteImport.update({
   path: '/pair',
   getParentRoute: () => rootRouteImport,
 } as any)
-const InboxRoute = InboxRouteImport.update({
-  id: '/inbox',
-  path: '/inbox',
+const ConnectAgentRoute = ConnectAgentRouteImport.update({
+  id: '/connect-agent',
+  path: '/connect-agent',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConnectRoute = ConnectRouteImport.update({
@@ -90,6 +89,11 @@ const SettingsSourceControlRoute = SettingsSourceControlRouteImport.update({
 const SettingsSnapShotRoute = SettingsSnapShotRouteImport.update({
   id: '/snap-shot',
   path: '/snap-shot',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsScheduledTasksRoute = SettingsScheduledTasksRouteImport.update({
+  id: '/scheduled-tasks',
+  path: '/scheduled-tasks',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsProvidersRoute = SettingsProvidersRouteImport.update({
@@ -123,19 +127,9 @@ const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
   path: '/general',
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsDittoAccountRoute = SettingsDittoAccountRouteImport.update({
-  id: '/ditto-account',
-  path: '/ditto-account',
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SettingsDiagnosticsRoute = SettingsDiagnosticsRouteImport.update({
   id: '/diagnostics',
   path: '/diagnostics',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsDevicesRoute = SettingsDevicesRouteImport.update({
-  id: '/devices',
-  path: '/devices',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
@@ -163,10 +157,10 @@ const ChatPullRequestsRoute = ChatPullRequestsRouteImport.update({
   path: '/pull-requests',
   getParentRoute: () => ChatRoute,
 } as any)
-const RemoteHostIdThreadIdRoute = RemoteHostIdThreadIdRouteImport.update({
-  id: '/remote/$hostId/$threadId',
-  path: '/remote/$hostId/$threadId',
-  getParentRoute: () => rootRouteImport,
+const ChatNewRoute = ChatNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => ChatRoute,
 } as any)
 const ChatDraftDraftIdRoute = ChatDraftDraftIdRouteImport.update({
   id: '/draft/$draftId',
@@ -183,193 +177,186 @@ const ChatEnvironmentIdThreadIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
   '/connect': typeof ConnectRoute
-  '/inbox': typeof InboxRoute
+  '/connect-agent': typeof ConnectAgentRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
+  '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
-  '/settings/devices': typeof SettingsDevicesRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
-  '/settings/ditto-account': typeof SettingsDittoAccountRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/keybindings': typeof SettingsKeybindingsRoute
   '/settings/open-source-licenses': typeof SettingsOpenSourceLicensesRoute
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/scheduled-tasks': typeof SettingsScheduledTasksRoute
   '/settings/snap-shot': typeof SettingsSnapShotRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
-  '/remote/$hostId/$threadId': typeof RemoteHostIdThreadIdRoute
 }
 export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
-  '/inbox': typeof InboxRoute
+  '/connect-agent': typeof ConnectAgentRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
+  '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
-  '/settings/devices': typeof SettingsDevicesRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
-  '/settings/ditto-account': typeof SettingsDittoAccountRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/keybindings': typeof SettingsKeybindingsRoute
   '/settings/open-source-licenses': typeof SettingsOpenSourceLicensesRoute
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/scheduled-tasks': typeof SettingsScheduledTasksRoute
   '/settings/snap-shot': typeof SettingsSnapShotRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
-  '/remote/$hostId/$threadId': typeof RemoteHostIdThreadIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
   '/connect': typeof ConnectRoute
-  '/inbox': typeof InboxRoute
+  '/connect-agent': typeof ConnectAgentRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
+  '/_chat/new': typeof ChatNewRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
-  '/settings/devices': typeof SettingsDevicesRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
-  '/settings/ditto-account': typeof SettingsDittoAccountRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/keybindings': typeof SettingsKeybindingsRoute
   '/settings/open-source-licenses': typeof SettingsOpenSourceLicensesRoute
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/providers': typeof SettingsProvidersRoute
+  '/settings/scheduled-tasks': typeof SettingsScheduledTasksRoute
   '/settings/snap-shot': typeof SettingsSnapShotRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
-  '/remote/$hostId/$threadId': typeof RemoteHostIdThreadIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/connect'
-    | '/inbox'
+    | '/connect-agent'
     | '/pair'
     | '/settings'
     | '/usage'
     | '/welcome'
+    | '/new'
     | '/pull-requests'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/connections'
-    | '/settings/devices'
     | '/settings/diagnostics'
-    | '/settings/ditto-account'
     | '/settings/general'
     | '/settings/integrations'
     | '/settings/keybindings'
     | '/settings/open-source-licenses'
     | '/settings/projects'
     | '/settings/providers'
+    | '/settings/scheduled-tasks'
     | '/settings/snap-shot'
     | '/settings/source-control'
     | '/settings/storage'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
-    | '/remote/$hostId/$threadId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/connect'
-    | '/inbox'
+    | '/connect-agent'
     | '/pair'
     | '/settings'
     | '/usage'
     | '/welcome'
+    | '/new'
     | '/pull-requests'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/connections'
-    | '/settings/devices'
     | '/settings/diagnostics'
-    | '/settings/ditto-account'
     | '/settings/general'
     | '/settings/integrations'
     | '/settings/keybindings'
     | '/settings/open-source-licenses'
     | '/settings/projects'
     | '/settings/providers'
+    | '/settings/scheduled-tasks'
     | '/settings/snap-shot'
     | '/settings/source-control'
     | '/settings/storage'
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
-    | '/remote/$hostId/$threadId'
   id:
     | '__root__'
     | '/_chat'
     | '/connect'
-    | '/inbox'
+    | '/connect-agent'
     | '/pair'
     | '/settings'
     | '/usage'
     | '/welcome'
+    | '/_chat/new'
     | '/_chat/pull-requests'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/connections'
-    | '/settings/devices'
     | '/settings/diagnostics'
-    | '/settings/ditto-account'
     | '/settings/general'
     | '/settings/integrations'
     | '/settings/keybindings'
     | '/settings/open-source-licenses'
     | '/settings/projects'
     | '/settings/providers'
+    | '/settings/scheduled-tasks'
     | '/settings/snap-shot'
     | '/settings/source-control'
     | '/settings/storage'
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
-    | '/remote/$hostId/$threadId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
   ConnectRoute: typeof ConnectRoute
-  InboxRoute: typeof InboxRoute
+  ConnectAgentRoute: typeof ConnectAgentRoute
   PairRoute: typeof PairRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   UsageRoute: typeof UsageRoute
   WelcomeRoute: typeof WelcomeRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
-  RemoteHostIdThreadIdRoute: typeof RemoteHostIdThreadIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -402,11 +389,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PairRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/inbox': {
-      id: '/inbox'
-      path: '/inbox'
-      fullPath: '/inbox'
-      preLoaderRoute: typeof InboxRouteImport
+    '/connect-agent': {
+      id: '/connect-agent'
+      path: '/connect-agent'
+      fullPath: '/connect-agent'
+      preLoaderRoute: typeof ConnectAgentRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/connect': {
@@ -451,6 +438,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsSnapShotRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/scheduled-tasks': {
+      id: '/settings/scheduled-tasks'
+      path: '/scheduled-tasks'
+      fullPath: '/settings/scheduled-tasks'
+      preLoaderRoute: typeof SettingsScheduledTasksRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/providers': {
       id: '/settings/providers'
       path: '/providers'
@@ -493,25 +487,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsGeneralRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/ditto-account': {
-      id: '/settings/ditto-account'
-      path: '/ditto-account'
-      fullPath: '/settings/ditto-account'
-      preLoaderRoute: typeof SettingsDittoAccountRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     '/settings/diagnostics': {
       id: '/settings/diagnostics'
       path: '/diagnostics'
       fullPath: '/settings/diagnostics'
       preLoaderRoute: typeof SettingsDiagnosticsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/devices': {
-      id: '/settings/devices'
-      path: '/devices'
-      fullPath: '/settings/devices'
-      preLoaderRoute: typeof SettingsDevicesRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/connections': {
@@ -549,12 +529,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatPullRequestsRouteImport
       parentRoute: typeof ChatRoute
     }
-    '/remote/$hostId/$threadId': {
-      id: '/remote/$hostId/$threadId'
-      path: '/remote/$hostId/$threadId'
-      fullPath: '/remote/$hostId/$threadId'
-      preLoaderRoute: typeof RemoteHostIdThreadIdRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_chat/new': {
+      id: '/_chat/new'
+      path: '/new'
+      fullPath: '/new'
+      preLoaderRoute: typeof ChatNewRouteImport
+      parentRoute: typeof ChatRoute
     }
     '/_chat/draft/$draftId': {
       id: '/_chat/draft/$draftId'
@@ -574,6 +554,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface ChatRouteChildren {
+  ChatNewRoute: typeof ChatNewRoute
   ChatPullRequestsRoute: typeof ChatPullRequestsRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
@@ -581,6 +562,7 @@ interface ChatRouteChildren {
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
+  ChatNewRoute: ChatNewRoute,
   ChatPullRequestsRoute: ChatPullRequestsRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
@@ -593,15 +575,14 @@ interface SettingsRouteChildren {
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsArchivedRoute: typeof SettingsArchivedRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
-  SettingsDevicesRoute: typeof SettingsDevicesRoute
   SettingsDiagnosticsRoute: typeof SettingsDiagnosticsRoute
-  SettingsDittoAccountRoute: typeof SettingsDittoAccountRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsKeybindingsRoute: typeof SettingsKeybindingsRoute
   SettingsOpenSourceLicensesRoute: typeof SettingsOpenSourceLicensesRoute
   SettingsProjectsRoute: typeof SettingsProjectsRoute
   SettingsProvidersRoute: typeof SettingsProvidersRoute
+  SettingsScheduledTasksRoute: typeof SettingsScheduledTasksRoute
   SettingsSnapShotRoute: typeof SettingsSnapShotRoute
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
@@ -611,15 +592,14 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsArchivedRoute: SettingsArchivedRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
-  SettingsDevicesRoute: SettingsDevicesRoute,
   SettingsDiagnosticsRoute: SettingsDiagnosticsRoute,
-  SettingsDittoAccountRoute: SettingsDittoAccountRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsKeybindingsRoute: SettingsKeybindingsRoute,
   SettingsOpenSourceLicensesRoute: SettingsOpenSourceLicensesRoute,
   SettingsProjectsRoute: SettingsProjectsRoute,
   SettingsProvidersRoute: SettingsProvidersRoute,
+  SettingsScheduledTasksRoute: SettingsScheduledTasksRoute,
   SettingsSnapShotRoute: SettingsSnapShotRoute,
   SettingsSourceControlRoute: SettingsSourceControlRoute,
   SettingsStorageRoute: SettingsStorageRoute,
@@ -632,13 +612,12 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
   ConnectRoute: ConnectRoute,
-  InboxRoute: InboxRoute,
+  ConnectAgentRoute: ConnectAgentRoute,
   PairRoute: PairRoute,
   SettingsRoute: SettingsRouteWithChildren,
   UsageRoute: UsageRoute,
   WelcomeRoute: WelcomeRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
-  RemoteHostIdThreadIdRoute: RemoteHostIdThreadIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

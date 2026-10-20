@@ -38,7 +38,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import * as ServerConfig from "../config.ts";
-import { expandHomePath } from "../pathExpansion.ts";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { ProviderSessionRuntimeRepository } from "../persistence/ProviderSessionRuntime.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
@@ -443,7 +443,7 @@ const make = Effect.gen(function* () {
       harness === "claude-code"
         ? current?.providers.claudeAgent.homePath.trim()
         : current?.providers.codex.homePath.trim();
-    if (configured && configured.length > 0) return path.resolve(expandHomePath(configured));
+    if (configured && configured.length > 0) return path.resolve(expandHomePath(configured, NodeOS.homedir()));
     return path.join(NodeOS.homedir(), harness === "claude-code" ? ".claude" : ".codex");
   });
 

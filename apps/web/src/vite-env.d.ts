@@ -13,6 +13,7 @@ interface ImportMetaEnv {
   readonly VITE_RELAY_OTLP_TRACES_URL: string;
   readonly VITE_RELAY_OTLP_TRACES_DATASET: string;
   readonly VITE_RELAY_OTLP_TRACES_TOKEN: string;
+  readonly T3CODE_DESKTOP_UPDATE_REPOSITORY: string;
   readonly APP_VERSION: string;
   // DITTO: Ditto cloud account config (see .env.example).
   readonly VITE_DITTO_FIREBASE_API_KEY?: string;
