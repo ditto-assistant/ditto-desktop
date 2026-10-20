@@ -20,9 +20,20 @@ git merge -s ours <upstream-sha-the-squash-contained>
 git merge upstream/main
 ```
 
+## GitHub Actions are disabled
+
+Every workflow is renamed to `*.yml.disabled`, so nothing in GitHub Actions runs
+(no PR CI, releases, previews or the weekly sync below). Validate on remote
+compute instead. A workflow is re-enabled by renaming it back.
+
+Upstream merges can add new workflow files under their normal names, and those
+would run. After each sync, rename any new `.github/workflows/*.yml` to
+`.yml.disabled`. Edits upstream makes to existing workflows follow git's rename
+detection into the `.disabled` files.
+
 ## Weekly sync PR
 
-`.github/workflows/upstream-sync.yml` runs on Mondays (and on demand) and opens
+`.github/workflows/upstream-sync.yml` (disabled, see above) runs on Mondays (and on demand) and opens
 `sync/t3code-<date>-<sha>` with upstream merged in. A clean merge opens a normal
 PR; a conflicted one opens a draft with the markers committed and the conflicting
 files listed. Resolve on that branch, push, mark ready. Only one sync PR is open
