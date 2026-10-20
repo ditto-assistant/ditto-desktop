@@ -371,8 +371,6 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
   const desktopBrowserFd = bootstrap?.desktopBrowserFd;
   const desktopBrowserControlFd = bootstrap?.desktopBrowserControlFd;
   const resourceMonitorPath = bootstrap?.resourceMonitorPath;
-  const discordSidecarPath = bootstrap?.discordSidecarPath;
-  const telegramSidecarPath = bootstrap?.telegramSidecarPath;
   const autoBootstrapProjectFromCwd = Option.getOrElse(
     resolveOptionPrecedence(
       Option.fromUndefinedOr(options?.forceAutoBootstrapProjectFromCwd),
@@ -480,8 +478,6 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     desktopBrowserFd,
     desktopBrowserControlFd,
     resourceMonitorPath,
-    discordSidecarPath,
-    telegramSidecarPath,
     autoBootstrapProjectFromCwd,
     logWebSocketEvents,
     tailscaleServeEnabled,

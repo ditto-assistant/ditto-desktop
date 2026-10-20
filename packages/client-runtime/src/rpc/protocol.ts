@@ -1,8 +1,9 @@
-import { WsRpcGroup } from "@t3tools/contracts";
+// DITTO: clients speak the merged group so Ditto RPCs are callable.
+import { DittoAppWsRpcGroup } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import { RpcClient } from "effect/rpc";
 
-export const makeWsRpcProtocolClient = RpcClient.make(WsRpcGroup);
+export const makeWsRpcProtocolClient = RpcClient.make(DittoAppWsRpcGroup);
 type RpcClientFactory = typeof makeWsRpcProtocolClient;
 export type WsRpcProtocolClient =
   RpcClientFactory extends Effect.Effect<infer Client, any, any> ? Client : never;

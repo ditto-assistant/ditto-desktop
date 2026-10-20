@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - fixtures hash bytes synchronously.
 import * as NodeCrypto from "node:crypto";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -5,7 +6,7 @@ import type { BackendToHostFrame, HostToBackendFrame } from "@t3tools/contracts"
 import { expect, it } from "@effect/vitest";
 import type * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
-import * as Encoding from "effect/Encoding";
+import * as Base64 from "effect/encoding/Base64";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -555,13 +556,13 @@ it.live("bridges an environment tunnel from a paired host to the local listener"
     yield* socket.push({
       type: "env.frame",
       tunnelId: "tun-1",
-      payload: Encoding.encodeBase64(new TextEncoder().encode("rpc request")),
+      payload: Base64.encode(new TextEncoder().encode("rpc request")),
     });
     yield* tunnelTarget.emit(new TextEncoder().encode("rpc response"));
     expect(yield* socket.next).toEqual({
       type: "env.frame",
       tunnelId: "tun-1",
-      payload: Encoding.encodeBase64(new TextEncoder().encode("rpc response")),
+      payload: Base64.encode(new TextEncoder().encode("rpc response")),
     });
     expect(tunnelTarget.opened.map((entry) => entry.path)).toEqual(["/ws"]);
     expect(new TextDecoder().decode(tunnelTarget.opened[0]!.received[0])).toBe("rpc request");

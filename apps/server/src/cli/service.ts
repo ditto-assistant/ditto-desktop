@@ -131,9 +131,7 @@ const serviceInstallCommand = Command.make("install", serviceReconcileFlags).pip
       Effect.gen(function* () {
         const result = yield* reconcileService({ allowDowngrade: flags.allowDowngrade });
         if (!result.changed) {
-          yield* Console.log(
-            `Ditto service is already installed with t3@${packageJson.version}.`,
-          );
+          yield* Console.log(`Ditto service is already installed with t3@${packageJson.version}.`);
           return;
         }
         yield* Console.log(formatServiceChange(result));

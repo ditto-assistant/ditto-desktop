@@ -10,11 +10,7 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import {
-  HostProcessArchitecture,
-  HostProcessEnvironment,
-  HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import { ServerConfig } from "../config.ts";
 import { ProcessRunner, type ProcessRunInput } from "../processRunner.ts";
@@ -114,9 +110,9 @@ export const layer = Layer.effect(
   ChannelRegistry,
   Effect.gen(function* () {
     const processRunner = yield* ProcessRunner;
-    const platform = yield* HostProcessPlatform;
-    const architecture = yield* HostProcessArchitecture;
-    const environment = yield* HostProcessEnvironment;
+    const platform = yield* HostProcess.Platform;
+    const architecture = yield* HostProcess.Architecture;
+    const environment = yield* HostProcess.Environment;
     const config = yield* ServerConfig;
     const run: ChannelCommandRun = (input) => {
       const processInput: ProcessRunInput = {
@@ -154,7 +150,9 @@ export const layer = Layer.effect(
       }),
     });
     const sidecar = yield* Effect.acquireRelease(
-      Effect.sync(() => new DiscordSidecarClient(config.discordSidecarPath, config.stateDir)),
+      Effect.sync(
+        () => new DiscordSidecarClient(environment.DITTO_DISCORD_SIDECAR_PATH, config.stateDir),
+      ),
       (client) => Effect.sync(() => client.close()),
     );
     const discord = makeDiscordCompositeAdapter({
@@ -167,7 +165,9 @@ export const layer = Layer.effect(
       run,
     });
     const telegramSidecar = yield* Effect.acquireRelease(
-      Effect.sync(() => new TelegramSidecarClient(config.telegramSidecarPath, config.stateDir)),
+      Effect.sync(
+        () => new TelegramSidecarClient(environment.DITTO_TELEGRAM_SIDECAR_PATH, config.stateDir),
+      ),
       (client) => Effect.sync(() => client.close()),
     );
     const telegram = makeTelegramProtocolSource(telegramSidecar, telegramLocal);

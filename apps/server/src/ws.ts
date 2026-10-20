@@ -80,10 +80,7 @@ import {
   type ServerConfigStreamEvent,
   type ServerLifecycleStreamEvent,
   type ChannelKnowledgePacketRequest,
-  type OrchestrationV2Command,
   type OrchestrationV2ThreadLaunchInput,
-  type TeleportError,
-  type TeleportProgressEvent,
   type FilesystemBrowseFailure,
   FilesystemBrowseError,
   AssetWorkspaceContextNotFoundError,
@@ -111,10 +108,8 @@ import { RpcSerialization, RpcServer } from "effect/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
-import { DittoHarnessService } from "./dittoHarness/DittoHarnessService.ts";
-import { DittoAccountService } from "./teleport/DittoAccount.ts";
-import { TeleportService } from "./teleport/TeleportService.ts";
 import { ChannelRegistry } from "./channels/ChannelRegistry.ts";
+import { DittoServerWsRpcGroup, layerDittoWsRpc } from "./ditto/wsRpc.ts";
 import {
   materializeKnowledgePacket,
   resolveKnowledgePacketWorktreePath,
@@ -1301,9 +1296,6 @@ const layerWsRpc = (
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const resourceTelemetry = yield* ResourceTelemetry.ResourceTelemetry;
       const relayClient = yield* RelayClient.RelayClient;
-      const dittoHarness = yield* DittoHarnessService;
-      const dittoAccount = yield* DittoAccountService;
-      const teleport = yield* TeleportService;
       const channels = yield* ChannelRegistry;
       // DITTO: knowledge packets. Private chat snapshots are written into the
       // thread's workspace and referenced from the prompt. The request fields
@@ -1318,13 +1310,19 @@ const layerWsRpc = (
           if (input.packets.length === 0) return input.text;
           const packetCwd = input.cwd;
           if (!packetCwd) {
-            return yield* Effect.fail("A worktree is required before chat context can be attached.");
+            return yield* Effect.fail(
+              "A worktree is required before chat context can be attached.",
+            );
           }
           const packetResults = [];
           for (const request of input.packets) {
             const [conversations, messages] = yield* Effect.all([
               channels.listConversations(request.accountId),
-              channels.listMessages(request.accountId, request.conversationId, request.messageLimit),
+              channels.listMessages(
+                request.accountId,
+                request.conversationId,
+                request.messageLimit,
+              ),
             ]).pipe(Effect.mapError((error) => error.message));
             const conversation = conversations.find(
               (candidate) => candidate.conversationId === request.conversationId,
@@ -1389,7 +1387,12 @@ const layerWsRpc = (
           ),
         );
       };
-      const prepareKnowledgePacketLaunch = (input: OrchestrationV2ThreadLaunchInput) => {
+      const prepareKnowledgePacketLaunch = (
+        input: OrchestrationV2ThreadLaunchInput,
+      ): Effect.Effect<
+        Omit<OrchestrationV2ThreadLaunchInput, "knowledgePackets" | "knowledgePacketCwd">,
+        OrchestrationV2ThreadLaunchError
+      > => {
         const { knowledgePackets, knowledgePacketCwd, ...rest } = input;
         const initialMessage = rest.initialMessage;
         if (
@@ -2526,46 +2529,6 @@ const layerWsRpc = (
         [WS_METHODS.serverRetryResourceTelemetry]: (_input) => resourceTelemetry.retry,
         [WS_METHODS.serverCheckOtlpEndpoint]: (input) => otlpEndpointCheck.check(input),
         [WS_METHODS.serverSignalProcess]: (input) => processDiagnostics.signal(input),
-        [WS_METHODS.dittoHarnessStatus]: (_input) => dittoHarness.status,
-        [WS_METHODS.dittoHarnessSaveMemory]: (input) => dittoHarness.saveMemory(input),
-        [WS_METHODS.dittoHarnessSearchMemories]: (input) => dittoHarness.searchMemories(input),
-        [WS_METHODS.dittoHarnessSearchSubjects]: (input) => dittoHarness.searchSubjects(input),
-        [WS_METHODS.dittoHarnessDream]: (input) => dittoHarness.dream(input),
-        [WS_METHODS.dittoAccountGetStatus]: (_input) => dittoAccount.status,
-        [WS_METHODS.dittoAccountLink]: (input) => dittoAccount.link(input),
-        [WS_METHODS.dittoAccountUnlink]: (_input) => dittoAccount.unlink,
-        [WS_METHODS.dittoAccountStartDeviceLink]: (input) => dittoAccount.startDeviceLink(input),
-        [WS_METHODS.dittoAccountPollDeviceLink]: (input) => dittoAccount.pollDeviceLink(input),
-        [WS_METHODS.teleportThread]: (input) =>
-          Stream.callback<TeleportProgressEvent, TeleportError>((queue) =>
-            teleport
-              .teleportThread(input, (progress) =>
-                Queue.offer(queue, { type: "progress", ...progress }).pipe(Effect.asVoid),
-              )
-              .pipe(
-                Effect.flatMap((capsule) =>
-                  Queue.offer(queue, { type: "complete", capsule }).pipe(Effect.asVoid),
-                ),
-                Effect.flatMap(() => Queue.end(queue)),
-                Effect.catch((error) => Queue.fail(queue, error)),
-              ),
-          ),
-        [WS_METHODS.teleportLaunchCloudSession]: (input) => teleport.launchCloudSession(input),
-        [WS_METHODS.channelsListAccounts]: (_input) =>
-          channels.listAccounts.pipe(Effect.map((accounts) => ({ accounts }))),
-        [WS_METHODS.channelsConfigureAccount]: (input) =>
-          channels
-            .configureAccount(input.accountId, input.enabled)
-            .pipe(Effect.map((account) => ({ account }))),
-        [WS_METHODS.channelsListConversations]: (input) =>
-          channels
-            .listConversations(input.accountId)
-            .pipe(Effect.map((conversations) => ({ conversations }))),
-        [WS_METHODS.channelsListMessages]: (input) =>
-          channels
-            .listMessages(input.accountId, input.conversationId, input.limit)
-            .pipe(Effect.map((messages) => ({ messages }))),
-        [WS_METHODS.channelsSendMessage]: (input) => channels.sendMessage(input),
         [WS_METHODS.serverReportClientActivity]: (input, metadata) =>
           Ref.update(rpcClientIds, (clientIds) => {
             const next = new Set(clientIds);
@@ -3305,7 +3268,11 @@ export const layer = Layer.unwrap(
         yield* analytics.record("client.connected", clientAnalyticsProps);
         const rpcWebSocketHttpEffect = yield* Effect.gen(function* () {
           const { protocol, httpEffect } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket;
-          yield* RpcServer.make(ServerWsRpcGroup, WS_RPC_SERVER_OPTIONS).pipe(
+          // DITTO: Ditto RPCs are served from their own group and handler layer.
+          yield* RpcServer.make(
+            ServerWsRpcGroup.merge(DittoServerWsRpcGroup),
+            WS_RPC_SERVER_OPTIONS,
+          ).pipe(
             Effect.provideService(RpcServer.Protocol, withTerminalOutputWindow(protocol)),
             Effect.provide(
               Layer.merge(
@@ -3333,12 +3300,15 @@ export const layer = Layer.unwrap(
           return httpEffect;
         }).pipe(
           Effect.provide(
-            layerWsRpc(
-              session,
-              clientOrigin,
-              clientAnalyticsProps,
-              previewAutomationBroker,
-              serverBrowser,
+            Layer.merge(
+              layerWsRpc(
+                session,
+                clientOrigin,
+                clientAnalyticsProps,
+                previewAutomationBroker,
+                serverBrowser,
+              ),
+              layerDittoWsRpc,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees

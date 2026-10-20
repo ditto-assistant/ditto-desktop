@@ -1127,16 +1127,6 @@ export default function ChatView(props: ChatViewProps) {
   );
   const baseComposerDraftTarget: ScopedThreadRef | DraftId =
     routeKind === "server" ? routeThreadRef : props.draftId;
-  const knowledgePacketTarget = knowledgePacketTargetKey(environmentId, composerDraftTarget);
-  const pendingKnowledgePackets = useKnowledgePacketStore(
-    (state) => state.pendingByTarget[knowledgePacketTarget] ?? EMPTY_KNOWLEDGE_PACKETS,
-  );
-  const detachKnowledgePacket = useKnowledgePacketStore((state) => state.detach);
-  const clearPendingKnowledgePackets = useKnowledgePacketStore((state) => state.clear);
-  const setActiveKnowledgePacketTarget = useKnowledgePacketStore((state) => state.setActiveTarget);
-  useEffect(() => {
-    setActiveKnowledgePacketTarget(environmentId, knowledgePacketTarget);
-  }, [environmentId, knowledgePacketTarget, setActiveKnowledgePacketTarget]);
   const draftThread = useComposerDraftStore((store) =>
     routeKind === "server"
       ? store.getDraftSessionByRef(routeThreadRef)
@@ -1164,6 +1154,16 @@ export default function ChatView(props: ChatViewProps) {
     composerRef,
   });
   const composerDraftTarget = queuedRunEdit.draftTarget;
+  const knowledgePacketTarget = knowledgePacketTargetKey(environmentId, composerDraftTarget);
+  const pendingKnowledgePackets = useKnowledgePacketStore(
+    (state) => state.pendingByTarget[knowledgePacketTarget] ?? EMPTY_KNOWLEDGE_PACKETS,
+  );
+  const detachKnowledgePacket = useKnowledgePacketStore((state) => state.detach);
+  const clearPendingKnowledgePackets = useKnowledgePacketStore((state) => state.clear);
+  const setActiveKnowledgePacketTarget = useKnowledgePacketStore((state) => state.setActiveTarget);
+  useEffect(() => {
+    setActiveKnowledgePacketTarget(environmentId, knowledgePacketTarget);
+  }, [environmentId, knowledgePacketTarget, setActiveKnowledgePacketTarget]);
   const reportedModelSelection = serverProjection
     ? deriveReportedModelSelection(serverProjection)
     : null;

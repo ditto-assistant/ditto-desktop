@@ -2079,23 +2079,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsSecretsAnswerRequestRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,
-  WsDittoAccountGetStatusRpc,
-  WsDittoAccountLinkRpc,
-  WsDittoAccountUnlinkRpc,
-  WsDittoAccountStartDeviceLinkRpc,
-  WsDittoAccountPollDeviceLinkRpc,
-  WsTeleportThreadRpc,
-  WsTeleportLaunchCloudSessionRpc,
-  WsDittoHarnessStatusRpc,
-  WsDittoHarnessSaveMemoryRpc,
-  WsDittoHarnessSearchMemoriesRpc,
-  WsDittoHarnessSearchSubjectsRpc,
-  WsDittoHarnessDreamRpc,
-  WsChannelsListAccountsRpc,
-  WsChannelsConfigureAccountRpc,
-  WsChannelsListConversationsRpc,
-  WsChannelsListMessagesRpc,
-  WsChannelsSendMessageRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,
@@ -2231,3 +2214,29 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeThreadRpc,
   WsOrchestrationV2SubscribeCommandOutputRpc,
 ).middleware(RpcScopeAuthorization);
+
+// DITTO: fork-only RPCs live in their own group so upstream's group stays
+// byte-identical and the server can build their handlers in a separate layer.
+// One handler map over both groups is past what the checker can infer.
+export const DittoWsRpcGroup = RpcGroup.make(
+  WsDittoAccountGetStatusRpc,
+  WsDittoAccountLinkRpc,
+  WsDittoAccountUnlinkRpc,
+  WsDittoAccountStartDeviceLinkRpc,
+  WsDittoAccountPollDeviceLinkRpc,
+  WsTeleportThreadRpc,
+  WsTeleportLaunchCloudSessionRpc,
+  WsDittoHarnessStatusRpc,
+  WsDittoHarnessSaveMemoryRpc,
+  WsDittoHarnessSearchMemoriesRpc,
+  WsDittoHarnessSearchSubjectsRpc,
+  WsDittoHarnessDreamRpc,
+  WsChannelsListAccountsRpc,
+  WsChannelsConfigureAccountRpc,
+  WsChannelsListConversationsRpc,
+  WsChannelsListMessagesRpc,
+  WsChannelsSendMessageRpc,
+).middleware(RpcScopeAuthorization);
+
+/** Everything a Ditto client can call: upstream's RPCs plus Ditto's. */
+export const DittoAppWsRpcGroup = WsRpcGroup.merge(DittoWsRpcGroup);

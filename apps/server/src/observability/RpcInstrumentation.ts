@@ -1,4 +1,8 @@
-import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS, type WsRpcGroup } from "@t3tools/contracts";
+import {
+  type DittoAppWsRpcGroup,
+  ORCHESTRATION_V2_WS_METHODS,
+  WS_METHODS,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as References from "effect/References";
@@ -7,7 +11,8 @@ import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
 
 import { rpcRequestDuration, rpcRequestsTotal, withMetrics } from "./Metrics.ts";
 
-type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
+// DITTO: Ditto RPCs are scoped and instrumented like upstream ones.
+type WsRpcMethod = RpcGroup.Rpcs<typeof DittoAppWsRpcGroup>["_tag"];
 
 /**
  * Trace queries and dashboards group by these labels, so they keep their historical values
@@ -209,6 +214,24 @@ const RPC_AGGREGATES = {
   [WS_METHODS.subscribeServerLifecycle]: "server",
   [WS_METHODS.subscribeAuthAccess]: "auth",
   [WS_METHODS.subscribeBackgroundPolicy]: "server",
+  // DITTO: fork-only RPC groups.
+  [WS_METHODS.dittoHarnessStatus]: "dittoHarness",
+  [WS_METHODS.dittoHarnessSaveMemory]: "dittoHarness",
+  [WS_METHODS.dittoHarnessSearchMemories]: "dittoHarness",
+  [WS_METHODS.dittoHarnessSearchSubjects]: "dittoHarness",
+  [WS_METHODS.dittoHarnessDream]: "dittoHarness",
+  [WS_METHODS.dittoAccountGetStatus]: "dittoAccount",
+  [WS_METHODS.dittoAccountLink]: "dittoAccount",
+  [WS_METHODS.dittoAccountUnlink]: "dittoAccount",
+  [WS_METHODS.dittoAccountStartDeviceLink]: "dittoAccount",
+  [WS_METHODS.dittoAccountPollDeviceLink]: "dittoAccount",
+  [WS_METHODS.teleportThread]: "teleport",
+  [WS_METHODS.teleportLaunchCloudSession]: "teleport",
+  [WS_METHODS.channelsListAccounts]: "channels",
+  [WS_METHODS.channelsConfigureAccount]: "channels",
+  [WS_METHODS.channelsListConversations]: "channels",
+  [WS_METHODS.channelsListMessages]: "channels",
+  [WS_METHODS.channelsSendMessage]: "channels",
 } as const satisfies Readonly<Record<WsRpcMethod, string>>;
 
 const RPC_SPAN_PREFIX = "ws.rpc";

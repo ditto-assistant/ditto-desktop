@@ -606,14 +606,6 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         onNone: () => ({}),
         onSome: (resourceMonitorPath) => ({ resourceMonitorPath }),
       }),
-      ...Option.match(input.discordSidecarPath, {
-        onNone: () => ({}),
-        onSome: (discordSidecarPath) => ({ discordSidecarPath }),
-      }),
-      ...Option.match(input.telegramSidecarPath, {
-        onNone: () => ({}),
-        onSome: (telegramSidecarPath) => ({ telegramSidecarPath }),
-      }),
       ...buildObservabilityFragment(input.observabilitySettings),
     };
 
@@ -635,6 +627,9 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         ...backendChildEnvPatch(),
         ELECTRON_RUN_AS_NODE: "1",
         T3CODE_CLI_PATH: Option.getOrUndefined(input.cliPath),
+        // DITTO: sidecar paths ride the env, not upstream's bootstrap envelope.
+        DITTO_DISCORD_SIDECAR_PATH: Option.getOrUndefined(input.discordSidecarPath),
+        DITTO_TELEGRAM_SIDECAR_PATH: Option.getOrUndefined(input.telegramSidecarPath),
         ...(environment.platform === "darwin"
           ? {
               DITTO_TELEGRAM_HELPER_PATH: environment.isPackaged

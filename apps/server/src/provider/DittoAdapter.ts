@@ -29,7 +29,10 @@ import * as Stream from "effect/Stream";
 
 import { AcpProviderCapabilitiesV2 } from "@t3tools/provider-acp/server/adapter";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
-import { makeProviderFailure, makeProviderFailureTurnItem } from "@t3tools/provider-core/server/failure";
+import {
+  makeProviderFailure,
+  makeProviderFailureTurnItem,
+} from "@t3tools/provider-core/server/failure";
 import {
   dittoModelOptions,
   explainDittoHarnessFailure,
@@ -114,9 +117,7 @@ export const makeDittoAdapter = Effect.fn("makeDittoAdapter")(function* (
 ) {
   yield* Effect.void;
 
-  const openSession: ProviderAdapter.ProviderAdapterV2["Service"]["openSession"] = (
-    sessionInput,
-  ) =>
+  const openSession: ProviderAdapter.ProviderAdapterV2["Service"]["openSession"] = (sessionInput) =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope;
       const events = yield* PubSub.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
@@ -180,7 +181,11 @@ export const makeDittoAdapter = Effect.fn("makeDittoAdapter")(function* (
             completedAt: null,
           };
           yield* recordTurn(runningTurn);
-          yield* publish({ type: "provider_turn.updated", driver: PROVIDER, providerTurn: runningTurn });
+          yield* publish({
+            type: "provider_turn.updated",
+            driver: PROVIDER,
+            providerTurn: runningTurn,
+          });
 
           const finish = (
             status: "completed" | "interrupted" | "failed",
@@ -226,7 +231,11 @@ export const makeDittoAdapter = Effect.fn("makeDittoAdapter")(function* (
                   },
                 });
               }
-              yield* publish({ type: "provider_turn.updated", driver: PROVIDER, providerTurn: finalTurn });
+              yield* publish({
+                type: "provider_turn.updated",
+                driver: PROVIDER,
+                providerTurn: finalTurn,
+              });
               if (body.kind === "failure") {
                 const failure = makeProviderFailure({
                   message: body.message,
@@ -275,9 +284,9 @@ export const makeDittoAdapter = Effect.fn("makeDittoAdapter")(function* (
             });
 
           const run = Effect.gen(function* () {
-            const opened = yield* options.opener(settings).pipe(
-              Effect.mapError((cause) => ({ message: cause.message, cause })),
-            );
+            const opened = yield* options
+              .opener(settings)
+              .pipe(Effect.mapError((cause) => ({ message: cause.message, cause })));
             const model = turnInput.modelSelection.model || settings.chatModel;
             const result = yield* Effect.tryPromise({
               try: () =>

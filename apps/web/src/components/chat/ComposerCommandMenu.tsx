@@ -262,6 +262,8 @@ const LISTBOX_LABEL_BY_TRIGGER: Record<ComposerTriggerKind, string> = {
   "pull-request": "Pull requests",
   "slash-command": "Commands",
   skill: "Skills",
+  // DITTO: Discord/Telegram conversations picked after /chat.
+  "chat-context": "Chats",
 };
 
 const SKILL_SOURCE_ICON_BY_KIND: Record<ProviderSkillSourceKind, LucideIcon> = {

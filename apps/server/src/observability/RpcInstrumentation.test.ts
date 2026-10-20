@@ -1,3 +1,4 @@
+// DITTO: scopes and aggregates cover Ditto RPCs, so tests use the merged group.
 import { assert, describe, it } from "@effect/vitest";
 import {
   AuthEnvironmentMaintainScope,
@@ -6,7 +7,7 @@ import {
   ScheduledTaskError,
   ScheduledTaskId,
   WS_METHODS,
-  WsRpcGroup,
+  DittoAppWsRpcGroup,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
@@ -28,8 +29,8 @@ import { RpcInstrumentation, rpcInstrumentationLayer } from "./RpcInstrumentatio
 type WsRpcMethod = keyof typeof RPC_REQUIRED_SCOPES;
 
 const groupOf = <const Tags extends ReadonlyArray<WsRpcMethod>>(...tags: Tags) =>
-  WsRpcGroup.omit(
-    ...[...WsRpcGroup.requests.keys()].filter(
+  DittoAppWsRpcGroup.omit(
+    ...[...DittoAppWsRpcGroup.requests.keys()].filter(
       (tag): tag is Exclude<WsRpcMethod, Tags[number]> =>
         !(tags as ReadonlyArray<string>).includes(tag),
     ),

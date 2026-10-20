@@ -1,3 +1,4 @@
+// DITTO: scopes and aggregates cover Ditto RPCs, so tests use the merged group.
 import {
   AuthEnvironmentMaintainScope,
   AuthDiagnosticsReadScope,
@@ -17,7 +18,7 @@ import {
   AuthTerminalReadScope,
   AuthTerminalOperateScope,
   WS_METHODS,
-  WsRpcGroup,
+  DittoAppWsRpcGroup,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -33,7 +34,9 @@ import * as RpcAuthorization from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
   it("declares exactly one scope for every RPC in the server group", () => {
-    expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
+    expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(
+      new Set(DittoAppWsRpcGroup.requests.keys()),
+    );
   });
 
   it("requires operate access to stop a workflow", () => {
@@ -216,8 +219,8 @@ it("requires operate permission for tool updates even alongside a read-only chec
 
 describe("RPC scope middleware", () => {
   const tested = [WS_METHODS.serverProbe, WS_METHODS.serverRetryResourceTelemetry] as const;
-  const group = WsRpcGroup.omit(
-    ...[...WsRpcGroup.requests.keys()].filter(
+  const group = DittoAppWsRpcGroup.omit(
+    ...[...DittoAppWsRpcGroup.requests.keys()].filter(
       (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, (typeof tested)[number]> =>
         !(tested as ReadonlyArray<string>).includes(tag),
     ),
@@ -282,8 +285,8 @@ describe("RPC scope middleware", () => {
 });
 
 describe("settings mutation authorization", () => {
-  const group = WsRpcGroup.omit(
-    ...[...WsRpcGroup.requests.keys()].filter(
+  const group = DittoAppWsRpcGroup.omit(
+    ...[...DittoAppWsRpcGroup.requests.keys()].filter(
       (
         tag,
       ): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, typeof WS_METHODS.serverUpdateSettings> =>
@@ -352,8 +355,8 @@ describe("settings mutation authorization", () => {
 
 it.effect("requires task permission before attaching a prepared worktree to a thread", () =>
   Effect.gen(function* () {
-    const group = WsRpcGroup.omit(
-      ...[...WsRpcGroup.requests.keys()].filter(
+    const group = DittoAppWsRpcGroup.omit(
+      ...[...DittoAppWsRpcGroup.requests.keys()].filter(
         (
           tag,
         ): tag is Exclude<
@@ -389,8 +392,8 @@ it.effect("requires task permission before attaching a prepared worktree to a th
 
 it.effect("separates host file URLs from readable attachment URLs", () =>
   Effect.gen(function* () {
-    const group = WsRpcGroup.omit(
-      ...[...WsRpcGroup.requests.keys()].filter(
+    const group = DittoAppWsRpcGroup.omit(
+      ...[...DittoAppWsRpcGroup.requests.keys()].filter(
         (
           tag,
         ): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, typeof WS_METHODS.assetsCreateUrl> =>
@@ -432,8 +435,8 @@ it.effect("separates host file URLs from readable attachment URLs", () =>
 
 it.effect("denies manual cleanup before the handler without settings permission", () =>
   Effect.gen(function* () {
-    const group = WsRpcGroup.omit(
-      ...[...WsRpcGroup.requests.keys()].filter(
+    const group = DittoAppWsRpcGroup.omit(
+      ...[...DittoAppWsRpcGroup.requests.keys()].filter(
         (
           tag,
         ): tag is Exclude<

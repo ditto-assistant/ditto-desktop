@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - sha256 of downloaded bytes, synchronous like attachmentStore.ts.
 /**
  * Turn attachments land in `<cwd>/.tmp/ditto/attachments/<turnId>/<name>` so
  * the harness can read them by relative path. The directory is kept out of
@@ -14,7 +15,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 
 const ATTACHMENTS_RELATIVE_DIR = ".tmp/ditto/attachments";
 const EXCLUDE_ENTRY = "/.tmp/ditto/";

@@ -25,6 +25,7 @@ import {
   type RuntimeRequestId,
   type ThreadId,
   type ThreadEnvMode,
+  type ChannelKnowledgePacketRequest,
   type UploadChatAttachment,
 } from "@t3tools/contracts";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
@@ -156,6 +157,9 @@ interface StartThreadBootstrap {
     readonly startFromOrigin?: boolean;
   };
   readonly runSetupScript?: boolean;
+  // DITTO: chat context snapshots the server materializes into the workspace.
+  readonly knowledgePackets?: ReadonlyArray<ChannelKnowledgePacketRequest>;
+  readonly knowledgePacketCwd?: string;
 }
 
 export interface StartThreadTurnInput extends ThreadCommandInput {
@@ -633,6 +637,16 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
   );
   const bootstrap = input.bootstrap?.createThread;
   const prepareWorktree = input.bootstrap?.prepareWorktree;
+  // DITTO: knowledge packets ride on whichever command starts the turn.
+  const knowledgePacketFields =
+    input.bootstrap?.knowledgePackets === undefined || input.bootstrap.knowledgePackets.length === 0
+      ? {}
+      : {
+          knowledgePackets: input.bootstrap.knowledgePackets,
+          ...(input.bootstrap.knowledgePacketCwd === undefined
+            ? {}
+            : { knowledgePacketCwd: input.bootstrap.knowledgePacketCwd }),
+        };
   if (bootstrap !== undefined || prepareWorktree !== undefined) {
     const existingProjection =
       bootstrap === undefined ? yield* getProjection(input.threadId) : null;
@@ -671,6 +685,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       runtimeMode: input.runtimeMode,
       interactionMode: input.interactionMode,
       workspaceStrategy,
+      ...knowledgePacketFields,
       initialMessage: {
         messageId: input.message.messageId,
         text: input.message.text,
@@ -699,6 +714,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       ...(input.sourceProposedPlan === undefined
         ? {}
         : { sourcePlanRef: input.sourceProposedPlan }),
+      ...knowledgePacketFields,
       dispatchMode: { type: "start_immediately" },
     });
   }
@@ -762,6 +778,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
     ...(serverResolvesCommandContext && requestedMode !== "queue"
       ? { deliveryIntent: requestedMode }
       : {}),
+    ...knowledgePacketFields,
     dispatchMode,
   });
 });

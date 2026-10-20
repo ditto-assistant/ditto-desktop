@@ -28,14 +28,15 @@ import {
   EnvironmentAuthorizationError,
   RpcScopeAuthorization,
   WS_METHODS,
-  WsRpcGroup,
+  type DittoAppWsRpcGroup,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Layer from "effect/Layer";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
 
-type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
+// DITTO: Ditto RPCs are scoped and instrumented like upstream ones.
+type WsRpcMethod = RpcGroup.Rpcs<typeof DittoAppWsRpcGroup>["_tag"];
 
 export const RPC_REQUIRED_SCOPES = {
   ...CLIENT_GUARDED_RPC_SCOPES,

@@ -22,7 +22,7 @@ import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Encoding from "effect/Encoding";
+import * as Base64 from "effect/encoding/Base64";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -320,7 +320,7 @@ export const makeHostBridgeClient = Effect.fn("makeHostBridgeClient")(function* 
               send({
                 type: "env.frame",
                 tunnelId: input.tunnelId,
-                payload: Encoding.encodeBase64(bytes),
+                payload: Base64.encode(bytes),
               }),
             ).pipe(
               Effect.andThen(
@@ -415,7 +415,7 @@ export const makeHostBridgeClient = Effect.fn("makeHostBridgeClient")(function* 
                 });
                 return;
               }
-              const bytes = Encoding.decodeBase64(frame.payload);
+              const bytes = Base64.decode(frame.payload);
               if (bytes._tag === "Failure") {
                 yield* closeTunnel(frame.tunnelId, "bad payload", true);
                 return;

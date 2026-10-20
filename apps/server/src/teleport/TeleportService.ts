@@ -13,6 +13,9 @@
 import * as NodeOS from "node:os";
 
 import {
+  ClaudeSettings,
+  CodexSettings,
+  ProviderInstanceId,
   type TeleportCapsuleSummary,
   type TeleportCloudSession,
   TeleportError,
@@ -32,10 +35,10 @@ import * as Path from "effect/Path";
 import type * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import * as ServerConfig from "../config.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
@@ -60,6 +63,9 @@ import {
   type TeleportRepoManifest,
 } from "./capsule.ts";
 import { DittoAccountService, type DittoAccountCredentials } from "./DittoAccount.ts";
+
+const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
+const decodeCodexSettings = Schema.decodeUnknownOption(CodexSettings);
 
 const UPLOAD_CONCURRENCY = 4;
 const UPLOAD_RETRIES = 2;
@@ -207,8 +213,8 @@ const make = Effect.gen(function* () {
   const runtimes = yield* ProviderSessionRuntimeRepository;
   const settings = yield* ServerSettingsService;
   const account = yield* DittoAccountService;
-  const hostPlatform = yield* HostProcessPlatform;
-  const hostArchitecture = yield* HostProcessArchitecture;
+  const hostPlatform = yield* HostProcess.Platform;
+  const hostArchitecture = yield* HostProcess.Architecture;
   const decoder = new TextDecoder();
 
   const machineInfo = () => ({
@@ -439,11 +445,19 @@ const make = Effect.gen(function* () {
     harness: TeleportHarness,
   ) {
     const current = yield* settings.getSettings.pipe(Effect.orElseSucceed(() => null));
-    const configured =
-      harness === "claude-code"
-        ? current?.providers.claudeAgent.homePath.trim()
-        : current?.providers.codex.homePath.trim();
-    if (configured && configured.length > 0) return path.resolve(expandHomePath(configured, NodeOS.homedir()));
+    // The built-in instance (keyed by its driver) carries the user's home override.
+    const instance =
+      current?.providerInstances[
+        ProviderInstanceId.make(harness === "claude-code" ? "claudeAgent" : "codex")
+      ];
+    const homePath =
+      instance === undefined
+        ? undefined
+        : harness === "claude-code"
+          ? Option.getOrUndefined(decodeClaudeSettings(instance.config ?? {}))?.homePath
+          : Option.getOrUndefined(decodeCodexSettings(instance.config ?? {}))?.homePath;
+    const configured = homePath?.trim() ?? "";
+    if (configured.length > 0) return path.resolve(expandHomePath(configured, NodeOS.homedir()));
     return path.join(NodeOS.homedir(), harness === "claude-code" ? ".claude" : ".codex");
   });
 

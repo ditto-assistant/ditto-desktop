@@ -171,12 +171,25 @@ import * as CursorAccountReader from "@t3tools/provider-cursor/server/CursorAcco
 import * as CursorKeychain from "@t3tools/provider-cursor/server/CursorKeychain";
 import * as CursorUsageAccounts from "@t3tools/provider-cursor/server/CursorUsageAccounts";
 import * as UsageService from "./usage/UsageService.ts";
-import { DittoHarnessServiceLive } from "./dittoHarness/DittoHarnessService.ts";
+import {
+  DittoHarnessService,
+  DittoHarnessServiceLive,
+} from "./dittoHarness/DittoHarnessService.ts";
 import * as DittoAccount from "./teleport/DittoAccount.ts";
 import * as TeleportServiceLayer from "./teleport/TeleportService.ts";
 import { HostBridgeLive } from "./remote/HostBridge.layer.ts"; // DITTO
 import * as ChannelRegistry from "./channels/ChannelRegistry.ts";
 import * as ProviderSessionRuntime from "./persistence/ProviderSessionRuntime.ts";
+// DITTO: types for the explicit layerDitto annotation.
+import type * as Crypto from "effect/Crypto";
+import type * as FileSystem from "effect/FileSystem";
+import type { HttpClient } from "effect/http";
+import type * as Path from "effect/Path";
+import type * as PlatformError from "effect/PlatformError";
+import type * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import type * as SqlClient from "effect/sql/SqlClient";
+import type * as ProjectService from "./project/ProjectService.ts";
+import type * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
 import * as RuntimeLayer from "./orchestration-v2/runtimeLayer.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
@@ -680,13 +693,38 @@ const DittoHostBridgeLive = HostBridgeLive({
   version: process.env.T3CODE_VERSION ?? process.env.npm_package_version ?? "dev",
 });
 
-const layerRuntimeCoreDependenciesWithDitto = Layer.mergeAll(
+// DITTO: spelled out so the checker never infers the server layer graph
+// through the Ditto layers. Inferring it pushed the CLI over TypeScript's
+// per-statement instantiation budget, which silently widens `runServer`'s
+// requirements to `any`. Keep this in sync when a Ditto layer's needs change.
+const layerDitto: Layer.Layer<
+  | ChannelRegistry.ChannelRegistry
+  | DittoAccount.DittoAccountService
+  | DittoHarnessService
+  | TeleportServiceLayer.TeleportService,
+  PlatformError.PlatformError | ServerSecretStore.SecretStoreSecureError,
+  | ChildProcessSpawner.ChildProcessSpawner
+  | Crypto.Crypto
+  | FileSystem.FileSystem
+  | HttpClient.HttpClient
+  | Path.Path
+  | ProjectService.ProjectService
+  | ProviderInstanceRegistry.ProviderInstanceRegistry
+  | ServerConfig.ServerConfig
+  | ServerSettings.ServerSettingsService
+  | SqlClient.SqlClient
+  | ThreadManagementService.ThreadManagementService
+> = Layer.mergeAll(
   DittoHarnessServiceLive,
   LocalChannelsLayerLive,
   DittoAccountLayerLive,
   TeleportLayerLive,
   DittoHostBridgeLive,
-).pipe(Layer.provideMerge(layerRuntimeCoreDependencies));
+);
+
+const layerRuntimeCoreDependenciesWithDitto = layerDitto.pipe(
+  Layer.provideMerge(layerRuntimeCoreDependencies),
+);
 
 const layerRuntimeDependencies = layerRuntimeCoreDependenciesWithDitto.pipe(
   Layer.provideMerge(layerUsage),
