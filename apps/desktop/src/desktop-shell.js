@@ -280,6 +280,7 @@
     const search = element("input", "ditto-code-search");
     search.type = "search";
     search.placeholder = "Search chats";
+    search.value = codeSearch;
     search.setAttribute("aria-label", "Search Code chats");
     search.addEventListener("input", () => {
       codeSearch = search.value;
@@ -462,17 +463,25 @@
     const rect = browserPage.querySelector("#db-viewport").getBoundingClientRect();
     return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
   };
+  function codeBrowserAllowed() {
+    if (
+      !codePaneVisible ||
+      codeTool !== "browser" ||
+      document.body.classList.contains("ditto-code-resizing")
+    )
+      return false;
+    return ![
+      ...document.querySelectorAll(
+        '[role="dialog"], [role="alertdialog"], [aria-modal="true"], .v2-shell-header [data-active="true"]',
+      ),
+    ].some(
+      (node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden",
+    );
+  }
   async function showBrowser() {
     try {
       const state = await window.ditto.browserStatus();
-      if (
-        state.url &&
-        codePaneVisible &&
-        codeTool === "browser" &&
-        !document.body.classList.contains("ditto-code-resizing")
-      )
-        if (codePaneVisible && codeTool === "browser")
-          await window.ditto.browserShow(browserBounds());
+      if (state.url && codeBrowserAllowed()) await window.ditto.browserShow(browserBounds());
       browserState(state);
     } catch (error) {
       browserPage.querySelector("#db-status").textContent = desktopError(error);
@@ -505,7 +514,7 @@
       const state = await window.ditto.browserNavigate(
         browserPage.querySelector("#db-address").value,
       );
-      await window.ditto.browserShow(browserBounds());
+      if (codeBrowserAllowed()) await window.ditto.browserShow(browserBounds());
       browserState(state);
     } catch (error) {
       browserPage.querySelector("#db-status").textContent = desktopError(error);
@@ -848,12 +857,32 @@
   }
   codePane.append(paneResize, paneHead, terminalPanel, browserPage, activityPanel);
   codePane.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && !terminalPanel.contains(event.target)) {
       event.stopPropagation();
       closePane.click();
     }
   });
   document.body.append(codePane);
+  let browserVisibilityFrame = 0;
+  let nativeBrowserAllowed = false;
+  // Native WebContentsView layers sit above HTML, so detach them while a dialog
+  // or header drawer owns the foreground. Watch portals outside the app root too.
+  new MutationObserver(() => {
+    if (browserVisibilityFrame) return;
+    browserVisibilityFrame = requestAnimationFrame(() => {
+      browserVisibilityFrame = 0;
+      const allowed = codeBrowserAllowed();
+      if (allowed === nativeBrowserAllowed) return;
+      nativeBrowserAllowed = allowed;
+      if (allowed) void showBrowser();
+      else void window.ditto.browserHide();
+    });
+  }).observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["class", "style", "hidden", "data-active", "aria-modal", "open"],
+  });
   const terminals = new Map();
   const activities = new Map();
   let codePaneVisible = false;
