@@ -1,0 +1,121 @@
+# DITTO: fork-only workflow. Opens a weekly PR that merges pingdotgg/t3code
+# main into ours with a real merge commit, so each sync stays small and git
+# keeps the true merge base. See docs/ditto/upstream-sync.md.
+name: Upstream sync
+
+on:
+  schedule:
+    - cron: "0 14 * * 1" # Mondays 14:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'ditto-assistant/ditto-desktop'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      # GITHUB_TOKEN cannot push commits that touch .github/workflows (upstream
+      # merges often do) and PRs it opens do not trigger CI, so this needs a
+      # token with contents, pull-requests and workflows write.
+      - name: Require sync token
+        env:
+          TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::UPSTREAM_SYNC_TOKEN is not set; see docs/ditto/upstream-sync.md"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+
+      - name: Merge upstream main
+        id: merge
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --no-tags upstream main
+
+          behind=$(git rev-list --count HEAD..upstream/main)
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          if [ "$behind" -eq 0 ]; then
+            echo "Already up to date with upstream."
+            exit 0
+          fi
+
+          # One open sync PR at a time; a reviewer finishes it before the next.
+          open=$(gh pr list --state open --search "head:sync/t3code-" --json number --jq 'length')
+          if [ "$open" -gt 0 ]; then
+            echo "An upstream sync PR is already open; skipping."
+            echo "behind=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          upstream_sha=$(git rev-parse --short=12 upstream/main)
+          branch="sync/t3code-$(date -u +%Y%m%d)-$upstream_sha"
+          git switch -c "$branch"
+
+          conflicts=""
+          if ! git -c merge.renameLimit=20000 merge --no-ff --no-edit \
+              -m "chore: merge upstream t3code $upstream_sha" upstream/main; then
+            conflicts=$(git diff --name-only --diff-filter=U)
+            # Commit the markers on a draft PR so a person or agent can
+            # resolve them on the branch; a draft cannot be merged as-is.
+            git add -A
+            git commit --no-edit -m "chore: merge upstream t3code $upstream_sha (conflicts unresolved)"
+          fi
+
+          git push origin "$branch"
+          {
+            echo "branch=$branch"
+            echo "upstream_sha=$upstream_sha"
+            echo "conflict_count=$(printf '%s' "$conflicts" | grep -c . || true)"
+          } >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$conflicts" > "$RUNNER_TEMP/conflicts.txt"
+
+      - name: Open PR
+        if: steps.merge.outputs.behind != '0' && steps.merge.outputs.branch != ''
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+          BRANCH: ${{ steps.merge.outputs.branch }}
+          UPSTREAM_SHA: ${{ steps.merge.outputs.upstream_sha }}
+          BEHIND: ${{ steps.merge.outputs.behind }}
+          CONFLICTS: ${{ steps.merge.outputs.conflict_count }}
+        run: |
+          set -euo pipefail
+          body="$RUNNER_TEMP/body.md"
+          {
+            echo "Merges \`pingdotgg/t3code@$UPSTREAM_SHA\` ($BEHIND upstream commits) with a merge commit."
+            echo
+            echo "**Merge this PR with a merge commit, never squash or rebase.** Squashing hides the"
+            echo "upstream history from git and makes the next sync re-conflict on everything."
+            echo
+            if [ "$CONFLICTS" -gt 0 ]; then
+              echo "### $CONFLICTS conflicting files (markers committed)"
+              echo
+              echo "Resolve on this branch following docs/ditto/upstream-sync.md, then mark ready."
+              echo
+              sed 's/^/- `/; s/$/`/' "$RUNNER_TEMP/conflicts.txt"
+            else
+              echo "Merged cleanly. Check CI, then merge with a merge commit."
+            fi
+          } > "$body"
+          draft=()
+          [ "$CONFLICTS" -gt 0 ] && draft=(--draft)
+          gh pr create --base main --head "$BRANCH" "${draft[@]}" \
+            --title "chore: sync upstream t3code $UPSTREAM_SHA" \
+            --body-file "$body"

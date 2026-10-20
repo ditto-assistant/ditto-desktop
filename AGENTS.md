@@ -168,3 +168,9 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## Ditto fork
+
+<!-- DITTO: fork-only section; keep it last so upstream edits above merge cleanly. -->
+
+This checkout is Ditto Desktop, a fork that keeps taking upstream T3 Code. Before syncing upstream or editing an upstream file, read [docs/ditto/upstream-sync.md](docs/ditto/upstream-sync.md): syncs land as merge commits, and Ditto code lives in Ditto-owned modules behind small tagged hooks.
