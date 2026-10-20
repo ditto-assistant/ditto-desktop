@@ -243,8 +243,8 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           />
         ) : null}
         {props.item.type === "chat-context" ? (
-          <Badge className="ms-auto capitalize" variant="secondary">
-            {props.item.conversation.service} chat
+          <Badge className="ms-auto" variant="secondary">
+            <span className="capitalize">{props.item.conversation.service} chat</span>
           </Badge>
         ) : null}
       </span>

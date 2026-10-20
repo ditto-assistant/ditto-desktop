@@ -10,7 +10,7 @@
  */
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowLeftIcon, SendIcon, SquareIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useEffectEvent, useState, type FormEvent } from "react";
 
 import type { DittoUser } from "~/ditto/firebase";
 import {
@@ -61,12 +61,9 @@ function PendingPromptCard({
 
   const answer = async (chosen: string) => {
     setBusy(true);
-    try {
-      await answerDittoPrompt(user, session.threadId, prompt.promptId, chosen);
-      onAnswered();
-    } finally {
-      setBusy(false);
-    }
+    await answerDittoPrompt(user, session.threadId, prompt.promptId, chosen)
+      .then(onAnswered)
+      .finally(() => setBusy(false));
   };
 
   return (
@@ -117,7 +114,7 @@ function CommandPalette({
   readonly query: string;
   readonly onPick: (name: string) => void;
 }) {
-  const ordered = useMemo(() => orderSessionCommands(catalog), [catalog]);
+  const ordered = orderSessionCommands(catalog);
   const filtered = ordered.filter((command) => command.name.startsWith(query));
   if (filtered.length === 0) return null;
   return (
@@ -163,20 +160,25 @@ function RemoteSessionBody({
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const loadSession = async (forUser: DittoUser, forThreadId: string) => {
     try {
-      setSession(await getDittoRemoteSession(user, threadId));
+      setSession(await getDittoRemoteSession(forUser, forThreadId));
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [threadId, user]);
+  };
+  const refresh = () => loadSession(user, threadId);
 
+  const pollSession = useEffectEvent((forUser: DittoUser, forThreadId: string) => {
+    void loadSession(forUser, forThreadId);
+  });
   useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), SESSION_POLL_INTERVAL_MS);
+    // oxlint-disable-next-line react/set-state-in-effect -- State changes only after the response arrives.
+    pollSession(user, threadId);
+    const timer = setInterval(() => pollSession(user, threadId), SESSION_POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [refresh]);
+  }, [threadId, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -192,33 +194,29 @@ function RemoteSessionBody({
     };
   }, [threadId, user]);
 
-  const send = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const trimmed = text.trim();
-      if (trimmed.length === 0) return;
-      setSending(true);
-      setNotice(null);
-      try {
-        const command = parseSlashCommandInput(trimmed);
-        const result = await submitDittoTurn(
-          user,
-          threadId,
-          command ? { text: trimmed, kind: "command", command } : { text: trimmed },
-        );
-        setText("");
-        setNotice(describeDelivery(result.status));
-        void refresh();
-      } catch (cause) {
-        setNotice(cause instanceof Error ? cause.message : String(cause));
-      } finally {
-        setSending(false);
-      }
-    },
-    [refresh, text, threadId, user],
-  );
+  const send = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return;
+    setSending(true);
+    setNotice(null);
+    try {
+      const command = parseSlashCommandInput(trimmed);
+      const result = await submitDittoTurn(
+        user,
+        threadId,
+        command ? { text: trimmed, kind: "command", command } : { text: trimmed },
+      );
+      setText("");
+      setNotice(describeDelivery(result.status));
+      void refresh();
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : String(cause));
+    }
+    setSending(false);
+  };
 
-  const interrupt = useCallback(async () => {
+  const interrupt = async () => {
     try {
       await interruptDittoTurn(user, threadId);
       setNotice("Interrupt sent.");
@@ -226,7 +224,7 @@ function RemoteSessionBody({
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [refresh, threadId, user]);
+  };
 
   const slashQuery = text.startsWith("/") && !text.includes(" ") ? text.slice(1) : null;
   const hostOffline = session?.host?.presence === "offline";

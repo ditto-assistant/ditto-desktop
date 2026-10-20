@@ -6,14 +6,12 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Base64 from "effect/encoding/Base64";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
-import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
@@ -1300,63 +1298,56 @@ const layerWsRpc = (
       // DITTO: knowledge packets. Private chat snapshots are written into the
       // thread's workspace and referenced from the prompt. The request fields
       // are stripped here, so they never reach the event log.
-      const attachKnowledgePackets = (input: {
+      const attachKnowledgePackets = Effect.fn("ws.attachKnowledgePackets")(function* (input: {
         readonly text: string;
         readonly packets: ReadonlyArray<ChannelKnowledgePacketRequest>;
         readonly cwd: string | null;
         readonly taskId: string;
-      }): Effect.Effect<string, string> =>
-        Effect.gen(function* () {
-          if (input.packets.length === 0) return input.text;
-          const packetCwd = input.cwd;
-          if (!packetCwd) {
+      }): Effect.fn.Return<string, string> {
+        if (input.packets.length === 0) return input.text;
+        const packetCwd = input.cwd;
+        if (!packetCwd) {
+          return yield* Effect.fail("A worktree is required before chat context can be attached.");
+        }
+        const packetResults = [];
+        for (const request of input.packets) {
+          const [conversations, messages] = yield* Effect.all([
+            channels.listConversations(request.accountId),
+            channels.listMessages(request.accountId, request.conversationId, request.messageLimit),
+          ]).pipe(Effect.mapError((error) => error.message));
+          const conversation = conversations.find(
+            (candidate) => candidate.conversationId === request.conversationId,
+          );
+          if (!conversation) {
             return yield* Effect.fail(
-              "A worktree is required before chat context can be attached.",
+              `Chat conversation ${request.conversationId} is no longer available.`,
             );
           }
-          const packetResults = [];
-          for (const request of input.packets) {
-            const [conversations, messages] = yield* Effect.all([
-              channels.listConversations(request.accountId),
-              channels.listMessages(
-                request.accountId,
-                request.conversationId,
-                request.messageLimit,
-              ),
-            ]).pipe(Effect.mapError((error) => error.message));
-            const conversation = conversations.find(
-              (candidate) => candidate.conversationId === request.conversationId,
-            );
-            if (!conversation) {
-              return yield* Effect.fail(
-                `Chat conversation ${request.conversationId} is no longer available.`,
-              );
-            }
-            const packet = yield* Effect.tryPromise({
-              try: () =>
-                materializeKnowledgePacket({
-                  worktreePath: packetCwd,
-                  attachmentsDir: config.attachmentsDir,
-                  taskId: input.taskId,
-                  source: {
-                    conversation,
-                    messages,
-                    requestedMessageLimit: request.messageLimit,
-                  },
-                }),
-              catch: (cause) =>
-                `Could not attach chat context: ${cause instanceof Error ? cause.message : String(cause)}`,
-            });
-            packetResults.push(packet);
-          }
-          const packetPrompt = packetResults
-            .map(
-              (packet) =>
-                `- ${packet.relativePath}/INDEX.md (${packet.messageCount} messages, ${packet.attachmentCount} localized attachments)`,
-            )
-            .join("\n");
-          return `${input.text}\n\nAttached private knowledge packet(s) are available inside this worktree:\n${packetPrompt}\nRead the packet index and transcript as user-provided context. Do not commit packet files or quote private chat content outside this task.`;
-        });
+          const packet = yield* Effect.tryPromise({
+            try: () =>
+              materializeKnowledgePacket({
+                worktreePath: packetCwd,
+                attachmentsDir: config.attachmentsDir,
+                taskId: input.taskId,
+                source: {
+                  conversation,
+                  messages,
+                  requestedMessageLimit: request.messageLimit,
+                },
+              }),
+            catch: (cause) =>
+              `Could not attach chat context: ${cause instanceof Error ? cause.message : String(cause)}`,
+          });
+          packetResults.push(packet);
+        }
+        const packetPrompt = packetResults
+          .map(
+            (packet) =>
+              `- ${packet.relativePath}/INDEX.md (${packet.messageCount} messages, ${packet.attachmentCount} localized attachments)`,
+          )
+          .join("\n");
+        return `${input.text}\n\nAttached private knowledge packet(s) are available inside this worktree:\n${packetPrompt}\nRead the packet index and transcript as user-provided context. Do not commit packet files or quote private chat content outside this task.`;
+      });
       const prepareKnowledgePacketCommand = (
         command: OrchestrationV2Command,
       ): Effect.Effect<OrchestrationV2Command, OrchestrationV2DispatchCommandError> => {

@@ -121,93 +121,73 @@ export function makePendingDittoProvider(
   );
 }
 
-export function checkDittoProviderStatus(
+export const checkDittoProviderStatus = Effect.fn("DittoProvider.checkStatus")(function* (
   settings: DittoSettings,
   opener: DittoHarnessOpener,
-): Effect.Effect<ServerProviderDraft> {
-  return Effect.gen(function* () {
-    const checkedAt = DateTime.formatIso(yield* DateTime.now);
-    if (!settings.enabled) {
-      return buildServerProvider({
-        driver: PROVIDER,
-        presentation: DITTO_PRESENTATION,
-        enabled: false,
-        checkedAt,
-        models: modelsForSettings(settings),
-        probe: {
-          installed: true,
-          version: null,
-          status: "ready",
-          auth: {
-            status: "unknown",
-            type: "local",
-          },
-          message: "Ditto provider is disabled.",
+): Effect.fn.Return<ServerProviderDraft> {
+  const checkedAt = DateTime.formatIso(yield* DateTime.now);
+  if (!settings.enabled) {
+    return buildServerProvider({
+      driver: PROVIDER,
+      presentation: DITTO_PRESENTATION,
+      enabled: false,
+      checkedAt,
+      models: modelsForSettings(settings),
+      probe: {
+        installed: true,
+        version: null,
+        status: "ready",
+        auth: {
+          status: "unknown",
+          type: "local",
         },
-      });
-    }
+        message: "Ditto provider is disabled.",
+      },
+    });
+  }
 
-    const opened = yield* Effect.result(opener(settings));
-    if (opened._tag === "Failure") {
-      const message = opened.failure.message;
-      const nativeMissing = message.includes("native binding is unavailable");
-      return buildServerProvider({
-        driver: PROVIDER,
-        presentation: DITTO_PRESENTATION,
-        enabled: true,
-        checkedAt,
-        models: modelsForSettings(settings),
-        probe: {
-          installed: !nativeMissing,
-          version: null,
-          status: "error",
-          auth: {
-            status: "unknown",
-            type: "local",
-          },
-          message,
+  const opened = yield* Effect.result(opener(settings));
+  if (opened._tag === "Failure") {
+    const message = opened.failure.message;
+    const nativeMissing = message.includes("native binding is unavailable");
+    return buildServerProvider({
+      driver: PROVIDER,
+      presentation: DITTO_PRESENTATION,
+      enabled: true,
+      checkedAt,
+      models: modelsForSettings(settings),
+      probe: {
+        installed: !nativeMissing,
+        version: null,
+        status: "error",
+        auth: {
+          status: "unknown",
+          type: "local",
         },
-      });
-    }
+        message,
+      },
+    });
+  }
 
-    const chatProbe = yield* Effect.result(
-      Effect.tryPromise({
-        try: () =>
-          opened.success.harness.chat(opened.success.settings.userId, "Reply with: ok", {
-            ...modelOptions(settings),
-            sessionId: "__t3_ditto_provider_probe__",
-          }),
-        catch: (cause) =>
-          dittoHarnessError(
-            "operation_failed",
-            explainDittoHarnessFailure(
-              `Ditto provider probe failed: ${toDittoHarnessMessage(cause)}`,
-            ),
-            cause,
+  const chatProbe = yield* Effect.result(
+    Effect.tryPromise({
+      try: () =>
+        opened.success.harness.chat(opened.success.settings.userId, "Reply with: ok", {
+          ...modelOptions(settings),
+          sessionId: "__t3_ditto_provider_probe__",
+        }),
+      catch: (cause) =>
+        dittoHarnessError(
+          "operation_failed",
+          explainDittoHarnessFailure(
+            `Ditto provider probe failed: ${toDittoHarnessMessage(cause)}`,
           ),
-      }),
-    );
+          cause,
+        ),
+    }),
+  );
 
-    if (chatProbe._tag === "Failure") {
-      return buildServerProvider({
-        driver: PROVIDER,
-        presentation: DITTO_PRESENTATION,
-        enabled: true,
-        checkedAt,
-        models: modelsForSettings(settings),
-        probe: {
-          installed: true,
-          version: opened.success.version ?? null,
-          status: "error",
-          auth: {
-            status: "unknown",
-            type: "local",
-          },
-          message: chatProbe.failure.message,
-        },
-      });
-    }
-
+  if (chatProbe._tag === "Failure") {
     return buildServerProvider({
       driver: PROVIDER,
       presentation: DITTO_PRESENTATION,
@@ -217,13 +197,31 @@ export function checkDittoProviderStatus(
       probe: {
         installed: true,
         version: opened.success.version ?? null,
-        status: "ready",
+        status: "error",
         auth: {
-          status: "authenticated",
+          status: "unknown",
           type: "local",
-          label: localAuthLabel(settings),
         },
+        message: chatProbe.failure.message,
       },
     });
+  }
+
+  return buildServerProvider({
+    driver: PROVIDER,
+    presentation: DITTO_PRESENTATION,
+    enabled: true,
+    checkedAt,
+    models: modelsForSettings(settings),
+    probe: {
+      installed: true,
+      version: opened.success.version ?? null,
+      status: "ready",
+      auth: {
+        status: "authenticated",
+        type: "local",
+        label: localAuthLabel(settings),
+      },
+    },
   });
-}
+});

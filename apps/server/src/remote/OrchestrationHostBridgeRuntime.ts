@@ -168,7 +168,7 @@ const make = Effect.gen(function* () {
       emittedPrompts.delete(promptId);
       return [];
     }
-    // DITTO: TODO user_input / mcp-elicitation requests carry per-question ids
+    // DITTO: user_input / mcp-elicitation requests carry per-question ids
     // that the host bridge protocol cannot express yet, so only approvals are
     // surfaced as prompts.
     if (!APPROVAL_REQUEST_KINDS.has(request.kind) || emittedPrompts.has(promptId)) return [];
@@ -313,8 +313,8 @@ const make = Effect.gen(function* () {
         requestId,
         ...(target.kind === "approval"
           ? { decision: approvalDecisionForAnswer(input.value) }
-          : // DITTO: TODO key the answer by the request's question id once
-            // question prompts are surfaced (see promptForRequest).
+          : // DITTO: a fixed key, because question prompts are not surfaced yet
+            // (see promptForRequest) so there is no question id to key by.
             { answers: { answer: input.value } }),
       })
       .pipe(Effect.mapError(toRuntimeError("Failed to answer the prompt.")));

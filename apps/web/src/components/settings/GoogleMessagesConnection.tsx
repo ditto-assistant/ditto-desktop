@@ -10,7 +10,7 @@
  * @module GoogleMessagesConnection
  */
 import { MessageSquareIcon, RefreshCwIcon, UnplugIcon } from "lucide-react";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useReducer, useRef, useState } from "react";
 
 import { DittoApiError } from "~/ditto/api";
 import type { DittoUser } from "~/ditto/firebase";
@@ -68,29 +68,38 @@ export function GoogleMessagesConnectionRow({ user }: { readonly user: DittoUser
   // Generation guard: a poll from an abandoned flow must not touch the form.
   const generationRef = useRef(0);
 
-  const refresh = useCallback(async () => {
+  const loadConnection = async (forUser: DittoUser) => {
     try {
-      setConnection(await findGoogleMessagesConnection(user));
+      setConnection(await findGoogleMessagesConnection(forUser));
       setLoadError(null);
     } catch (error) {
       setLoadError(describeError(error));
       setConnection(null);
     }
-  }, [user]);
+  };
+  const refresh = () => loadConnection(user);
 
+  const loadInitialConnection = useEffectEvent((forUser: DittoUser) => {
+    void loadConnection(forUser);
+  });
   useEffect(() => {
-    void refresh();
+    // oxlint-disable-next-line react/set-state-in-effect -- State changes only after the response arrives.
+    loadInitialConnection(user);
     return () => {
       generationRef.current += 1;
     };
-  }, [refresh]);
+  }, [user]);
 
-  const stop = useCallback(() => {
+  const stop = () => {
     generationRef.current += 1;
-  }, []);
+  };
 
-  const runRound = useCallback(
-    async (generation: number, credentials: Readonly<Record<string, string>>) => {
+  const runPairing = async (
+    generation: number,
+    initialCredentials: Readonly<Record<string, string>>,
+  ) => {
+    let credentials = initialCredentials;
+    while (true) {
       let outcome;
       try {
         outcome = await connectGoogleMessages(user, credentials);
@@ -101,23 +110,20 @@ export function GoogleMessagesConnectionRow({ user }: { readonly user: DittoUser
       }
       if (generation !== generationRef.current) return;
       const challenge = outcome.challenge ?? null;
-      if (challenge !== null) {
-        dispatch({ type: "challenge", challenge });
-        if (isPairingWait(challenge)) {
-          window.setTimeout(() => {
-            if (generation !== generationRef.current) return;
-            void runRound(generation, pollPairingCredentials(challenge));
-          }, PAIRING_POLL_INTERVAL_MS);
-        }
+      if (challenge === null) {
+        dispatch({ type: "connected" });
+        void refresh();
         return;
       }
-      dispatch({ type: "connected" });
-      void refresh();
-    },
-    [refresh, user],
-  );
+      dispatch({ type: "challenge", challenge });
+      if (!isPairingWait(challenge)) return;
+      await new Promise((resolve) => window.setTimeout(resolve, PAIRING_POLL_INTERVAL_MS));
+      if (generation !== generationRef.current) return;
+      credentials = pollPairingCredentials(challenge);
+    }
+  };
 
-  const start = useCallback(async () => {
+  const start = async () => {
     if (bridge === undefined) return;
     stop();
     const generation = generationRef.current;
@@ -129,16 +135,16 @@ export function GoogleMessagesConnectionRow({ user }: { readonly user: DittoUser
       return;
     }
     dispatch({ type: "cookies-ready" });
-    await runRound(generation, initialPairingCredentials(outcome.cookies));
-  }, [bridge, runRound, stop]);
+    await runPairing(generation, initialPairingCredentials(outcome.cookies));
+  };
 
-  const cancel = useCallback(() => {
+  const cancel = () => {
     stop();
     if (pairing.phase === "signing-in") void bridge?.cancelSignIn();
     dispatch({ type: "reset" });
-  }, [bridge, pairing.phase, stop]);
+  };
 
-  const sync = useCallback(async () => {
+  const sync = async () => {
     if (connection === null || connection === undefined) return;
     setBusy("sync");
     try {
@@ -146,12 +152,11 @@ export function GoogleMessagesConnectionRow({ user }: { readonly user: DittoUser
       await refresh();
     } catch (error) {
       setLoadError(describeError(error));
-    } finally {
-      setBusy(null);
     }
-  }, [connection, refresh, user]);
+    setBusy(null);
+  };
 
-  const disconnect = useCallback(async () => {
+  const disconnect = async () => {
     if (connection === null || connection === undefined) return;
     setBusy("disconnect");
     try {
@@ -159,10 +164,9 @@ export function GoogleMessagesConnectionRow({ user }: { readonly user: DittoUser
       await refresh();
     } catch (error) {
       setLoadError(describeError(error));
-    } finally {
-      setBusy(null);
     }
-  }, [connection, refresh, user]);
+    setBusy(null);
+  };
 
   if (bridge === undefined) {
     return (

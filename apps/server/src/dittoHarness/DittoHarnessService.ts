@@ -1,6 +1,6 @@
 import {
   DEFAULT_SERVER_SETTINGS,
-  DittoHarnessError,
+  type DittoHarnessError,
   type DittoHarnessDreamInput,
   type DittoHarnessDreamResult,
   type DittoHarnessSaveMemoryInput,
@@ -59,35 +59,6 @@ export class DittoHarnessService extends Context.Service<
   DittoHarnessService,
   DittoHarnessServiceShape
 >()("t3/dittoHarness/DittoHarnessService") {}
-
-export const DittoHarnessServiceDisabled = Layer.succeed(
-  DittoHarnessService,
-  DittoHarnessService.of({
-    status: Effect.map(DateTime.now, (now) => ({
-      enabled: false,
-      state: "disabled" as const,
-      checkedAt: DateTime.formatIso(now),
-      message: "Ditto Harness is disabled.",
-    })),
-    saveMemory: () =>
-      Effect.fail(
-        new DittoHarnessError({
-          kind: "disabled",
-          message: "Ditto Harness is disabled.",
-        }),
-      ),
-    searchMemories: () => Effect.succeed({ memories: [] }),
-    searchSubjects: () => Effect.succeed({ subjects: [] }),
-    dream: () =>
-      Effect.fail(
-        new DittoHarnessError({
-          kind: "disabled",
-          message: "Ditto Harness dream is disabled.",
-        }),
-      ),
-    buildPromptContext: () => Effect.succeed(null),
-  }),
-);
 
 function toMessage(cause: unknown): string {
   return toDittoHarnessMessage(cause);
@@ -209,143 +180,138 @@ const makeDittoHarnessService = Effect.gen(function* () {
       } satisfies DittoHarnessStatus;
     }),
 
-    saveMemory: (input) =>
-      Effect.gen(function* () {
-        const opened = yield* openHarness();
-        const memory = yield* Effect.tryPromise({
-          try: () =>
-            opened.harness.saveMemory({
-              userId: opened.settings.userId,
-              prompt: input.prompt,
-              response: input.response,
-              summary: input.summary ?? "",
-              sessionId: input.sessionId ?? "",
-              source: input.source ?? "t3-code",
-              sourceContext: input.sourceContext ?? "",
-              timestamp: input.timestamp,
-              timezoneOffset: input.timezoneOffset ?? 0,
-              subjects: input.subjects ?? [],
-            }),
-          catch: (cause) =>
-            harnessError(
-              "operation_failed",
-              `Failed to save Ditto memory: ${toMessage(cause)}`,
-              cause,
-            ),
-        });
-        return { memory };
-      }),
-
-    searchMemories: (input) =>
-      Effect.gen(function* () {
-        const opened = yield* openHarness();
-        const memories = yield* Effect.tryPromise({
-          try: () =>
-            opened.harness.searchMemories(opened.settings.userId, input.query, {
-              ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-              ...(input.limit !== undefined ? { limit: input.limit } : {}),
-              ...(input.minSimilarity !== undefined ? { minSimilarity: input.minSimilarity } : {}),
-            }),
-          catch: (cause) =>
-            harnessError(
-              "operation_failed",
-              `Failed to search Ditto memories: ${toMessage(cause)}`,
-              cause,
-            ),
-        });
-        return { memories };
-      }),
-
-    searchSubjects: (input) =>
-      Effect.gen(function* () {
-        const opened = yield* openHarness();
-        const subjects = yield* Effect.tryPromise({
-          try: () => opened.harness.searchSubjects(opened.settings.userId, input.query),
-          catch: (cause) =>
-            harnessError(
-              "operation_failed",
-              `Failed to search Ditto subjects: ${toMessage(cause)}`,
-              cause,
-            ),
-        });
-        return {
-          subjects: input.limit !== undefined ? subjects.slice(0, input.limit) : subjects,
-        };
-      }),
-
-    dream: (input) =>
-      Effect.gen(function* () {
-        const opened = yield* openHarness();
-        if (!opened.settings.dreamEnabled) {
-          return yield* harnessError("disabled", "Ditto Harness dream is disabled.");
-        }
-        const report = yield* Effect.tryPromise({
-          try: () =>
-            opened.harness.dream(opened.settings.userId, {
-              ...modelOptions(opened.settings),
-              ...(input.maxMemories !== undefined ? { maxMemories: input.maxMemories } : {}),
-              ...(input.refine !== undefined ? { refine: input.refine } : {}),
-            }),
-          catch: (cause) =>
-            harnessError(
-              "operation_failed",
-              `Failed to run Ditto Harness dream: ${toMessage(cause)}`,
-              cause,
-            ),
-        });
-        return { report };
-      }),
-
-    buildPromptContext: (input) =>
-      Effect.gen(function* () {
-        const settingsResult = yield* Effect.result(readSettings);
-        if (Result.isFailure(settingsResult)) {
-          yield* Effect.logWarning("failed to read Ditto Harness settings for prompt context", {
-            detail: settingsResult.failure.message,
-          });
-          return null;
-        }
-
-        const settings = settingsResult.success;
-        if (!settings.enabled || !settings.enablePromptContext || input.userInput.trim() === "") {
-          return null;
-        }
-
-        const result = yield* Effect.result(
-          openHarness().pipe(
-            Effect.flatMap((opened) =>
-              Effect.tryPromise({
-                try: () =>
-                  opened.harness.searchMemories(opened.settings.userId, input.userInput, {
-                    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-                    limit: opened.settings.promptContextLimit,
-                  }),
-                catch: (cause) =>
-                  harnessError(
-                    "operation_failed",
-                    `Failed to build Ditto memory context: ${toMessage(cause)}`,
-                    cause,
-                  ),
-              }),
-            ),
+    saveMemory: Effect.fn("DittoHarnessService.saveMemory")(function* (input) {
+      const opened = yield* openHarness();
+      const memory = yield* Effect.tryPromise({
+        try: () =>
+          opened.harness.saveMemory({
+            userId: opened.settings.userId,
+            prompt: input.prompt,
+            response: input.response,
+            summary: input.summary ?? "",
+            sessionId: input.sessionId ?? "",
+            source: input.source ?? "t3-code",
+            sourceContext: input.sourceContext ?? "",
+            timestamp: input.timestamp,
+            timezoneOffset: input.timezoneOffset ?? 0,
+            subjects: input.subjects ?? [],
+          }),
+        catch: (cause) =>
+          harnessError(
+            "operation_failed",
+            `Failed to save Ditto memory: ${toMessage(cause)}`,
+            cause,
           ),
-        );
+      });
+      return { memory };
+    }),
 
-        if (Result.isFailure(result)) {
-          yield* Effect.logWarning("failed to build Ditto Harness prompt context", {
-            detail: result.failure.message,
-          });
-          return null;
-        }
-        if (result.success.length === 0) {
-          return null;
-        }
+    searchMemories: Effect.fn("DittoHarnessService.searchMemories")(function* (input) {
+      const opened = yield* openHarness();
+      const memories = yield* Effect.tryPromise({
+        try: () =>
+          opened.harness.searchMemories(opened.settings.userId, input.query, {
+            ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+            ...(input.limit !== undefined ? { limit: input.limit } : {}),
+            ...(input.minSimilarity !== undefined ? { minSimilarity: input.minSimilarity } : {}),
+          }),
+        catch: (cause) =>
+          harnessError(
+            "operation_failed",
+            `Failed to search Ditto memories: ${toMessage(cause)}`,
+            cause,
+          ),
+      });
+      return { memories };
+    }),
 
-        return [
-          "Relevant memory context for this turn:",
-          result.success.map(formatMemoryPreview).join("\n\n"),
-        ].join("\n");
-      }),
+    searchSubjects: Effect.fn("DittoHarnessService.searchSubjects")(function* (input) {
+      const opened = yield* openHarness();
+      const subjects = yield* Effect.tryPromise({
+        try: () => opened.harness.searchSubjects(opened.settings.userId, input.query),
+        catch: (cause) =>
+          harnessError(
+            "operation_failed",
+            `Failed to search Ditto subjects: ${toMessage(cause)}`,
+            cause,
+          ),
+      });
+      return {
+        subjects: input.limit !== undefined ? subjects.slice(0, input.limit) : subjects,
+      };
+    }),
+
+    dream: Effect.fn("DittoHarnessService.dream")(function* (input) {
+      const opened = yield* openHarness();
+      if (!opened.settings.dreamEnabled) {
+        return yield* harnessError("disabled", "Ditto Harness dream is disabled.");
+      }
+      const report = yield* Effect.tryPromise({
+        try: () =>
+          opened.harness.dream(opened.settings.userId, {
+            ...modelOptions(opened.settings),
+            ...(input.maxMemories !== undefined ? { maxMemories: input.maxMemories } : {}),
+            ...(input.refine !== undefined ? { refine: input.refine } : {}),
+          }),
+        catch: (cause) =>
+          harnessError(
+            "operation_failed",
+            `Failed to run Ditto Harness dream: ${toMessage(cause)}`,
+            cause,
+          ),
+      });
+      return { report };
+    }),
+
+    buildPromptContext: Effect.fn("DittoHarnessService.buildPromptContext")(function* (input) {
+      const settingsResult = yield* Effect.result(readSettings);
+      if (Result.isFailure(settingsResult)) {
+        yield* Effect.logWarning("failed to read Ditto Harness settings for prompt context", {
+          detail: settingsResult.failure.message,
+        });
+        return null;
+      }
+
+      const settings = settingsResult.success;
+      if (!settings.enabled || !settings.enablePromptContext || input.userInput.trim() === "") {
+        return null;
+      }
+
+      const result = yield* Effect.result(
+        openHarness().pipe(
+          Effect.flatMap((opened) =>
+            Effect.tryPromise({
+              try: () =>
+                opened.harness.searchMemories(opened.settings.userId, input.userInput, {
+                  ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+                  limit: opened.settings.promptContextLimit,
+                }),
+              catch: (cause) =>
+                harnessError(
+                  "operation_failed",
+                  `Failed to build Ditto memory context: ${toMessage(cause)}`,
+                  cause,
+                ),
+            }),
+          ),
+        ),
+      );
+
+      if (Result.isFailure(result)) {
+        yield* Effect.logWarning("failed to build Ditto Harness prompt context", {
+          detail: result.failure.message,
+        });
+        return null;
+      }
+      if (result.success.length === 0) {
+        return null;
+      }
+
+      return [
+        "Relevant memory context for this turn:",
+        result.success.map(formatMemoryPreview).join("\n\n"),
+      ].join("\n");
+    }),
   } satisfies DittoHarnessServiceShape;
 });
 

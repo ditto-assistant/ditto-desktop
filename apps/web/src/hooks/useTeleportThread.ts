@@ -12,7 +12,6 @@ import {
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback } from "react";
 
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { dittoAccountCommands } from "../ditto/account";
@@ -33,80 +32,77 @@ export function useTeleportThread() {
   });
   const teleportThread = useAtomCommand(teleportCommands.thread, { reportFailure: false });
 
-  return useCallback(
-    async (
-      threadRef: ScopedThreadRef,
-      thread: EnvironmentThreadShell,
-      workspacePath: string | null,
-    ) => {
-      if (!workspacePath) {
+  return async (
+    threadRef: ScopedThreadRef,
+    thread: EnvironmentThreadShell,
+    workspacePath: string | null,
+  ) => {
+    if (!workspacePath) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Cannot teleport",
+          description: "This thread does not have a workspace path to capture.",
+        }),
+      );
+      return;
+    }
+    if (isTeleportDialogBusy()) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "A teleport is already running",
+          description: "Wait for it to finish before starting another.",
+        }),
+      );
+      return;
+    }
+    const status = await getAccountStatus({ environmentId: threadRef.environmentId, input: {} });
+    if (status._tag === "Failure") {
+      if (!isAtomCommandInterrupted(status)) {
+        const error = squashAtomCommandFailure(status);
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Cannot teleport",
-            description: "This thread does not have a workspace path to capture.",
+            title: "Could not check the Ditto account",
+            description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
-        return;
       }
-      if (isTeleportDialogBusy()) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "A teleport is already running",
-            description: "Wait for it to finish before starting another.",
-          }),
-        );
-        return;
-      }
-      const status = await getAccountStatus({ environmentId: threadRef.environmentId, input: {} });
-      if (status._tag === "Failure") {
-        if (!isAtomCommandInterrupted(status)) {
-          const error = squashAtomCommandFailure(status);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not check the Ditto account",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        }
-        return;
-      }
-      if (!status.value.linked) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Link your Ditto account first",
-            description: "Teleport saves the session to Ditto Cloud under your account.",
-            timeout: 8_000,
-            actionProps: {
-              children: "Open settings",
-              onClick: () => {
-                void navigate({ to: "/settings/ditto-account" });
-              },
+      return;
+    }
+    if (!status.value.linked) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Link your Ditto account first",
+          description: "Teleport saves the session to Ditto Cloud under your account.",
+          timeout: 8_000,
+          actionProps: {
+            children: "Open settings",
+            onClick: () => {
+              void navigate({ to: "/settings/ditto-account" });
             },
-          }),
-        );
-        return;
-      }
+          },
+        }),
+      );
+      return;
+    }
 
-      beginTeleportDialog({ environmentId: threadRef.environmentId, threadTitle: thread.title });
-      const result = await teleportThread({
-        environmentId: threadRef.environmentId,
-        input: {
-          threadId: threadRef.threadId,
-          cwd: workspacePath,
-          providerName: thread.runtime?.providerName ?? null,
-        },
-      });
-      if (result._tag === "Failure") {
-        const error = isAtomCommandInterrupted(result)
-          ? new Error("The teleport was interrupted.")
-          : squashAtomCommandFailure(result);
-        failTeleportDialog(error instanceof Error ? error.message : "The teleport failed.");
-      }
-    },
-    [getAccountStatus, navigate, teleportThread],
-  );
+    beginTeleportDialog({ environmentId: threadRef.environmentId, threadTitle: thread.title });
+    const result = await teleportThread({
+      environmentId: threadRef.environmentId,
+      input: {
+        threadId: threadRef.threadId,
+        cwd: workspacePath,
+        providerName: thread.runtime?.providerName ?? null,
+      },
+    });
+    if (result._tag === "Failure") {
+      const error = isAtomCommandInterrupted(result)
+        ? new Error("The teleport was interrupted.")
+        : squashAtomCommandFailure(result);
+      failTeleportDialog(error instanceof Error ? error.message : "The teleport failed.");
+    }
+  };
 }

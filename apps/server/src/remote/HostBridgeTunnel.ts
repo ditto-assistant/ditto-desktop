@@ -67,73 +67,72 @@ const makeLocalWebSocketTunnelTarget = Effect.gen(function* () {
     | WebSocketConstructor
     | undefined;
   return {
-    connect: ({ path }) =>
-      Effect.gen(function* () {
-        if (WebSocketCtor === undefined) {
-          return yield* new HostBridgeTunnelError({ detail: "WebSocket is not available." });
+    connect: Effect.fn("HostBridgeTunnel.connect")(function* ({ path }) {
+      if (WebSocketCtor === undefined) {
+        return yield* new HostBridgeTunnelError({ detail: "WebSocket is not available." });
+      }
+      const state = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.mapError(
+          (cause) =>
+            new HostBridgeTunnelError({ detail: "Could not read the server listener.", cause }),
+        ),
+      );
+      if (Option.isNone(state)) {
+        return yield* new HostBridgeTunnelError({
+          detail: "The server has not published a listener.",
+        });
+      }
+      const url = `ws://127.0.0.1:${String(state.value.port)}${path ?? "/ws"}`;
+      const incoming = yield* Queue.unbounded<Uint8Array, Cause.Done>();
+      const socket = yield* Effect.callback<WebSocketLike, HostBridgeTunnelError>((resume) => {
+        let ws: WebSocketLike;
+        try {
+          ws = new WebSocketCtor(url);
+          ws.binaryType = "arraybuffer";
+        } catch (cause) {
+          resume(
+            Effect.fail(new HostBridgeTunnelError({ detail: `Failed to open ${url}.`, cause })),
+          );
+          return;
         }
-        const state = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath).pipe(
-          Effect.provideService(FileSystem.FileSystem, fileSystem),
-          Effect.mapError(
-            (cause) =>
-              new HostBridgeTunnelError({ detail: "Could not read the server listener.", cause }),
-          ),
-        );
-        if (Option.isNone(state)) {
-          return yield* new HostBridgeTunnelError({
-            detail: "The server has not published a listener.",
-          });
-        }
-        const url = `ws://127.0.0.1:${String(state.value.port)}${path ?? "/ws"}`;
-        const incoming = yield* Queue.unbounded<Uint8Array, Cause.Done>();
-        const socket = yield* Effect.callback<WebSocketLike, HostBridgeTunnelError>((resume) => {
-          let ws: WebSocketLike;
-          try {
-            ws = new WebSocketCtor(url);
-            ws.binaryType = "arraybuffer";
-          } catch (cause) {
-            resume(
-              Effect.fail(new HostBridgeTunnelError({ detail: `Failed to open ${url}.`, cause })),
-            );
-            return;
-          }
-          let settled = false;
-          ws.addEventListener("open", () => {
-            settled = true;
-            resume(Effect.succeed(ws));
-          });
-          ws.addEventListener("error", (event) => {
-            if (settled) return;
-            settled = true;
-            resume(
-              Effect.fail(
-                new HostBridgeTunnelError({ detail: `Failed to connect to ${url}.`, cause: event }),
-              ),
-            );
-          });
+        let settled = false;
+        ws.addEventListener("open", () => {
+          settled = true;
+          resume(Effect.succeed(ws));
         });
-        socket.addEventListener("message", (event) => {
-          const bytes =
-            event.data instanceof ArrayBuffer
-              ? new Uint8Array(event.data)
-              : new TextEncoder().encode(
-                  typeof event.data === "string" ? event.data : String(event.data),
-                );
-          void Effect.runPromise(Queue.offer(incoming, bytes));
+        ws.addEventListener("error", (event) => {
+          if (settled) return;
+          settled = true;
+          resume(
+            Effect.fail(
+              new HostBridgeTunnelError({ detail: `Failed to connect to ${url}.`, cause: event }),
+            ),
+          );
         });
-        socket.addEventListener("close", () => {
-          void Effect.runPromise(Queue.end(incoming));
-        });
-        return {
-          incoming,
-          send: (bytes) =>
-            Effect.try({
-              try: () => socket.send(bytes),
-              catch: (cause) => new HostBridgeTunnelError({ detail: "Tunnel send failed.", cause }),
-            }),
-          close: Effect.sync(() => socket.close()),
-        } satisfies HostBridgeTunnelConnection;
-      }),
+      });
+      socket.addEventListener("message", (event) => {
+        const bytes =
+          event.data instanceof ArrayBuffer
+            ? new Uint8Array(event.data)
+            : new TextEncoder().encode(
+                typeof event.data === "string" ? event.data : String(event.data),
+              );
+        void Effect.runPromise(Queue.offer(incoming, bytes));
+      });
+      socket.addEventListener("close", () => {
+        void Effect.runPromise(Queue.end(incoming));
+      });
+      return {
+        incoming,
+        send: (bytes) =>
+          Effect.try({
+            try: () => socket.send(bytes),
+            catch: (cause) => new HostBridgeTunnelError({ detail: "Tunnel send failed.", cause }),
+          }),
+        close: Effect.sync(() => socket.close()),
+      } satisfies HostBridgeTunnelConnection;
+    }),
   } satisfies HostBridgeTunnelTargetShape;
 });
 

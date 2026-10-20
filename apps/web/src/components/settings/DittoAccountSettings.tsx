@@ -10,7 +10,7 @@
  * @module DittoAccountSettings
  */
 import { CloudIcon, LogOutIcon, MessageSquareIcon } from "lucide-react";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import {
   describeDittoApiBaseUrl,
@@ -54,25 +54,21 @@ function SignInForm() {
   const [pending, setPending] = useState<"email" | "google" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const submitEmail = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (pending !== null) return;
-      setPending("email");
-      setError(null);
-      try {
-        await signInWithDittoEmail(email, password);
-        setPassword("");
-      } catch (cause) {
-        setError(describeDittoSignInError(cause));
-      } finally {
-        setPending(null);
-      }
-    },
-    [email, password, pending],
-  );
+  const submitEmail = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (pending !== null) return;
+    setPending("email");
+    setError(null);
+    try {
+      await signInWithDittoEmail(email, password);
+      setPassword("");
+    } catch (cause) {
+      setError(describeDittoSignInError(cause));
+    }
+    setPending(null);
+  };
 
-  const submitGoogle = useCallback(async () => {
+  const submitGoogle = async () => {
     if (pending !== null) return;
     setPending("google");
     setError(null);
@@ -80,10 +76,9 @@ function SignInForm() {
       await signInWithDittoGoogle();
     } catch (cause) {
       setError(describeDittoSignInError(cause));
-    } finally {
-      setPending(null);
     }
-  }, [pending]);
+    setPending(null);
+  };
 
   const canSubmitEmail = email.trim().length > 0 && password.length > 0 && pending === null;
 
@@ -140,14 +135,10 @@ function AccountRow() {
   const { ready, user } = useDittoUser();
   const [signingOut, setSigningOut] = useState(false);
 
-  const signOut = useCallback(async () => {
+  const signOut = async () => {
     setSigningOut(true);
-    try {
-      await signOutOfDitto();
-    } finally {
-      setSigningOut(false);
-    }
-  }, []);
+    await signOutOfDitto().finally(() => setSigningOut(false));
+  };
 
   if (!ready) {
     return (

@@ -32,9 +32,7 @@ import {
   type HostBridgeTunnelConnection,
 } from "./HostBridgeTunnel.ts";
 
-// ---------------------------------------------------------------------------
 // Stub backend: an in-memory socket per connection attempt.
-// ---------------------------------------------------------------------------
 
 interface StubSocket {
   readonly socket: HostBridgeSocket;
@@ -88,10 +86,6 @@ const makeStubBackend = Effect.gen(function* () {
   const awaitConnection = Queue.take(connections).pipe(Effect.orDie);
   return { layer, awaitConnection, sockets };
 });
-
-// ---------------------------------------------------------------------------
-// Fake runtime.
-// ---------------------------------------------------------------------------
 
 const session = (overrides: Partial<HostBridgeSession> = {}): HostBridgeSession => ({
   sessionId: "thread-1",
@@ -153,9 +147,7 @@ const fetchLayer = (files: Record<string, string>) =>
     },
   });
 
-// ---------------------------------------------------------------------------
 // Stub local RPC listener for environment tunnels.
-// ---------------------------------------------------------------------------
 
 const makeStubTunnelTarget = Effect.gen(function* () {
   const opened: Array<{ readonly path: string | undefined; readonly received: Uint8Array[] }> = [];
@@ -240,8 +232,6 @@ const readText = (...segments: ReadonlyArray<string>) =>
 
 const withNode = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.scoped, Effect.provide(NodeServices.layer));
-
-// ---------------------------------------------------------------------------
 
 it.live("announces sessions and their command catalog after welcome", () =>
   Effect.gen(function* () {

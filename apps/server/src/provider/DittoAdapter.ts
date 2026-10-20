@@ -43,7 +43,7 @@ import {
 const PROVIDER = ProviderDriverKind.make("ditto");
 const DEFAULT_MAX_TURNS = 8;
 
-export const DittoProviderCapabilitiesV2 = {
+const DittoProviderCapabilitiesV2 = {
   ...AcpProviderCapabilitiesV2,
   sessions: {
     ...AcpProviderCapabilitiesV2.sessions,
@@ -117,297 +117,296 @@ export const makeDittoAdapter = Effect.fn("makeDittoAdapter")(function* (
 ) {
   yield* Effect.void;
 
-  const openSession: ProviderAdapter.ProviderAdapterV2["Service"]["openSession"] = (sessionInput) =>
-    Effect.gen(function* () {
-      const scope = yield* Effect.scope;
-      const events = yield* PubSub.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
-      const now = yield* DateTime.now;
-      const providerSession: OrchestrationV2ProviderSession = {
-        id: sessionInput.providerSessionId,
-        driver: PROVIDER,
-        providerInstanceId: options.instanceId,
-        status: "ready",
-        cwd: sessionInput.runtimePolicy.cwd ?? process.cwd(),
-        model: sessionInput.modelSelection.model,
-        capabilities: DittoProviderCapabilitiesV2,
-        createdAt: now,
-        updatedAt: now,
-        lastError: null,
-      };
-      // Provider turns per provider thread, kept for rollback snapshots.
-      const turnsByThread = new Map<ProviderThreadId, OrchestrationV2ProviderTurn[]>();
-      const activeTurns = new Map<
-        ProviderTurnId,
-        { readonly fiber: Fiber.Fiber<void>; readonly publishInterrupted: Effect.Effect<void> }
-      >();
+  const openSession: ProviderAdapter.ProviderAdapterV2["Service"]["openSession"] = Effect.fn(
+    "DittoAdapter.openSession",
+  )(function* (sessionInput) {
+    const scope = yield* Effect.scope;
+    const events = yield* PubSub.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
+    const now = yield* DateTime.now;
+    const providerSession: OrchestrationV2ProviderSession = {
+      id: sessionInput.providerSessionId,
+      driver: PROVIDER,
+      providerInstanceId: options.instanceId,
+      status: "ready",
+      cwd: sessionInput.runtimePolicy.cwd ?? process.cwd(),
+      model: sessionInput.modelSelection.model,
+      capabilities: DittoProviderCapabilitiesV2,
+      createdAt: now,
+      updatedAt: now,
+      lastError: null,
+    };
+    // Provider turns per provider thread, kept for rollback snapshots.
+    const turnsByThread = new Map<ProviderThreadId, OrchestrationV2ProviderTurn[]>();
+    const activeTurns = new Map<
+      ProviderTurnId,
+      { readonly fiber: Fiber.Fiber<void>; readonly publishInterrupted: Effect.Effect<void> }
+    >();
 
-      const publish = (event: ProviderAdapter.ProviderAdapterV2Event) =>
-        PubSub.publish(events, event).pipe(Effect.asVoid);
+    const publish = (event: ProviderAdapter.ProviderAdapterV2Event) =>
+      PubSub.publish(events, event).pipe(Effect.asVoid);
 
-      const recordTurn = (turn: OrchestrationV2ProviderTurn) =>
-        Effect.sync(() => {
-          const turns = turnsByThread.get(turn.providerThreadId) ?? [];
-          const index = turns.findIndex((candidate) => candidate.id === turn.id);
-          if (index === -1) turns.push(turn);
-          else turns[index] = turn;
-          turnsByThread.set(turn.providerThreadId, turns);
+    const recordTurn = (turn: OrchestrationV2ProviderTurn) =>
+      Effect.sync(() => {
+        const turns = turnsByThread.get(turn.providerThreadId) ?? [];
+        const index = turns.findIndex((candidate) => candidate.id === turn.id);
+        if (index === -1) turns.push(turn);
+        else turns[index] = turn;
+        turnsByThread.set(turn.providerThreadId, turns);
+      });
+
+    const startTurn: ProviderAdapter.ProviderAdapterV2SessionRuntime["startTurn"] = Effect.fn(
+      "DittoAdapter.startTurn",
+    )(function* (turnInput) {
+      const prompt = appendAttachmentSummary(turnInput.message);
+      if (prompt.length === 0) {
+        return yield* new ProviderAdapter.ProviderAdapterTurnStartError({
+          driver: PROVIDER,
+          threadId: turnInput.threadId,
+          providerThreadId: turnInput.providerThread.id,
+          runId: turnInput.runId,
+          cause: protocolError("Ditto provider requires non-empty input text."),
         });
+      }
+      const startedAt = yield* DateTime.now;
+      const providerTurnId = ProviderTurnId.make(
+        `provider-turn:ditto:${turnInput.threadId}:${turnInput.runOrdinal}:${turnInput.attemptId}`,
+      );
+      const runningTurn: OrchestrationV2ProviderTurn = {
+        id: providerTurnId,
+        providerThreadId: turnInput.providerThread.id,
+        nodeId: turnInput.rootNodeId,
+        runAttemptId: turnInput.attemptId,
+        nativeTurnRef: null,
+        ordinal: turnInput.providerTurnOrdinal,
+        status: "running",
+        startedAt,
+        completedAt: null,
+      };
+      yield* recordTurn(runningTurn);
+      yield* publish({
+        type: "provider_turn.updated",
+        driver: PROVIDER,
+        providerTurn: runningTurn,
+      });
 
-      const startTurn: ProviderAdapter.ProviderAdapterV2SessionRuntime["startTurn"] = (turnInput) =>
-        Effect.gen(function* () {
-          const prompt = appendAttachmentSummary(turnInput.message);
-          if (prompt.length === 0) {
-            return yield* new ProviderAdapter.ProviderAdapterTurnStartError({
+      const finish = Effect.fn("DittoAdapter.finishTurn")(function* (
+        status: "completed" | "interrupted" | "failed",
+        body:
+          | { readonly kind: "assistant"; readonly text: string }
+          | { readonly kind: "failure"; readonly message: string; readonly cause?: unknown },
+      ) {
+        const completedAt = yield* DateTime.now;
+        const finalTurn: OrchestrationV2ProviderTurn = {
+          ...runningTurn,
+          status,
+          completedAt,
+        };
+        yield* recordTurn(finalTurn);
+        if (body.kind === "assistant" && body.text.length > 0) {
+          yield* publish({
+            type: "turn_item.updated",
+            driver: PROVIDER,
+            turnItem: {
+              id: TurnItemId.make(
+                `turn-item:ditto:${turnInput.threadId}:${turnInput.runOrdinal}:assistant`,
+              ),
+              threadId: turnInput.threadId,
+              runId: turnInput.runId,
+              nodeId: turnInput.rootNodeId,
+              providerThreadId: turnInput.providerThread.id,
+              providerTurnId,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: turnInput.runOrdinal * 100 + 1,
+              status,
+              title: null,
+              startedAt,
+              completedAt,
+              updatedAt: completedAt,
+              type: "assistant_message",
+              messageId: MessageId.make(
+                `message:ditto:${turnInput.threadId}:${turnInput.runOrdinal}:assistant`,
+              ),
+              text: body.text,
+              streaming: false,
+            },
+          });
+        }
+        yield* publish({
+          type: "provider_turn.updated",
+          driver: PROVIDER,
+          providerTurn: finalTurn,
+        });
+        if (body.kind === "failure") {
+          const failure = makeProviderFailure({
+            message: body.message,
+            class: "provider_error",
+            ...(body.cause === undefined ? {} : { cause: body.cause }),
+          });
+          const failureItemOrdinal = turnInput.runOrdinal * 100 + 2;
+          yield* publish({
+            type: "turn_item.updated",
+            driver: PROVIDER,
+            turnItem: makeProviderFailureTurnItem({
               driver: PROVIDER,
               threadId: turnInput.threadId,
-              providerThreadId: turnInput.providerThread.id,
               runId: turnInput.runId,
-              cause: protocolError("Ditto provider requires non-empty input text."),
-            });
-          }
-          const startedAt = yield* DateTime.now;
-          const providerTurnId = ProviderTurnId.make(
-            `provider-turn:ditto:${turnInput.threadId}:${turnInput.runOrdinal}:${turnInput.attemptId}`,
-          );
-          const runningTurn: OrchestrationV2ProviderTurn = {
-            id: providerTurnId,
-            providerThreadId: turnInput.providerThread.id,
-            nodeId: turnInput.rootNodeId,
-            runAttemptId: turnInput.attemptId,
-            nativeTurnRef: null,
-            ordinal: turnInput.providerTurnOrdinal,
-            status: "running",
-            startedAt,
-            completedAt: null,
-          };
-          yield* recordTurn(runningTurn);
+              nodeId: turnInput.rootNodeId,
+              providerThreadId: turnInput.providerThread.id,
+              providerTurnId,
+              itemOrdinal: failureItemOrdinal,
+              failure,
+              occurredAt: completedAt,
+            }),
+          });
           yield* publish({
-            type: "provider_turn.updated",
+            type: "turn.terminal",
             driver: PROVIDER,
-            providerTurn: runningTurn,
+            providerThreadId: turnInput.providerThread.id,
+            providerTurnId,
+            runOrdinal: turnInput.runOrdinal,
+            status: "failed",
+            failureItemOrdinal,
+            failure,
+            threadDisposition: "reusable",
           });
-
-          const finish = (
-            status: "completed" | "interrupted" | "failed",
-            body:
-              | { readonly kind: "assistant"; readonly text: string }
-              | { readonly kind: "failure"; readonly message: string; readonly cause?: unknown },
-          ) =>
-            Effect.gen(function* () {
-              const completedAt = yield* DateTime.now;
-              const finalTurn: OrchestrationV2ProviderTurn = {
-                ...runningTurn,
-                status,
-                completedAt,
-              };
-              yield* recordTurn(finalTurn);
-              if (body.kind === "assistant" && body.text.length > 0) {
-                yield* publish({
-                  type: "turn_item.updated",
-                  driver: PROVIDER,
-                  turnItem: {
-                    id: TurnItemId.make(
-                      `turn-item:ditto:${turnInput.threadId}:${turnInput.runOrdinal}:assistant`,
-                    ),
-                    threadId: turnInput.threadId,
-                    runId: turnInput.runId,
-                    nodeId: turnInput.rootNodeId,
-                    providerThreadId: turnInput.providerThread.id,
-                    providerTurnId,
-                    nativeItemRef: null,
-                    parentItemId: null,
-                    ordinal: turnInput.runOrdinal * 100 + 1,
-                    status,
-                    title: null,
-                    startedAt,
-                    completedAt,
-                    updatedAt: completedAt,
-                    type: "assistant_message",
-                    messageId: MessageId.make(
-                      `message:ditto:${turnInput.threadId}:${turnInput.runOrdinal}:assistant`,
-                    ),
-                    text: body.text,
-                    streaming: false,
-                  },
-                });
-              }
-              yield* publish({
-                type: "provider_turn.updated",
-                driver: PROVIDER,
-                providerTurn: finalTurn,
-              });
-              if (body.kind === "failure") {
-                const failure = makeProviderFailure({
-                  message: body.message,
-                  class: "provider_error",
-                  ...(body.cause === undefined ? {} : { cause: body.cause }),
-                });
-                const failureItemOrdinal = turnInput.runOrdinal * 100 + 2;
-                yield* publish({
-                  type: "turn_item.updated",
-                  driver: PROVIDER,
-                  turnItem: makeProviderFailureTurnItem({
-                    driver: PROVIDER,
-                    threadId: turnInput.threadId,
-                    runId: turnInput.runId,
-                    nodeId: turnInput.rootNodeId,
-                    providerThreadId: turnInput.providerThread.id,
-                    providerTurnId,
-                    itemOrdinal: failureItemOrdinal,
-                    failure,
-                    occurredAt: completedAt,
-                  }),
-                });
-                yield* publish({
-                  type: "turn.terminal",
-                  driver: PROVIDER,
-                  providerThreadId: turnInput.providerThread.id,
-                  providerTurnId,
-                  runOrdinal: turnInput.runOrdinal,
-                  status: "failed",
-                  failureItemOrdinal,
-                  failure,
-                  threadDisposition: "reusable",
-                });
-                return;
-              }
-              yield* publish({
-                type: "turn.terminal",
-                driver: PROVIDER,
-                providerThreadId: turnInput.providerThread.id,
-                providerTurnId,
-                runOrdinal: turnInput.runOrdinal,
-                status: status === "failed" ? "completed" : status,
-                failure: null,
-                threadDisposition: "reusable",
-              });
-            });
-
-          const run = Effect.gen(function* () {
-            const opened = yield* options
-              .opener(settings)
-              .pipe(Effect.mapError((cause) => ({ message: cause.message, cause })));
-            const model = turnInput.modelSelection.model || settings.chatModel;
-            const result = yield* Effect.tryPromise({
-              try: () =>
-                opened.harness.chat(opened.settings.userId, prompt, {
-                  ...dittoModelOptions(opened.settings, {
-                    sessionId: String(turnInput.threadId),
-                    maxTurns: DEFAULT_MAX_TURNS,
-                    saveMemory: settings.saveMemory,
-                  }),
-                  ...(model ? { model } : {}),
-                }),
-              catch: (cause) => ({
-                message: explainDittoHarnessFailure(
-                  `Ditto chat failed: ${toDittoHarnessMessage(cause)}`,
-                ),
-                cause,
-              }),
-            });
-            yield* finish("completed", { kind: "assistant", text: result.response.trim() });
-          }).pipe(
-            Effect.catch((error) =>
-              finish("failed", { kind: "failure", message: error.message, cause: error.cause }),
-            ),
-            Effect.ensuring(Effect.sync(() => activeTurns.delete(providerTurnId))),
-          );
-
-          const fiber = yield* run.pipe(Effect.forkIn(scope));
-          activeTurns.set(providerTurnId, {
-            fiber,
-            publishInterrupted: finish("interrupted", { kind: "assistant", text: "" }),
-          });
+          return;
+        }
+        yield* publish({
+          type: "turn.terminal",
+          driver: PROVIDER,
+          providerThreadId: turnInput.providerThread.id,
+          providerTurnId,
+          runOrdinal: turnInput.runOrdinal,
+          status: status === "failed" ? "completed" : status,
+          failure: null,
+          threadDisposition: "reusable",
         });
+      });
 
-      const runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime = {
-        instanceId: options.instanceId,
-        driver: PROVIDER,
-        providerSessionId: sessionInput.providerSessionId,
-        providerSession,
-        events: Stream.fromPubSub(events),
-        ensureThread: (threadInput) =>
-          Effect.gen(function* () {
-            if (threadInput.existingProviderThread !== undefined) {
-              return threadInput.existingProviderThread;
-            }
-            const createdAt = yield* DateTime.now;
-            const nativeThreadId = `ditto:${threadInput.threadId}`;
-            return {
-              id: ProviderThreadId.make(`provider-thread:${nativeThreadId}`),
-              driver: PROVIDER,
-              providerInstanceId: options.instanceId,
-              providerSessionId: sessionInput.providerSessionId,
-              appThreadId: threadInput.threadId,
-              ownerNodeId: null,
-              nativeThreadRef: { driver: PROVIDER, nativeId: nativeThreadId, strength: "strong" },
-              nativeConversationHeadRef: null,
-              status: "idle",
-              firstRunOrdinal: null,
-              lastRunOrdinal: null,
-              handoffIds: [],
-              contextUsage: null,
-              forkedFrom: null,
-              createdAt,
-              updatedAt: createdAt,
-            } satisfies OrchestrationV2ProviderThread;
-          }),
-        resumeThread: ({ providerThread }) => Effect.succeed(providerThread),
-        startTurn,
-        steerTurn: (steerInput) =>
-          Effect.fail(
-            new ProviderAdapter.ProviderAdapterSteerRunUnsupportedError({
-              driver: PROVIDER,
-              providerThreadId: steerInput.providerThread.id,
+      const run = Effect.gen(function* () {
+        const opened = yield* options
+          .opener(settings)
+          .pipe(Effect.mapError((cause) => ({ message: cause.message, cause })));
+        const model = turnInput.modelSelection.model || settings.chatModel;
+        const result = yield* Effect.tryPromise({
+          try: () =>
+            opened.harness.chat(opened.settings.userId, prompt, {
+              ...dittoModelOptions(opened.settings, {
+                sessionId: String(turnInput.threadId),
+                maxTurns: DEFAULT_MAX_TURNS,
+                saveMemory: settings.saveMemory,
+              }),
+              ...(model ? { model } : {}),
             }),
-          ),
-        interruptTurn: (interruptInput) =>
-          Effect.gen(function* () {
-            const active = activeTurns.get(interruptInput.providerTurnId);
-            if (active === undefined) return;
-            activeTurns.delete(interruptInput.providerTurnId);
-            yield* Fiber.interrupt(active.fiber);
-            yield* active.publishInterrupted;
+          catch: (cause) => ({
+            message: explainDittoHarnessFailure(
+              `Ditto chat failed: ${toDittoHarnessMessage(cause)}`,
+            ),
+            cause,
           }),
-        respondToRuntimeRequest: () =>
-          Effect.fail(protocolError("Ditto provider does not support interactive requests yet.")),
-        readThreadSnapshot: ({ providerThread }) =>
-          Effect.succeed({
-            providerThread,
-            providerTurns: turnsByThread.get(providerThread.id) ?? [],
-            messages: [],
-            runtimeRequests: [],
-          }),
-        rollbackThread: ({ providerThread, target }) =>
-          Effect.sync(() => {
-            // The harness keeps its own memory; rollback trims the turns this
-            // session reports so the next turn continues from the target.
-            const keepThrough = target.type === "thread_start" ? 0 : target.providerTurn.ordinal;
-            const kept = (turnsByThread.get(providerThread.id) ?? []).filter(
-              (turn) => turn.ordinal <= keepThrough,
-            );
-            turnsByThread.set(providerThread.id, kept);
-            return { providerThread, providerTurns: kept, messages: [], runtimeRequests: [] };
-          }),
-        forkThread: (forkInput) =>
-          Effect.fail(
-            new ProviderAdapter.ProviderAdapterForkThreadError({
-              driver: PROVIDER,
-              providerThreadId: forkInput.sourceProviderThread.id,
-              cause: protocolError("Ditto provider does not support forking threads."),
-            }),
-          ),
-      };
-      yield* Scope.addFinalizer(
-        scope,
-        Effect.suspend(() =>
-          Effect.forEach([...activeTurns.values()], (active) => Fiber.interrupt(active.fiber), {
-            discard: true,
+        });
+        yield* finish("completed", { kind: "assistant", text: result.response.trim() });
+      }).pipe(
+        Effect.catch((error) =>
+          finish("failed", { kind: "failure", message: error.message, cause: error.cause }),
+        ),
+        Effect.ensuring(Effect.sync(() => activeTurns.delete(providerTurnId))),
+      );
+
+      const fiber = yield* run.pipe(Effect.forkIn(scope));
+      activeTurns.set(providerTurnId, {
+        fiber,
+        publishInterrupted: finish("interrupted", { kind: "assistant", text: "" }),
+      });
+    });
+
+    const runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime = {
+      instanceId: options.instanceId,
+      driver: PROVIDER,
+      providerSessionId: sessionInput.providerSessionId,
+      providerSession,
+      events: Stream.fromPubSub(events),
+      ensureThread: Effect.fn("DittoAdapter.ensureThread")(function* (threadInput) {
+        if (threadInput.existingProviderThread !== undefined) {
+          return threadInput.existingProviderThread;
+        }
+        const createdAt = yield* DateTime.now;
+        const nativeThreadId = `ditto:${threadInput.threadId}`;
+        return {
+          id: ProviderThreadId.make(`provider-thread:${nativeThreadId}`),
+          driver: PROVIDER,
+          providerInstanceId: options.instanceId,
+          providerSessionId: sessionInput.providerSessionId,
+          appThreadId: threadInput.threadId,
+          ownerNodeId: null,
+          nativeThreadRef: { driver: PROVIDER, nativeId: nativeThreadId, strength: "strong" },
+          nativeConversationHeadRef: null,
+          status: "idle",
+          firstRunOrdinal: null,
+          lastRunOrdinal: null,
+          handoffIds: [],
+          contextUsage: null,
+          forkedFrom: null,
+          createdAt,
+          updatedAt: createdAt,
+        } satisfies OrchestrationV2ProviderThread;
+      }),
+      resumeThread: ({ providerThread }) => Effect.succeed(providerThread),
+      startTurn,
+      steerTurn: (steerInput) =>
+        Effect.fail(
+          new ProviderAdapter.ProviderAdapterSteerRunUnsupportedError({
+            driver: PROVIDER,
+            providerThreadId: steerInput.providerThread.id,
           }),
         ),
-      );
-      return runtime;
-    });
+      interruptTurn: Effect.fn("DittoAdapter.interruptTurn")(function* (interruptInput) {
+        const active = activeTurns.get(interruptInput.providerTurnId);
+        if (active === undefined) return;
+        activeTurns.delete(interruptInput.providerTurnId);
+        yield* Fiber.interrupt(active.fiber);
+        yield* active.publishInterrupted;
+      }),
+      respondToRuntimeRequest: () =>
+        Effect.fail(protocolError("Ditto provider does not support interactive requests yet.")),
+      readThreadSnapshot: ({ providerThread }) =>
+        Effect.succeed({
+          providerThread,
+          providerTurns: turnsByThread.get(providerThread.id) ?? [],
+          messages: [],
+          runtimeRequests: [],
+        }),
+      rollbackThread: ({ providerThread, target }) =>
+        Effect.sync(() => {
+          // The harness keeps its own memory; rollback trims the turns this
+          // session reports so the next turn continues from the target.
+          const keepThrough = target.type === "thread_start" ? 0 : target.providerTurn.ordinal;
+          const kept = (turnsByThread.get(providerThread.id) ?? []).filter(
+            (turn) => turn.ordinal <= keepThrough,
+          );
+          turnsByThread.set(providerThread.id, kept);
+          return { providerThread, providerTurns: kept, messages: [], runtimeRequests: [] };
+        }),
+      forkThread: (forkInput) =>
+        Effect.fail(
+          new ProviderAdapter.ProviderAdapterForkThreadError({
+            driver: PROVIDER,
+            providerThreadId: forkInput.sourceProviderThread.id,
+            cause: protocolError("Ditto provider does not support forking threads."),
+          }),
+        ),
+    };
+    yield* Scope.addFinalizer(
+      scope,
+      Effect.suspend(() =>
+        Effect.forEach([...activeTurns.values()], (active) => Fiber.interrupt(active.fiber), {
+          discard: true,
+        }),
+      ),
+    );
+    return runtime;
+  });
 
   return {
     instanceId: options.instanceId,

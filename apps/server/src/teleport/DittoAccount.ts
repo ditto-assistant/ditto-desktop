@@ -191,22 +191,25 @@ const make = Effect.gen(function* () {
   );
 
   /** Anonymous JSON POST to the Ditto API; 4xx bodies are returned, not failed, because the token endpoint speaks through them. */
-  const postAnonymous = (apiBaseUrl: string, route: string, body: unknown) =>
-    Effect.gen(function* () {
-      const request = yield* HttpClientRequest.bodyJson(
-        HttpClientRequest.post(`${apiBaseUrl}${route}`),
-        body,
-      ).pipe(Effect.mapError(() => fail(`Could not encode the request for ${route}.`)));
-      const response = yield* httpClient
-        .execute(request.pipe(HttpClientRequest.setHeader("X-Platform", "desktop")))
-        .pipe(
-          Effect.mapError((cause) =>
-            fail(`Could not reach Ditto (${route}): ${describeCause(cause)}`),
-          ),
-        );
-      const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
-      return { status: response.status, body: parseJsonBody(text) };
-    });
+  const postAnonymous = Effect.fn("DittoAccount.postAnonymous")(function* (
+    apiBaseUrl: string,
+    route: string,
+    body: unknown,
+  ) {
+    const request = yield* HttpClientRequest.bodyJson(
+      HttpClientRequest.post(`${apiBaseUrl}${route}`),
+      body,
+    ).pipe(Effect.mapError(() => fail(`Could not encode the request for ${route}.`)));
+    const response = yield* httpClient
+      .execute(request.pipe(HttpClientRequest.setHeader("X-Platform", "desktop")))
+      .pipe(
+        Effect.mapError((cause) =>
+          fail(`Could not reach Ditto (${route}): ${describeCause(cause)}`),
+        ),
+      );
+    const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
+    return { status: response.status, body: parseJsonBody(text) };
+  });
 
   const startDeviceLink: DittoAccountService["Service"]["startDeviceLink"] = Effect.fn(
     "DittoAccountService.startDeviceLink",

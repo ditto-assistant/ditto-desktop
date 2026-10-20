@@ -64,9 +64,7 @@ export const HostBridgeCapabilities = Schema.Struct({
 });
 export type HostBridgeCapabilities = typeof HostBridgeCapabilities.Type;
 
-// ---------------------------------------------------------------------------
-// host → backend
-// ---------------------------------------------------------------------------
+// Frames the host sends to the backend.
 
 export const HostBridgeHelloFrame = Schema.Struct({
   type: Schema.Literal("hello"),
@@ -149,10 +147,8 @@ export const HostBridgePromptRequestFrame = Schema.Struct({
   default: Schema.optional(Schema.String),
 });
 
-// ---------------------------------------------------------------------------
 // Environment tunnel (both directions): a paired host reaches this server's
 // local RPC listener through the backend (`/api/v5/hosts/{hostId}/env`).
-// ---------------------------------------------------------------------------
 
 export const HostBridgeTunnelId = TrimmedNonEmptyString;
 
@@ -197,9 +193,7 @@ export const HostToBackendFrame = Schema.Union([
 ]);
 export type HostToBackendFrame = typeof HostToBackendFrame.Type;
 
-// ---------------------------------------------------------------------------
-// backend → host
-// ---------------------------------------------------------------------------
+// Frames the backend sends to the host.
 
 export const HostBridgeWelcomeFrame = Schema.Struct({
   type: Schema.Literal("welcome"),

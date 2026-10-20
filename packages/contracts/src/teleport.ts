@@ -131,12 +131,10 @@ export function teleportHarnessForProvider(
   return TELEPORT_HARNESS_BY_PROVIDER[providerName] ?? null;
 }
 
-// ---------------------------------------------------------------------------
 // Device-code linking, driven by the server. The renderer only opens the
 // verification page and shows state; the server talks to the Ditto API (no
 // browser origin, so no CORS) and stores the resulting key itself. The device
 // code never reaches the client: polls address the attempt by `linkId`.
-// ---------------------------------------------------------------------------
 
 export const DittoDeviceLinkStartInput = Schema.Struct({
   apiBaseUrl: Schema.String.check(Schema.isMinLength(8)),

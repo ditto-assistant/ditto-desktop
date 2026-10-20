@@ -369,6 +369,7 @@ export const DittoIcon: Icon = ({ className, ...props }) => (
     {...props}
     viewBox="0 0 24 24"
     fill="none"
+    // oxlint-disable-next-line shadcn/no-arbitrary-values -- The Ditto mark keeps its exact brand teal, like the other third-party marks in this file.
     className={cn("text-[#18A0A5] dark:text-[#2DD4BF]", className)}
   >
     <rect x="2.5" y="2.5" width="19" height="19" rx="5" fill="currentColor" opacity=".14" />
