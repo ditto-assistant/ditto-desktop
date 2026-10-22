@@ -1,4 +1,7 @@
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import {
+  type EnvironmentThreadShell,
+  threadRuntimeCanArchive,
+} from "@t3tools/client-runtime/state/models";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -7,28 +10,31 @@ import {
 } from "../components/threadActionMenu.logic";
 import { threadSupportsTeleport } from "./teleportSupport";
 
-type Session = NonNullable<EnvironmentThreadShell["session"]>;
+type Runtime = NonNullable<EnvironmentThreadShell["runtime"]>;
 
 /** A thread shell as the live state carries it: driver kind in `providerName`. */
 function threadWith(
-  session: Partial<Record<keyof Session, unknown>> | null,
-): Pick<EnvironmentThreadShell, "session"> {
-  return { session: session as unknown as Session | null };
+  runtime: Partial<Record<keyof Runtime, unknown>> | null,
+): Pick<EnvironmentThreadShell, "runtime"> {
+  return { runtime: runtime as unknown as Runtime | null };
 }
 
 /** Mirrors `useThreadActionMenu`: menu state derived from the thread shell. */
-function menuStateFor(thread: Pick<EnvironmentThreadShell, "session">): ThreadActionMenuState {
+function menuStateFor(thread: Pick<EnvironmentThreadShell, "runtime">): ThreadActionMenuState {
   return {
+    canOperate: true,
     branch: null,
     projectFilter: null,
     isPinned: false,
     isSettled: false,
+    autoSettleEnabled: true,
     isSnoozed: false,
     canSnoozeNow: true,
     isRegeneratingTitle: false,
-    isRunning: thread.session?.status === "running" && thread.session.activeTurnId != null,
+    isRunning: !threadRuntimeCanArchive(thread.runtime),
     supports: {
       settlement: true,
+      autoSettleOptOut: true,
       snooze: true,
       pinning: true,
       titleRegeneration: true,
@@ -38,7 +44,7 @@ function menuStateFor(thread: Pick<EnvironmentThreadShell, "session">): ThreadAc
   };
 }
 
-function teleportItems(thread: Pick<EnvironmentThreadShell, "session">) {
+function teleportItems(thread: Pick<EnvironmentThreadShell, "runtime">) {
   return buildThreadActionMenuItems(menuStateFor(thread)).filter((item) => item.id === "teleport");
 }
 
@@ -87,7 +93,7 @@ describe("threadSupportsTeleport", () => {
       providerName: "claudeAgent",
       providerInstanceId: "claudeAgent",
       status: "running",
-      activeTurnId: "turn-1",
+      activeRunId: "run-1",
     });
     const items = teleportItems(running);
     expect(items).toHaveLength(1);

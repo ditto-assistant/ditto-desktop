@@ -5,7 +5,7 @@ import type {
   EnvironmentId,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -18,7 +18,7 @@ import {
   SendIcon,
 } from "lucide-react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { useVisiblePolling } from "../../hooks/useVisiblePolling";
@@ -34,7 +34,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { Input } from "../ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import { QRCodeSvg } from "../ui/qr-code";
 import { useSidebar } from "../ui/sidebar";
 
@@ -49,8 +49,24 @@ function compactTime(value?: string): string {
   return `${Math.floor(elapsed / 86_400_000)}d`;
 }
 
-function accountIcon(account: ConnectedChannelAccount) {
-  return account.service === "discord" ? MessageCircleIcon : SmartphoneIcon;
+function AccountServiceIcon({
+  account,
+  className,
+}: {
+  readonly account: ConnectedChannelAccount;
+  readonly className: string;
+}) {
+  if (account.service === "telegram") return <SendIcon className={className} />;
+  if (account.service === "discord") return <MessageCircleIcon className={className} />;
+  return <SmartphoneIcon className={className} />;
+}
+
+function sortConversationsByLatest(
+  conversations: ReadonlyArray<ChannelConversation>,
+): ReadonlyArray<ChannelConversation> {
+  return [...conversations].sort((left, right) =>
+    (right.latestMessageAt ?? "").localeCompare(left.latestMessageAt ?? ""),
+  );
 }
 
 function accountLabel(account: ConnectedChannelAccount): string {
@@ -91,11 +107,13 @@ export function ChannelSidebar({ environmentId }: { readonly environmentId: Envi
   // one-shot setup event is missed.
   useVisiblePolling(refreshAccounts, { enabled: true, intervalMs: 10_000 });
 
-  useEffect(() => {
-    if (loadedAccounts !== undefined && loadedAccounts.length > 0) {
-      setStableAccounts(loadedAccounts);
-    }
-  }, [loadedAccounts]);
+  if (
+    loadedAccounts !== undefined &&
+    loadedAccounts.length > 0 &&
+    loadedAccounts !== stableAccounts
+  ) {
+    setStableAccounts(loadedAccounts);
+  }
 
   const accounts = loadedAccounts?.length ? loadedAccounts : stableAccounts;
   const setSharedAccounts = useChannelAccountConnectionStore((state) => state.setAccounts);
@@ -105,23 +123,27 @@ export function ChannelSidebar({ environmentId }: { readonly environmentId: Envi
   const [query, setQuery] = useState("");
 
   return (
-    <div className="border-b border-sidebar-border/60 px-[var(--sidebar-content-inset)] pb-2">
-      <div className="flex h-7 items-center px-2 text-[10px] font-semibold tracking-[0.08em] text-sidebar-muted-foreground/60 uppercase">
+    <div className="border-b border-sidebar-border/60 px-(--sidebar-content-inset) pb-2">
+      <div className="flex h-7 items-center px-2 text-3xs font-semibold tracking-widest text-sidebar-muted-foreground/60 uppercase">
         Chats
       </div>
-      <div className="relative mb-1 px-1">
-        <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-3 -translate-y-1/2 text-sidebar-muted-foreground/60" />
-        <Input
-          aria-label="Search chats"
-          className="h-7 border-sidebar-border/70 bg-sidebar-accent/30 pr-2 pl-7 text-xs shadow-none"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search all chats"
-          value={query}
-        />
+      <div className="mb-1 px-1">
+        <InputGroup>
+          <InputGroupAddon>
+            <SearchIcon aria-hidden className="size-3 text-sidebar-muted-foreground/60" />
+          </InputGroupAddon>
+          <InputGroupInput
+            aria-label="Search chats"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search all chats"
+            size="compact"
+            value={query}
+          />
+        </InputGroup>
       </div>
       <ul className="flex flex-col gap-px" aria-label="Chat sources">
         {accounts.length === 0 ? (
-          <li className="list-none px-2 py-1.5 text-[11px] text-sidebar-muted-foreground/60">
+          <li className="list-none px-2 py-1.5 text-2xs text-sidebar-muted-foreground/60">
             {accountsResult._tag === "Failure"
               ? "Couldn’t load chats. Try again."
               : "Loading chats…"}
@@ -170,8 +192,6 @@ function ChannelAccountGroup({
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
   const displayedAccount = configuredAccount ?? account;
-  const ServiceIcon =
-    displayedAccount.service === "telegram" ? SendIcon : accountIcon(displayedAccount);
   const selectedAccount = route.pathname === "/inbox" && route.search.account === account.accountId;
   const selectedConversation =
     route.pathname === "/inbox" && typeof route.search.conversation === "string"
@@ -183,7 +203,15 @@ function ChannelAccountGroup({
     intervalMs: 1_500,
   });
 
-  useEffect(() => {
+  const accountSetupKey = JSON.stringify([
+    account.state,
+    account.service,
+    account.transport,
+    account.setupUrl,
+  ]);
+  const [appliedSetupKey, setAppliedSetupKey] = useState<string | null>(null);
+  if (appliedSetupKey !== accountSetupKey) {
+    setAppliedSetupKey(accountSetupKey);
     if (
       account.state === "ready" &&
       (account.transport === "discord-local-user" || account.service === "telegram")
@@ -197,7 +225,7 @@ function ChannelAccountGroup({
       setConfiguredAccount(null);
       setSetupUrl(null);
     }
-  }, [account.state, account.service, account.transport, account.setupUrl]);
+  }
 
   const enable = async () => {
     setConfiguring(true);
@@ -252,15 +280,17 @@ function ChannelAccountGroup({
         )}
         <span
           className={cn(
-            "flex size-4 shrink-0 items-center justify-center rounded-[4px]",
+            "flex size-4 shrink-0 items-center justify-center rounded-sm",
             displayedAccount.service === "discord"
-              ? "bg-[#5865f2]/15 text-[#7c87ff]"
+              ? // oxlint-disable-next-line shadcn/no-arbitrary-values -- Discord's brand color marks the account, like the brand marks in Icons.tsx.
+                "bg-[#5865f2]/15 text-[#7c87ff]"
               : displayedAccount.service === "telegram"
-                ? "bg-[#229ed9]/15 text-[#42b9ed]"
-                : "bg-emerald-500/15 text-emerald-500",
+                ? // oxlint-disable-next-line shadcn/no-arbitrary-values -- Telegram's brand color marks the account, like the brand marks in Icons.tsx.
+                  "bg-[#229ed9]/15 text-[#42b9ed]"
+                : "bg-success/15 text-success",
           )}
         >
-          <ServiceIcon className="size-3" />
+          <AccountServiceIcon account={displayedAccount} className="size-3" />
         </span>
         <span className="min-w-0 flex-1 truncate font-medium">
           {accountLabel(displayedAccount)}
@@ -269,10 +299,10 @@ function ChannelAccountGroup({
           className={cn(
             "size-1.5 rounded-full",
             displayedAccount.state === "ready"
-              ? "bg-emerald-500"
+              ? "bg-success"
               : displayedAccount.state === "error" || displayedAccount.state === "unavailable"
                 ? "bg-destructive"
-                : "bg-amber-500",
+                : "bg-warning",
           )}
         />
       </button>
@@ -283,11 +313,11 @@ function ChannelAccountGroup({
             <li className="list-none py-1 pr-1">
               <Button
                 type="button"
-                variant="ghost"
-                size="sm"
+                variant="ghost-muted"
+                size="compact"
                 disabled={configuring}
                 onClick={() => void enable()}
-                className="h-7 w-full justify-start gap-1.5 px-2 text-xs text-sidebar-muted-foreground"
+                className="w-full justify-start"
               >
                 <PlusIcon className="size-3" />
                 {configuring
@@ -299,7 +329,7 @@ function ChannelAccountGroup({
             </li>
           ) : null}
           {displayedAccount.state !== "ready" ? (
-            <li className="list-none px-2 py-1.5 text-[11px] leading-4 text-sidebar-muted-foreground/70">
+            <li className="list-none px-2 py-1.5 text-2xs leading-4 text-sidebar-muted-foreground/70">
               {accountStatus(displayedAccount)}
             </li>
           ) : null}
@@ -376,35 +406,26 @@ function ReadyChannelConversations({
   const loadedConversations = Option.getOrNull(
     AsyncResult.value(conversationsResult),
   )?.conversations;
-  const sortedLoadedConversations = useMemo(
-    () =>
-      [...(loadedConversations ?? [])].sort((left, right) =>
-        (right.latestMessageAt ?? "").localeCompare(left.latestMessageAt ?? ""),
-      ),
-    [loadedConversations],
+  const [stableLoadedConversations, setStableLoadedConversations] = useState(loadedConversations);
+  if (loadedConversations !== undefined && loadedConversations !== stableLoadedConversations) {
+    setStableLoadedConversations(loadedConversations);
+  }
+  const conversations = sortConversationsByLatest(
+    loadedConversations ?? stableLoadedConversations ?? [],
   );
-  const [stableConversations, setStableConversations] = useState(sortedLoadedConversations);
-  useEffect(() => {
-    if (loadedConversations !== undefined) setStableConversations(sortedLoadedConversations);
-  }, [loadedConversations, sortedLoadedConversations]);
-  const conversations =
-    loadedConversations === undefined ? stableConversations : sortedLoadedConversations;
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const filteredConversations = useMemo(
-    () =>
-      normalizedQuery.length === 0
-        ? conversations
-        : conversations.filter((conversation) =>
-            `${conversation.title} ${conversation.containerTitle ?? ""}`
-              .toLocaleLowerCase()
-              .includes(normalizedQuery),
-          ),
-    [conversations, normalizedQuery],
-  );
+  const filteredConversations =
+    normalizedQuery.length === 0
+      ? conversations
+      : conversations.filter((conversation) =>
+          `${conversation.title} ${conversation.containerTitle ?? ""}`
+            .toLocaleLowerCase()
+            .includes(normalizedQuery),
+        );
 
   if (filteredConversations.length === 0) {
     return (
-      <li className="list-none px-2 py-1.5 text-[11px] text-sidebar-muted-foreground/60">
+      <li className="list-none px-2 py-1.5 text-2xs text-sidebar-muted-foreground/60">
         {conversationsResult._tag === "Failure"
           ? "Couldn’t load conversations."
           : normalizedQuery
@@ -520,7 +541,7 @@ function ConversationGroup({
     <li className="list-none">
       <button
         aria-expanded={visible}
-        className="flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[11px] font-medium text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+        className="flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-2xs font-medium text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
         onClick={() => setExpanded((value) => !value)}
         type="button"
       >
@@ -535,7 +556,7 @@ function ConversationGroup({
           <span className="flex size-4 items-center justify-center">{icon}</span>
         )}
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <span className="text-[9px] tabular-nums opacity-50">{conversations.length}</span>
+        <span className="text-3xs tabular-nums opacity-50">{conversations.length}</span>
       </button>
       {visible ? (
         <ul className="ml-3.5 flex flex-col gap-px border-l border-sidebar-border/50 pl-1">
@@ -604,11 +625,11 @@ function ChannelConversationRow({
         )}
         <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
         {conversation.unreadCount ? (
-          <span className="flex min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold text-primary-foreground tabular-nums">
+          <span className="flex min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-3xs font-semibold text-primary-foreground tabular-nums">
             {conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}
           </span>
         ) : (
-          <span className="shrink-0 text-[10px] text-sidebar-muted-foreground/50 tabular-nums">
+          <span className="shrink-0 text-3xs text-sidebar-muted-foreground/50 tabular-nums">
             {compactTime(conversation.latestMessageAt)}
           </span>
         )}

@@ -13,7 +13,7 @@
  *
  * @module ditto/hosts
  */
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 
 import { dittoFetchJson, getDittoDeviceId } from "./api";
 import type { DittoUser } from "./firebase";
@@ -94,29 +94,38 @@ export function useDittoHosts(user: DittoUser | null): DittoHostsState {
   const [loading, setLoading] = useState(user !== null);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    if (user === null) return;
+  const [trackedUser, setTrackedUser] = useState(user);
+  if (trackedUser !== user) {
+    setTrackedUser(user);
+    setLoading(user !== null);
+    if (user === null) setHosts([]);
+  }
+
+  const loadHosts = async (forUser: DittoUser) => {
     try {
-      setHosts(await listDittoHosts(user));
+      setHosts(await listDittoHosts(forUser));
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setLoading(false);
     }
-  }, [user]);
+    setLoading(false);
+  };
 
+  const refresh = async () => {
+    if (user === null) return;
+    await loadHosts(user);
+  };
+
+  const pollHosts = useEffectEvent((forUser: DittoUser) => {
+    void loadHosts(forUser);
+  });
   useEffect(() => {
-    if (user === null) {
-      setHosts([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    void refresh();
-    const timer = setInterval(() => void refresh(), HOSTS_POLL_INTERVAL_MS);
+    if (user === null) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- State changes only after the response arrives.
+    pollHosts(user);
+    const timer = setInterval(() => pollHosts(user), HOSTS_POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [user, refresh]);
+  }, [user]);
 
   return { hosts, loading, error, refresh };
 }

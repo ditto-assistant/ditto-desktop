@@ -31,13 +31,29 @@ macOS with Xcode. Android needs the SDK Platform-Tools, Android Emulator,
 and Command-line Tools (latest), plus a virtual device created in Android
 Studio's Device Manager. T3 Code detects standard SDK locations; set
 `ANDROID_HOME` for a custom location. The panel explains missing dependencies.
-After installing them, restart the environment server and refresh devices.
+After installing SDK tools, restart the environment server and refresh devices.
+
+Android emulator video also needs `ffmpeg` with the libx264 encoder on the device
+host's PATH, or an executable selected by `SERVE_EMU_FFMPEG` on that host. If
+opening an emulator reports an ffmpeg problem, install or fix the executable
+and retry opening it. After changing PATH or `SERVE_EMU_FFMPEG`, restart the
+environment server for local devices, or turn device support off and on for SSH
+devices, so the running tools inherit the new environment. Physical Android
+devices and iOS do not need ffmpeg.
 
 The screen is interactive: click and drag to touch, type while the screen is
 focused, and use the toolbar for Home, Back, and Recents on Android, rotate on
 iOS, and power off. Close the tab to stop watching; the device keeps running
 unless you power it off. Closed tabs stay closed after a reload. To watch the
 device again, choose it from **+ → Device**.
+
+Choose **3D view** to inspect supported devices while the live screen stays
+interactive. On iPhone Duo, use the fold and stance controls to change its
+physical pose, or pinch over the device to adjust the hinge. Turning the model
+to the other screen switches the live display and touch input to that screen.
+**Restore 3D view** returns the device to a screen-facing position.
+On supported Android foldables, use **Fold device** and **Unfold device** beside
+the screen to change its posture in either view.
 
 ## Tools
 
@@ -92,7 +108,9 @@ the environment’s own machine are skipped, since its devices are already local
 The first device listing installs pinned device tools on the host.
 Node 22 or newer and npm must be available to non-interactive SSH commands.
 T3 checks common Homebrew and Android SDK locations; custom installations need
-the appropriate PATH and ANDROID_HOME on the host.
+the appropriate PATH and ANDROID_HOME on the host. Android emulator video needs
+`ffmpeg` with libx264 on that host; physical Android devices use scrcpy and do
+not need ffmpeg.
 
 The picker identifies devices by host when several hosts are configured.
 Connections recover after interruptions. Removing a host closes its device

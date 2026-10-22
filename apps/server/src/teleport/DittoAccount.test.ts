@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/unstable/http";
+import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/http";
 
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { DittoAccountService, layer as dittoAccountLayer } from "./DittoAccount.ts";

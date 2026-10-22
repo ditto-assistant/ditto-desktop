@@ -189,7 +189,7 @@ class LocalChannels {
     return (this._googleMessages ||= this.createGoogleMessages());
   }
 
-  client(service) {
+  sidecar(service) {
     if (!["discord", "telegram"].includes(service))
       throw new Error("Unsupported local chat service.");
     return this.clients[service];
@@ -233,7 +233,7 @@ class LocalChannels {
         };
       }
     }
-    const client = this.client(service);
+    const client = this.sidecar(service);
     if (service === "discord") {
       const current = await client.request("status");
       return current.connected || current.loginPending
@@ -261,7 +261,7 @@ class LocalChannels {
 
   async startLogin(service, method) {
     if (service === "googlemessages") return this.googleMessages.login(method);
-    const client = this.client(service);
+    const client = this.sidecar(service);
     this.invalidateConversations(service);
     const current = await client.request("status");
     if (current.configured === false)
@@ -291,7 +291,7 @@ class LocalChannels {
     }
     if (service === "discord") {
       this.loginCodes.delete(service);
-      return this.client(service).request("login.cancel");
+      return this.sidecar(service).request("login.cancel");
     }
     throw new Error("Use Disconnect to end this sign-in attempt.");
   }
@@ -300,7 +300,7 @@ class LocalChannels {
     if (service === "googlemessages") return this.googleMessages.logout();
     this.invalidateConversations(service);
     this.loginCodes.delete(service);
-    return this.client(service).request("logout");
+    return this.sidecar(service).request("logout");
   }
 
   invalidateConversations(service) {
@@ -332,7 +332,7 @@ class LocalChannels {
         latestMessageAt: row.latest_message_at,
         handle: row.handle || row.chat_identifier || null,
       }));
-    } else value = await this.client(service).request("conversations.list", undefined, 60000);
+    } else value = await this.sidecar(service).request("conversations.list", undefined, 60000);
     // A response from before Disconnect/sign-in must not refill the next account's cache.
     if (version !== this.conversationVersions.get(service))
       throw new Error("Chat connection changed. Refresh the conversation list.");
@@ -371,7 +371,7 @@ class LocalChannels {
         attachments: [],
       }));
     }
-    return this.client(service).request(
+    return this.sidecar(service).request(
       "messages.list",
       { channelId: conversationId, limit: safeLimit, ...(beforeId ? { beforeId } : {}) },
       90000,
@@ -414,7 +414,7 @@ class LocalChannels {
       };
     }
     const params = { channelId: conversationId, content, idempotencyKey: crypto.randomUUID() };
-    return this.client(service).request("message.send", params, 90000);
+    return this.sidecar(service).request("message.send", params, 90000);
   }
 
   close() {

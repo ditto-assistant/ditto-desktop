@@ -17,7 +17,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import { getDittoDeviceId } from "~/ditto/api";
 import { getDittoApiBaseUrl } from "~/ditto/apiBase";
@@ -101,7 +101,7 @@ function ThisDeviceRow({ self }: { readonly self: DittoHost | null }) {
 
 function HostSessions({ host }: { readonly host: DittoHost }) {
   const navigate = useNavigate();
-  const sessions = useMemo(() => sortHostSessions(host.sessions), [host.sessions]);
+  const sessions = sortHostSessions(host.sessions);
   if (sessions.length === 0) {
     return <p className="text-xs text-muted-foreground">No sessions announced.</p>;
   }
@@ -153,18 +153,18 @@ function PairedHostRow({
   });
   const [registering, setRegistering] = useState(false);
   const [registered, setRegistered] = useState(false);
-  const addAsEnvironment = useCallback(async () => {
+  const addAsEnvironment = async () => {
     setRegistering(true);
-    try {
-      const bearerToken = await user.getIdToken();
-      await registerEnvironment(
-        pairedHostRegistration({ host, apiBaseUrl: getDittoApiBaseUrl(), bearerToken }),
-      );
-      setRegistered(true);
-    } finally {
-      setRegistering(false);
-    }
-  }, [host, registerEnvironment, user]);
+    await user
+      .getIdToken()
+      .then((bearerToken) =>
+        registerEnvironment(
+          pairedHostRegistration({ host, apiBaseUrl: getDittoApiBaseUrl(), bearerToken }),
+        ),
+      )
+      .then(() => setRegistered(true))
+      .finally(() => setRegistering(false));
+  };
 
   return (
     <SettingsRow
@@ -209,27 +209,23 @@ function ShowPairingCode({
   readonly user: DittoUser;
   readonly onPaired: () => void;
 }) {
-  const [pairing, setPairing] = useState<DittoPairing | null>(null);
+  const [requestedPairing, setPairing] = useState<DittoPairing | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const now = useNow(1_000);
-  const remaining = pairing === null ? 0 : pairingSecondsRemaining(pairing, now);
+  const remaining = requestedPairing === null ? 0 : pairingSecondsRemaining(requestedPairing, now);
+  const pairing = remaining === 0 ? null : requestedPairing;
 
-  const request = useCallback(async () => {
+  const request = async () => {
     setBusy(true);
     setError(null);
     try {
       setPairing(await createDittoPairing(user));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(false);
     }
-  }, [user]);
-
-  useEffect(() => {
-    if (pairing !== null && remaining === 0) setPairing(null);
-  }, [pairing, remaining]);
+    setBusy(false);
+  };
 
   // The claim lands on the backend; refresh the host list so the pair shows up.
   useEffect(() => {
@@ -279,38 +275,36 @@ function EnterPairingCode({
   const [error, setError] = useState<string | null>(null);
   const [pairedWith, setPairedWith] = useState<string | null>(null);
 
-  const submit = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (!isCompletePairingCode(code)) return;
-      setBusy(true);
-      setError(null);
-      try {
-        const host = await claimDittoPairing(user, normalizePairingCodeInput(code));
-        setPairedWith(host.name);
-        setCode("");
-        onPaired();
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [code, onPaired, user],
-  );
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!isCompletePairingCode(code)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const host = await claimDittoPairing(user, normalizePairingCodeInput(code));
+      setPairedWith(host.name);
+      setCode("");
+      onPaired();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+    setBusy(false);
+  };
 
   return (
     <form className="grid gap-2" onSubmit={(event) => void submit(event)}>
       <div className="flex items-center gap-2">
-        <Input
-          aria-label="Pairing code"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          placeholder="123 456"
-          className="w-32 font-mono tracking-widest"
-          value={formatPairingCode(code)}
-          onChange={(event) => setCode(normalizePairingCodeInput(event.target.value))}
-        />
+        <div className="w-32 tracking-widest">
+          <Input
+            aria-label="Pairing code"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="123 456"
+            font="mono"
+            value={formatPairingCode(code)}
+            onChange={(event) => setCode(normalizePairingCodeInput(event.target.value))}
+          />
+        </div>
         <Button type="submit" size="sm" disabled={busy || !isCompletePairingCode(code)}>
           {busy ? <Spinner /> : null}
           Pair
@@ -327,8 +321,8 @@ function EnterPairingCode({
 function DevicesBody({ user }: { readonly user: DittoUser }) {
   const { hosts, loading, error, refresh } = useDittoHosts(user);
   const now = useNow(30_000);
-  const partitioned = useMemo(() => partitionDittoHosts(hosts, getDittoDeviceId()), [hosts]);
-  const onPaired = useCallback(() => void refresh(), [refresh]);
+  const partitioned = partitionDittoHosts(hosts, getDittoDeviceId());
+  const onPaired = () => void refresh();
 
   return (
     <>

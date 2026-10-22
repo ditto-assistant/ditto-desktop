@@ -6,10 +6,6 @@ const ThemedPath = withUniwind(Path);
 const ThemedRect = withUniwind(Rect);
 const ThemedCircle = withUniwind(Circle);
 
-/**
- * The Ditto v2 wordmark, shared with the desktop sidebar. Width derives from
- * the canonical 226 by 76 viewBox.
- */
 export function T3Wordmark(props: {
   readonly height: number;
   readonly color?: ColorValue;

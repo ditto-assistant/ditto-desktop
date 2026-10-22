@@ -92,9 +92,7 @@ export class HostBridgeRuntime extends Context.Service<HostBridgeRuntime, HostBr
   "t3/remote/HostBridgeRuntime",
 ) {}
 
-// ---------------------------------------------------------------------------
 // Pure mappings shared by the orchestration runtime and its tests.
-// ---------------------------------------------------------------------------
 
 /** Only Claude Code and Codex are remote-controllable (protocol v1.1). */
 export function harnessForProvider(

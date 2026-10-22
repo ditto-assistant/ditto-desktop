@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - fixtures hash bytes synchronously.
 import * as NodeCrypto from "node:crypto";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -5,7 +6,7 @@ import type { BackendToHostFrame, HostToBackendFrame } from "@t3tools/contracts"
 import { expect, it } from "@effect/vitest";
 import type * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
-import * as Encoding from "effect/Encoding";
+import * as Base64 from "effect/encoding/Base64";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -31,9 +32,7 @@ import {
   type HostBridgeTunnelConnection,
 } from "./HostBridgeTunnel.ts";
 
-// ---------------------------------------------------------------------------
 // Stub backend: an in-memory socket per connection attempt.
-// ---------------------------------------------------------------------------
 
 interface StubSocket {
   readonly socket: HostBridgeSocket;
@@ -87,10 +86,6 @@ const makeStubBackend = Effect.gen(function* () {
   const awaitConnection = Queue.take(connections).pipe(Effect.orDie);
   return { layer, awaitConnection, sockets };
 });
-
-// ---------------------------------------------------------------------------
-// Fake runtime.
-// ---------------------------------------------------------------------------
 
 const session = (overrides: Partial<HostBridgeSession> = {}): HostBridgeSession => ({
   sessionId: "thread-1",
@@ -152,9 +147,7 @@ const fetchLayer = (files: Record<string, string>) =>
     },
   });
 
-// ---------------------------------------------------------------------------
 // Stub local RPC listener for environment tunnels.
-// ---------------------------------------------------------------------------
 
 const makeStubTunnelTarget = Effect.gen(function* () {
   const opened: Array<{ readonly path: string | undefined; readonly received: Uint8Array[] }> = [];
@@ -239,8 +232,6 @@ const readText = (...segments: ReadonlyArray<string>) =>
 
 const withNode = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.scoped, Effect.provide(NodeServices.layer));
-
-// ---------------------------------------------------------------------------
 
 it.live("announces sessions and their command catalog after welcome", () =>
   Effect.gen(function* () {
@@ -555,13 +546,13 @@ it.live("bridges an environment tunnel from a paired host to the local listener"
     yield* socket.push({
       type: "env.frame",
       tunnelId: "tun-1",
-      payload: Encoding.encodeBase64(new TextEncoder().encode("rpc request")),
+      payload: Base64.encode(new TextEncoder().encode("rpc request")),
     });
     yield* tunnelTarget.emit(new TextEncoder().encode("rpc response"));
     expect(yield* socket.next).toEqual({
       type: "env.frame",
       tunnelId: "tun-1",
-      payload: Encoding.encodeBase64(new TextEncoder().encode("rpc response")),
+      payload: Base64.encode(new TextEncoder().encode("rpc response")),
     });
     expect(tunnelTarget.opened.map((entry) => entry.path)).toEqual(["/ws"]);
     expect(new TextDecoder().decode(tunnelTarget.opened[0]!.received[0])).toBe("rpc request");
