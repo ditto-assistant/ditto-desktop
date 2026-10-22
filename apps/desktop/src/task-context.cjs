@@ -2,20 +2,21 @@ function shouldRetrieveMemory(question) {
   if (
     /\b(?:do not|don't|without|no)\s+(?:(?:use|using|retrieve|search|recall|include)\s+)?(?:my\s+|local\s+)?memor(?:y|ies)\b/i.test(
       question,
+    ) ||
+    /\b(?:do not|don't)\s+[^.!?;\n]*?\b(?:or|nor)\s+(?:(?:use|using|retrieve|search|recall|include)\s+)?(?:my\s+|local\s+)?memor(?:y|ies)\b/i.test(
+      question,
     )
   )
     return false;
-  for (const [, clause] of question.matchAll(
-    /\b(?:do not|don't)\s+((?:\.(?!\s|$)|[^.!?;\n])*)/gi,
-  )) {
-    const prohibited = clause.split(/\b(?:but|then)\b/i)[0];
-    for (const [, separator, qualifier] of prohibited.matchAll(
-      /(,\s*|\b(?:or|nor)\s+)(?:(?:use|using|retrieve|search|recall|include)\s+)?(?:my\s+|local\s+)?memor(?:y|ies)\b([^,.!?;\n]*)/gi,
+  for (const clause of question.split(/\b(?:do not|don't)\s+/i).slice(1)) {
+    const prohibited = clause.split(/[!?;\n]|\.(?=\s|$)|\b(?:but|then)\b/i)[0];
+    if (/^(?:forget|hesitate|worry)\b/i.test(prohibited)) continue;
+    for (const [, qualifier] of prohibited.matchAll(
+      /,\s*(?:use|using|retrieve|search|recall|include)\s+(?:my\s+|local\s+)?memor(?:y|ies)\b([^,.!?;\n]*)/gi,
     )) {
       // A comma can introduce an affirmative replacement ("use memory or
-      // history instead"); an explicit "or/nor" keeps the prohibition.
-      if (/\b(?:or|nor)\b/i.test(separator) || !/\b(?:instead|rather than)\b/i.test(qualifier))
-        return false;
+      // history instead"). Require an action, not an assertion about memory.
+      if (!/\b(?:instead|rather than)\b/i.test(qualifier)) return false;
     }
   }
   // A direct operation must inspect the selected workspace. Similar historical

@@ -35,6 +35,8 @@ test("memory opt-outs also apply to coordinated lists of prohibited actions", ()
     "Do not edit files, use local memory, or run commands.",
     "Do not edit files or use memory instead.",
     "Do not edit example.cjs, retrieve memories, or use the network.",
+    "Do not edit files, but don't run commands or retrieve memories either.",
+    "Do not edit files, but don't run commands, retrieve memories, or use the network.",
   ])
     assert.equal(shouldRetrieveMemory(prompt), false, prompt);
 });
@@ -52,6 +54,9 @@ test("a separate request to use memory is not negated by a preceding prohibition
     "Do not edit files, use memory rather than changing the code.",
     "Do not edit files, use memory or history instead.",
     "Do not edit files, but do the following: use tools, retrieve memories, and explain the design.",
+    "Do not edit files, memory is the only source you should use.",
+    "Don't forget, use my memory to explain this.",
+    "Do not hesitate, retrieve memories for context.",
   ])
     assert.equal(shouldRetrieveMemory(prompt), true, prompt);
 });
