@@ -83,7 +83,11 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const providers = yield* ProviderInstanceRegistry;
   const crypto = yield* Crypto.Crypto;
-  const emittedPrompts = new Set<string>();
+  // Prompt id -> owning thread. `prompt.answer` frames carry no session id, and
+  // a thread's shell shows only one pending request, so the owner recorded when
+  // the prompt was announced is what lets several requests on one thread (parallel
+  // tool calls) each be answered.
+  const emittedPrompts = new Map<string, ThreadId>();
 
   const commandId = (tag: string) =>
     crypto.randomUUIDv4().pipe(
@@ -172,7 +176,7 @@ const make = Effect.gen(function* () {
     // that the host bridge protocol cannot express yet, so only approvals are
     // surfaced as prompts.
     if (!APPROVAL_REQUEST_KINDS.has(request.kind) || emittedPrompts.has(promptId)) return [];
-    emittedPrompts.add(promptId);
+    emittedPrompts.set(promptId, threadId);
     return [
       {
         type: "prompt.pending",
@@ -299,7 +303,7 @@ const make = Effect.gen(function* () {
     const threadId =
       input.sessionId !== null
         ? ThreadId.make(input.sessionId)
-        : yield* threadForRequest(requestId);
+        : (emittedPrompts.get(input.promptId) ?? (yield* threadForRequest(requestId)));
     if (threadId === null) {
       return yield* new HostBridgeRuntimeError({
         detail: `Prompt ${input.promptId} has no session.`,

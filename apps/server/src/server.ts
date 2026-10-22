@@ -511,6 +511,10 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
 );
 
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
+  // DITTO: ProviderTurnStartService reads DittoHarnessService with
+  // `Effect.serviceOption`, so a missing layer fails silently and no memory
+  // context is ever prepended.
+  Layer.provide(DittoHarnessServiceLive),
   Layer.provide(layerScheduledTaskWebhookOrigin),
   Layer.provide(ProviderEventIngestor.layerAnalytics),
   Layer.provide(layerCheckpointStore),
