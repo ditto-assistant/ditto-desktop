@@ -887,6 +887,7 @@
   const activities = new Map();
   let codePaneVisible = false;
   let codePaneLastTool = null;
+  let codePaneLastThread = null;
   const codeTerminalKey = () => activeCodeThread?.threadId || `session:${localSessionId}`;
   function mountCodeTools() {
     const header = document.querySelector(".v2-shell-header");
@@ -931,12 +932,19 @@
         `${Math.round(header.getBoundingClientRect().bottom)}px`,
       );
     resizeCodePane(codePaneWidth);
-    if (visible !== codePaneVisible || codeTool !== codePaneLastTool) {
+    const thread = codeTerminalKey();
+    if (
+      visible !== codePaneVisible ||
+      codeTool !== codePaneLastTool ||
+      thread !== codePaneLastThread
+    ) {
       codePaneVisible = visible;
       codePaneLastTool = codeTool;
+      codePaneLastThread = thread;
       if (visible && codeTool === "browser") void showBrowser();
       else void window.ditto.browserHide();
       if (visible && codeTool === "terminal") void showCodeTerminal();
+      if (visible && codeTool === "activity") renderCodeActivity();
     }
   }
   function openCodeTool(name) {
