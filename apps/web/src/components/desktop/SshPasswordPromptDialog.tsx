@@ -161,9 +161,9 @@ function ActiveSshPasswordPrompt({
           <DialogTitle>SSH verification required</DialogTitle>
           {/* DITTO: branding — upstream's "T3 Code" strings read "Ditto" here. */}
           <DialogDescription>
-            Enter the password or verification code required by <code>{target}</code>. Ditto
-            passes your response to the local SSH process and keeps it in memory to reuse for this
-            host. Ditto does not write it to disk.
+            Enter the password or verification code required by <code>{target}</code>. Ditto passes
+            your response to the local SSH process and keeps it in memory to reuse for this host.
+            Ditto does not write it to disk.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel scrollFade={false}>

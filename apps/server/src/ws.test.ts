@@ -105,6 +105,7 @@ import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ProjectEnrichment from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
+import { ChannelRegistry } from "./channels/ChannelRegistry.ts";
 import {
   layerWsRpc,
   subscribeOrchestrationV2Shell,
@@ -356,6 +357,8 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(WorkspaceEntries.WorkspaceEntries)({}),
   Layer.mock(WorkspaceFileSystem.WorkspaceFileSystem)({}),
   Layer.mock(WorktreeSetupTracker.WorktreeSetupTracker)({}),
+  // DITTO: ws.ts reads the channel registry for knowledge packets.
+  Layer.mock(ChannelRegistry)({}),
 );
 
 const layerConfigSources = Layer.mergeAll(

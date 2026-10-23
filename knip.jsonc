@@ -33,6 +33,8 @@
         "sign-macos.ts",
         "verify-windows-desktop-artifact.ts",
         // DITTO: run by the disabled release workflow.
+        "build-cli-archive.ts",
+        "resolve-nightly-release.ts",
         "smoke-cli-archive.ts",
       ],
       "ignoreDependencies": ["esbuild"],

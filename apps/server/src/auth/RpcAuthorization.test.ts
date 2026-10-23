@@ -239,8 +239,8 @@ it.effect("requires task permission before attaching a prepared worktree to a th
 );
 
 describe("thread context authorization", () => {
-  const group = WsRpcGroup.omit(
-    ...[...WsRpcGroup.requests.keys()].filter(
+  const group = DittoAppWsRpcGroup.omit(
+    ...[...DittoAppWsRpcGroup.requests.keys()].filter(
       (
         tag,
       ): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, typeof WS_METHODS.gitRunStackedAction> =>
