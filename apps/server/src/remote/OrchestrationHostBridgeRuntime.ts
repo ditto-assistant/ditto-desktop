@@ -1,30 +1,35 @@
 /**
- * `HostBridgeRuntime` on top of t3code's orchestration engine: every
- * non-archived Claude Code / Codex thread is a session; turns, commands,
- * interrupts and prompt answers are orchestration commands; prompts come
- * from the pending-approval projection; checkpoints resolve to the thread's
- * latest checkpoint ref until the Teleport service (feat/teleport) lands.
+ * `HostBridgeRuntime` on top of t3code's orchestration v2: every non-archived
+ * Claude Code / Codex thread is a session; turns go through
+ * `ThreadManagementService.sendToThread`, interrupts through `interruptThread`,
+ * and prompt answers are `runtime-request.respond` commands. Prompts come from
+ * `runtime-request.updated` domain events; checkpoints resolve to the thread's
+ * latest ready checkpoint ref until the Teleport service (feat/teleport) lands.
  *
  * @module remote/OrchestrationHostBridgeRuntime
  */
-import { CommandId, MessageId, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  isProviderNativeSubagentThread,
+  MessageId,
+  type OrchestrationV2DomainEvent,
+  type OrchestrationV2RuntimeRequest,
+  type OrchestrationV2ThreadShell,
+  type ProjectId,
+  RuntimeRequestId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
-import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ProjectionTurnRepository } from "../persistence/Services/ProjectionTurns.ts";
-import { ProjectionPendingApprovalRepository } from "../persistence/Services/ProjectionPendingApprovals.ts";
-import { ProjectionProjectRepository } from "../persistence/Services/ProjectionProjects.ts";
-import { ProjectionThreadRepository } from "../persistence/Services/ProjectionThreads.ts";
-import { ProjectionThreadSessionRepository } from "../persistence/Services/ProjectionThreadSessions.ts";
-import { ProviderInstanceRegistry } from "../provider/Services/ProviderInstanceRegistry.ts";
-import { eventThreadId } from "../relay/AgentAwarenessRelay.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import { ProviderInstanceRegistry } from "../provider/ProviderInstanceRegistry.ts";
 import {
   approvalDecisionForAnswer,
   commandsFromProviderSnapshot,
@@ -40,105 +45,117 @@ import {
   type HostBridgeSession,
 } from "./HostBridgeRuntime.ts";
 
-const SESSION_EVENT_TYPES = new Set([
+/** Domain events after which a thread's announced session may have changed. */
+const SESSION_EVENT_TYPES: ReadonlySet<OrchestrationV2DomainEvent["type"]> = new Set([
   "thread.created",
-  "thread.session-set",
-  "thread.turn-start-requested",
-  "thread.turn-interrupt-requested",
-  "thread.session-stop-requested",
-  "thread.meta-updated",
   "thread.unarchived",
-  "thread.activity-appended",
-  "thread.message-sent",
+  "thread.metadata-updated",
+  "thread.model-selection-updated",
+  "thread.provider-switched",
+  "run.created",
+  "run.updated",
+  "runtime-request.updated",
+  "provider-session.attached",
+  "provider-session.updated",
+  "provider-session.detached",
 ]);
-const CLOSE_EVENT_TYPES = new Set(["thread.deleted", "thread.archived"]);
+const CLOSE_EVENT_TYPES: ReadonlySet<OrchestrationV2DomainEvent["type"]> = new Set([
+  "thread.deleted",
+  "thread.archived",
+]);
+
+/** Runtime requests a permission prompt can answer with an approval decision. */
+const APPROVAL_REQUEST_KINDS: ReadonlySet<OrchestrationV2RuntimeRequest["kind"]> = new Set([
+  "command",
+  "file-read",
+  "file-change",
+  "permission",
+]);
+
+/** A remote Ditto user typing into a host session is a user message from a client. */
+const HOST_BRIDGE_PROVENANCE = { createdBy: "user", creationSource: "mobile" } as const;
 
 const toRuntimeError = (detail: string) => (cause: unknown) =>
   new HostBridgeRuntimeError({ detail, cause });
 
 const make = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngineService;
-  const projects = yield* ProjectionProjectRepository;
-  const threads = yield* ProjectionThreadRepository;
-  const snapshots = yield* ProjectionSnapshotQuery;
-  const threadSessions = yield* ProjectionThreadSessionRepository;
-  const checkpoints = yield* ProjectionTurnRepository;
-  const approvals = yield* ProjectionPendingApprovalRepository;
+  const threads = yield* ThreadManagement.ThreadManagementService;
+  const projects = yield* ProjectService.ProjectService;
   const providers = yield* ProviderInstanceRegistry;
   const crypto = yield* Crypto.Crypto;
-  const emittedPrompts = new Set<string>();
+  // Prompt id -> owning thread. `prompt.answer` frames carry no session id, and
+  // a thread's shell shows only one pending request, so the owner recorded when
+  // the prompt was announced is what lets several requests on one thread (parallel
+  // tool calls) each be answered.
+  const emittedPrompts = new Map<string, ThreadId>();
 
   const commandId = (tag: string) =>
-    crypto.randomUUIDv4.pipe(
+    crypto.randomUUIDv4().pipe(
       Effect.map((uuid) => CommandId.make(`ditto-host:${tag}:${uuid}`)),
       Effect.orDie,
     );
-  const messageId = crypto.randomUUIDv4.pipe(
+  const messageId = crypto.randomUUIDv4().pipe(
     Effect.map((uuid) => MessageId.make(uuid)),
     Effect.orDie,
   );
-  const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
-  const commandsForHarness = (harness: HostBridgeSession["harness"]) =>
-    Effect.gen(function* () {
-      const instances = yield* providers.listInstances;
-      const instance = instances.find(
-        (candidate) => candidate.enabled && harnessForProvider(candidate.driverKind) === harness,
-      );
-      if (instance === undefined) return [];
-      const snapshot = yield* instance.snapshot.getSnapshot;
-      return commandsFromProviderSnapshot(snapshot);
-    }).pipe(Effect.orElseSucceed(() => []));
+  const isAnnounceable = (thread: OrchestrationV2ThreadShell) =>
+    thread.archivedAt === null &&
+    thread.deletedAt === null &&
+    !isProviderNativeSubagentThread(thread);
 
-  const sessionForThread = (
-    thread: {
-      readonly threadId: ThreadId;
-      readonly worktreePath: string | null;
-      readonly title: string;
-    },
+  const sessionForThread = Effect.fn("OrchestrationHostBridgeRuntime.sessionForThread")(function* (
+    thread: OrchestrationV2ThreadShell,
     workspaceRoot: string | null,
-  ) =>
-    Effect.gen(function* () {
-      const session = yield* threadSessions.getByThreadId({ threadId: thread.threadId });
-      const providerName = Option.isSome(session) ? session.value.providerName : null;
-      const harness = harnessForProvider(providerName);
-      if (harness === null) return null;
-      const cwd = thread.worktreePath ?? workspaceRoot;
-      if (cwd === null) return null;
-      const status = Option.isSome(session)
-        ? sessionStatusForProvider(session.value.status, session.value.activeTurnId)
-        : "idle";
-      return {
-        sessionId: thread.threadId,
-        harness,
-        cwd,
-        mode: "headless",
-        status,
-        title: thread.title,
-        commands: yield* commandsForHarness(harness),
-      } satisfies HostBridgeSession;
-    });
+  ) {
+    const instance = yield* providers.getInstance(thread.providerInstanceId);
+    // Default instances are keyed by their driver kind, so the id is a usable
+    // fallback when the instance is not live in this build.
+    const harness = harnessForProvider(instance?.driverKind ?? thread.providerInstanceId);
+    if (harness === null) return null;
+    const cwd = thread.worktreePath ?? workspaceRoot;
+    if (cwd === null) return null;
+    const commands =
+      instance === undefined || !instance.enabled
+        ? []
+        : yield* instance.snapshot.getSnapshot.pipe(
+            Effect.map(commandsFromProviderSnapshot),
+            Effect.orElseSucceed(() => []),
+          );
+    return {
+      sessionId: thread.id,
+      harness,
+      cwd,
+      mode: "headless",
+      status: sessionStatusForProvider(thread.status, thread.activeRunId),
+      title: thread.title,
+      commands,
+    } satisfies HostBridgeSession;
+  });
 
-  const workspaceRootFor = (projectId: Parameters<typeof projects.getById>[0]["projectId"]) =>
-    projects.getById({ projectId }).pipe(
+  const workspaceRootFor = (projectId: ProjectId) =>
+    projects.getById(projectId).pipe(
       Effect.map((project) => (Option.isSome(project) ? project.value.workspaceRoot : null)),
       Effect.orElseSucceed(() => null),
     );
 
   const listSessions: HostBridgeRuntimeShape["listSessions"] = Effect.gen(function* () {
+    const [projectSnapshot, shellSnapshot] = yield* Effect.all([
+      projects.snapshot,
+      threads.getShellSnapshot(),
+    ]);
+    const roots = new Map(
+      projectSnapshot.projects.map((project) => [project.id, project.workspaceRoot] as const),
+    );
     const sessions: HostBridgeSession[] = [];
-    const snapshot = yield* snapshots.getShellSnapshot();
-    for (const thread of snapshot.threads) {
-      if (thread.archivedAt !== null) continue;
-      const project = snapshot.projects.find((candidate) => candidate.id === thread.projectId);
-      const session = yield* sessionForThread(
-        { threadId: thread.id, worktreePath: thread.worktreePath, title: thread.title },
-        project?.workspaceRoot ?? null,
-      );
+    for (const thread of shellSnapshot.threads) {
+      if (!isAnnounceable(thread)) continue;
+      const session = yield* sessionForThread(thread, roots.get(thread.projectId) ?? null);
       if (session !== null) sessions.push(session);
     }
     return sessions as ReadonlyArray<HostBridgeSession>;
   }).pipe(
+    Effect.withSpan("OrchestrationHostBridgeRuntime.listSessions"),
     Effect.catchCause((cause) =>
       Effect.logWarning("host bridge could not list sessions", { cause: Cause.pretty(cause) }).pipe(
         Effect.as([] as ReadonlyArray<HostBridgeSession>),
@@ -146,93 +163,113 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  const pendingPromptsFor = (threadId: ThreadId) =>
-    approvals.listByThreadId({ threadId }).pipe(
-      Effect.map((rows) =>
-        rows
-          .filter((row) => row.status === "pending")
-          .map((row) => promptIdFor({ kind: "approval", requestId: row.requestId }))
-          .filter((promptId) => !emittedPrompts.has(promptId))
-          .map((promptId): HostBridgeRuntimeEvent => {
-            emittedPrompts.add(promptId);
-            return {
-              type: "prompt.pending",
-              prompt: {
-                promptId,
-                sessionId: threadId,
-                kind: "permission",
-                text: "The agent is asking for permission to run a tool.",
-                options: PERMISSION_PROMPT_OPTIONS,
-                default: "accept",
-              },
-            };
-          }),
+  const promptForRequest = (
+    threadId: ThreadId,
+    request: OrchestrationV2RuntimeRequest,
+  ): ReadonlyArray<HostBridgeRuntimeEvent> => {
+    const promptId = promptIdFor({ kind: "approval", requestId: request.id });
+    if (request.status !== "pending") {
+      emittedPrompts.delete(promptId);
+      return [];
+    }
+    // DITTO: user_input / mcp-elicitation requests carry per-question ids
+    // that the host bridge protocol cannot express yet, so only approvals are
+    // surfaced as prompts.
+    if (!APPROVAL_REQUEST_KINDS.has(request.kind) || emittedPrompts.has(promptId)) return [];
+    emittedPrompts.set(promptId, threadId);
+    return [
+      {
+        type: "prompt.pending",
+        prompt: {
+          promptId,
+          sessionId: threadId,
+          kind: "permission",
+          text: "The agent is asking for permission to run a tool.",
+          options: PERMISSION_PROMPT_OPTIONS,
+          default: "accept",
+        },
+      },
+    ];
+  };
+
+  const eventsFor = Effect.fn("OrchestrationHostBridgeRuntime.eventsFor")(function* (
+    event: OrchestrationV2DomainEvent,
+  ) {
+    const threadId = event.threadId;
+    const closed: ReadonlyArray<HostBridgeRuntimeEvent> = [
+      { type: "session.closed", sessionId: threadId },
+    ];
+    if (CLOSE_EVENT_TYPES.has(event.type)) return closed;
+    if (!SESSION_EVENT_TYPES.has(event.type)) return [];
+    // Projections commit with the event, so the shell already reflects it.
+    const thread = yield* threads.getThreadShell(threadId);
+    if (thread === null || thread.archivedAt !== null || thread.deletedAt !== null) return closed;
+    if (isProviderNativeSubagentThread(thread)) return [];
+    const session = yield* sessionForThread(thread, yield* workspaceRootFor(thread.projectId));
+    if (session === null) return [];
+    const out: HostBridgeRuntimeEvent[] = [{ type: "session.upserted", session }];
+    if (event.type === "runtime-request.updated") {
+      out.push(...promptForRequest(threadId, event.payload));
+    }
+    return out;
+  });
+
+  // Each host connection subscribes afresh. A failed subscription is retried
+  // after a pause so one store error does not silence the connection.
+  const domainEvents = (): Stream.Stream<OrchestrationV2DomainEvent> =>
+    threads.streamDomainEvents.pipe(
+      Stream.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Stream.empty
+          : Stream.fromEffect(
+              Effect.logWarning("host bridge domain event stream failed; resubscribing", {
+                cause: Cause.pretty(cause),
+              }).pipe(Effect.andThen(Effect.sleep("1 second"))),
+            ).pipe(Stream.flatMap(() => domainEvents())),
       ),
-      Effect.orElseSucceed(() => [] as ReadonlyArray<HostBridgeRuntimeEvent>),
     );
 
-  const eventsForThread = (type: string, threadId: ThreadId) =>
-    Effect.gen(function* () {
-      if (CLOSE_EVENT_TYPES.has(type)) {
-        return [{ type: "session.closed", sessionId: threadId }] satisfies HostBridgeRuntimeEvent[];
-      }
-      if (!SESSION_EVENT_TYPES.has(type)) return [];
-      const thread = yield* threads.getById({ threadId });
-      if (Option.isNone(thread) || thread.value.archivedAt !== null) {
-        return [{ type: "session.closed", sessionId: threadId }] satisfies HostBridgeRuntimeEvent[];
-      }
-      const session = yield* sessionForThread(
-        thread.value,
-        yield* workspaceRootFor(thread.value.projectId),
-      );
-      const out: HostBridgeRuntimeEvent[] =
-        session === null ? [] : [{ type: "session.upserted", session }];
-      if (type === "thread.activity-appended" && thread.value.pendingApprovalCount > 0) {
-        out.push(...(yield* pendingPromptsFor(threadId)));
-      }
-      return out;
-    }).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<HostBridgeRuntimeEvent>));
-
-  const events: HostBridgeRuntimeShape["events"] = engine.streamDomainEvents.pipe(
-    Stream.mapEffect((event) => {
-      const threadId = eventThreadId(event);
-      return threadId === null ? Effect.succeed([]) : eventsForThread(event.type, threadId);
-    }),
+  const events: HostBridgeRuntimeShape["events"] = domainEvents().pipe(
+    Stream.mapEffect((event) =>
+      eventsFor(event).pipe(
+        Effect.orElseSucceed(() => [] as ReadonlyArray<HostBridgeRuntimeEvent>),
+      ),
+    ),
     Stream.flatMap((batch) => Stream.fromIterable(batch)),
   );
 
-  const startTurn = (input: {
+  const loadThread = Effect.fn("OrchestrationHostBridgeRuntime.loadThread")(function* (
+    sessionId: string,
+  ) {
+    const thread = yield* threads
+      .getThreadShell(ThreadId.make(sessionId))
+      .pipe(Effect.mapError(toRuntimeError("Failed to load the session.")));
+    if (thread === null || thread.deletedAt !== null) {
+      return yield* new HostBridgeRuntimeError({ detail: `Unknown session ${sessionId}.` });
+    }
+    return thread;
+  });
+
+  const startTurn = Effect.fn("OrchestrationHostBridgeRuntime.startTurn")(function* (input: {
     readonly sessionId: string;
     readonly text: string;
     readonly tag: string;
-  }) =>
-    Effect.gen(function* () {
-      const threadId = ThreadId.make(input.sessionId);
-      const thread = yield* threads
-        .getById({ threadId })
-        .pipe(Effect.mapError(toRuntimeError("Failed to load the session.")));
-      if (Option.isNone(thread)) {
-        return yield* new HostBridgeRuntimeError({ detail: `Unknown session ${input.sessionId}.` });
-      }
-      yield* Effect.mapError(
-        engine.dispatch({
-          type: "thread.turn.start",
-          commandId: yield* commandId(input.tag),
-          threadId,
-          message: {
-            messageId: yield* messageId,
-            role: "user",
-            text: input.text,
-            attachments: [],
-          },
-          modelSelection: thread.value.modelSelection,
-          runtimeMode: thread.value.runtimeMode,
-          interactionMode: thread.value.interactionMode,
-          createdAt: yield* nowIso,
-        }),
-        toRuntimeError("Failed to start the turn."),
-      );
-    });
+  }) {
+    const thread = yield* loadThread(input.sessionId);
+    yield* threads
+      .sendToThread({
+        projectId: thread.projectId,
+        commandId: yield* commandId(input.tag),
+        threadId: thread.id,
+        messageId: yield* messageId,
+        text: input.text,
+        attachments: [],
+        // Starts when idle and queues behind an active run, as the v1 turn start did.
+        mode: "auto",
+        ...HOST_BRIDGE_PROVENANCE,
+      })
+      .pipe(Effect.mapError(toRuntimeError("Failed to start the turn.")));
+  });
 
   const submitTurn: HostBridgeRuntimeShape["submitTurn"] = (input) =>
     startTurn({ sessionId: input.sessionId, text: input.text, tag: `turn:${input.turnId}` });
@@ -244,76 +281,84 @@ const make = Effect.gen(function* () {
       tag: `command:${input.turnId}`,
     }).pipe(Effect.as({}));
 
-  const answerPrompt: HostBridgeRuntimeShape["answerPrompt"] = (input) =>
-    Effect.gen(function* () {
-      const target = parsePromptId(input.promptId);
-      if (target === null) {
-        return yield* new HostBridgeRuntimeError({ detail: `Unknown prompt ${input.promptId}.` });
-      }
-      const approval = yield* approvals
-        .getByRequestId({ requestId: target.requestId as never })
-        .pipe(Effect.mapError(toRuntimeError("Failed to look up the prompt.")));
-      const threadId =
-        input.sessionId !== null
-          ? ThreadId.make(input.sessionId)
-          : Option.isSome(approval)
-            ? approval.value.threadId
-            : null;
-      if (threadId === null) {
-        return yield* new HostBridgeRuntimeError({
-          detail: `Prompt ${input.promptId} has no session.`,
-        });
-      }
-      const createdAt = yield* nowIso;
-      const dispatched =
-        target.kind === "approval"
-          ? engine.dispatch({
-              type: "thread.approval.respond",
-              commandId: yield* commandId(`answer:${target.requestId}`),
-              threadId,
-              requestId: target.requestId as never,
-              decision: approvalDecisionForAnswer(input.value),
-              createdAt,
-            })
-          : engine.dispatch({
-              type: "thread.user-input.respond",
-              commandId: yield* commandId(`answer:${target.requestId}`),
-              threadId,
-              requestId: target.requestId as never,
-              answers: { answer: input.value },
-              createdAt,
-            });
-      yield* dispatched.pipe(Effect.mapError(toRuntimeError("Failed to answer the prompt.")));
-      emittedPrompts.delete(input.promptId);
-    });
-
-  const interruptTurn: HostBridgeRuntimeShape["interruptTurn"] = (input) =>
-    Effect.gen(function* () {
-      yield* engine.dispatch({
-        type: "thread.turn.interrupt",
-        commandId: yield* commandId(`interrupt:${input.turnId}`),
-        threadId: ThreadId.make(input.sessionId),
-        createdAt: yield* nowIso,
-      });
-    }).pipe(Effect.mapError(toRuntimeError("Failed to interrupt the turn.")));
-
-  const createCheckpoint: HostBridgeRuntimeShape["createCheckpoint"] = (input) =>
-    checkpoints.listByThreadId({ threadId: ThreadId.make(input.sessionId) }).pipe(
-      Effect.mapError(toRuntimeError("Failed to read checkpoints.")),
-      Effect.flatMap((rows) => {
-        const latest = rows
-          .filter((row) => row.checkpointRef !== null && row.checkpointTurnCount !== null)
-          .toSorted((a, b) => (b.checkpointTurnCount ?? 0) - (a.checkpointTurnCount ?? 0))[0];
-        return latest?.checkpointRef == null
-          ? Effect.fail(
-              new HostBridgeRuntimeError({
-                detail:
-                  "No checkpoint exists for this session yet; Teleport push is not wired on this branch.",
-              }),
-            )
-          : Effect.succeed({ generation: String(latest.checkpointRef) });
-      }),
+  /** Without a session id, the thread whose shell shows this request pending owns it. */
+  const threadForRequest = (requestId: RuntimeRequestId) =>
+    threads.getShellSnapshot().pipe(
+      Effect.map(
+        (snapshot) =>
+          snapshot.threads.find((thread) => thread.pendingRuntimeRequest?.id === requestId)?.id ??
+          null,
+      ),
+      Effect.mapError(toRuntimeError("Failed to look up the prompt.")),
     );
+
+  const answerPrompt: HostBridgeRuntimeShape["answerPrompt"] = Effect.fn(
+    "OrchestrationHostBridgeRuntime.answerPrompt",
+  )(function* (input: Parameters<HostBridgeRuntimeShape["answerPrompt"]>[0]) {
+    const target = parsePromptId(input.promptId);
+    if (target === null) {
+      return yield* new HostBridgeRuntimeError({ detail: `Unknown prompt ${input.promptId}.` });
+    }
+    const requestId = RuntimeRequestId.make(target.requestId);
+    const threadId =
+      input.sessionId !== null
+        ? ThreadId.make(input.sessionId)
+        : (emittedPrompts.get(input.promptId) ?? (yield* threadForRequest(requestId)));
+    if (threadId === null) {
+      return yield* new HostBridgeRuntimeError({
+        detail: `Prompt ${input.promptId} has no session.`,
+      });
+    }
+    yield* threads
+      .dispatch({
+        type: "runtime-request.respond",
+        commandId: yield* commandId(`answer:${target.requestId}`),
+        threadId,
+        requestId,
+        ...(target.kind === "approval"
+          ? { decision: approvalDecisionForAnswer(input.value) }
+          : // DITTO: a fixed key, because question prompts are not surfaced yet
+            // (see promptForRequest) so there is no question id to key by.
+            { answers: { answer: input.value } }),
+      })
+      .pipe(Effect.mapError(toRuntimeError("Failed to answer the prompt.")));
+    emittedPrompts.delete(input.promptId);
+  });
+
+  const interruptTurn: HostBridgeRuntimeShape["interruptTurn"] = Effect.fn(
+    "OrchestrationHostBridgeRuntime.interruptTurn",
+  )(function* (input: Parameters<HostBridgeRuntimeShape["interruptTurn"]>[0]) {
+    const thread = yield* loadThread(input.sessionId);
+    // `no_active_run` and `already_terminal` both mean there is nothing left to stop.
+    yield* threads
+      .interruptThread({
+        projectId: thread.projectId,
+        commandId: yield* commandId(`interrupt:${input.turnId}`),
+        threadId: thread.id,
+      })
+      .pipe(Effect.mapError(toRuntimeError("Failed to interrupt the turn.")));
+  });
+
+  const createCheckpoint: HostBridgeRuntimeShape["createCheckpoint"] = Effect.fn(
+    "OrchestrationHostBridgeRuntime.createCheckpoint",
+  )(function* (input: Parameters<HostBridgeRuntimeShape["createCheckpoint"]>[0]) {
+    const records = yield* threads
+      .getThreadRecords(ThreadId.make(input.sessionId), ["checkpoints"])
+      .pipe(Effect.mapError(toRuntimeError("Failed to read checkpoints.")));
+    const latest = records.checkpoints
+      .filter((checkpoint) => checkpoint.status === "ready")
+      .toSorted(
+        (left, right) =>
+          DateTime.toEpochMillis(right.capturedAt) - DateTime.toEpochMillis(left.capturedAt),
+      )[0];
+    if (latest === undefined) {
+      return yield* new HostBridgeRuntimeError({
+        detail:
+          "No checkpoint exists for this session yet; Teleport push is not wired on this branch.",
+      });
+    }
+    return { generation: String(latest.ref) };
+  });
 
   return {
     listSessions,

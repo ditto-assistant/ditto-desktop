@@ -1,6 +1,8 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { LegendList } from "@legendapp/list/react";
 import type {
+  ChannelAccountId,
+  ChannelConversationId,
   ChannelConversation,
   ChannelMessage,
   ConnectedChannelAccount,
@@ -11,10 +13,10 @@ import type {
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowUpIcon, BotIcon, InboxIcon, RefreshCwIcon, ExternalLinkIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useAssetUrlState } from "../../assets/assetUrls";
 import { isElectron } from "../../env";
@@ -57,6 +59,46 @@ function openExternal(url: string) {
   if (request !== undefined) void request.catch(() => undefined);
 }
 
+function sortConversationsByLatest(
+  conversations: ReadonlyArray<ChannelConversation>,
+): ReadonlyArray<ChannelConversation> {
+  return [...conversations].sort((left, right) =>
+    (right.latestMessageAt ?? "").localeCompare(left.latestMessageAt ?? ""),
+  );
+}
+
+function sortMessagesBySentAt(
+  messages: ReadonlyArray<ChannelMessage>,
+): ReadonlyArray<ChannelMessage> {
+  return [...messages].sort((left, right) => left.sentAt.localeCompare(right.sentAt));
+}
+
+type DiscordAccessibilityApi = NonNullable<
+  NonNullable<ReturnType<typeof readLocalApi>>["discordAccessibility"]
+>;
+
+function requestDiscordLiveSnapshot(
+  discordAccessibility: DiscordAccessibilityApi,
+  inFlight: { current: boolean },
+  target: {
+    readonly accountId: ChannelAccountId;
+    readonly conversationId: ChannelConversationId;
+    readonly conversationTitle: string;
+  },
+  onSnapshot: (snapshot: DiscordAccessibilitySnapshotResult) => void,
+) {
+  if (inFlight.current) return;
+  inFlight.current = true;
+  void discordAccessibility
+    .snapshot({ ...target, maxMessages: 150 })
+    .then((snapshot) => {
+      if (snapshot.targetVerified) onSnapshot(snapshot);
+    })
+    .finally(() => {
+      inFlight.current = false;
+    });
+}
+
 function accountStatus(account: ConnectedChannelAccount): string {
   if (account.state === "ready") return "Synced locally";
   if (account.service === "discord") {
@@ -95,13 +137,13 @@ export function InboxPage({
 
 function InboxFrame({ children }: { readonly children: React.ReactNode }) {
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background text-foreground">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col text-foreground">
         <WorkspacePageHeader electron={isElectron} className="border-b border-border">
           <div className="flex min-w-0 items-center gap-2 px-3 text-sm font-medium">
             <InboxIcon className="size-4 text-muted-foreground" />
             <span>Inbox</span>
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+            <span className="rounded bg-muted px-1.5 py-0.5 text-3xs font-semibold tracking-wide text-muted-foreground uppercase">
               Local
             </span>
           </div>
@@ -132,11 +174,13 @@ function ConnectedInbox({
   const sharedAccounts = useChannelAccountConnectionStore(
     (state) => state.accountsByEnvironment[environmentId] ?? EMPTY_CHANNEL_ACCOUNTS,
   );
-  useEffect(() => {
-    if (loadedAccounts !== undefined && loadedAccounts.length > 0) {
-      setStableAccounts(loadedAccounts);
-    }
-  }, [loadedAccounts]);
+  if (
+    loadedAccounts !== undefined &&
+    loadedAccounts.length > 0 &&
+    loadedAccounts !== stableAccounts
+  ) {
+    setStableAccounts(loadedAccounts);
+  }
   const accounts = loadedAccounts?.length
     ? loadedAccounts
     : stableAccounts.length > 0
@@ -205,19 +249,13 @@ function ReadyConversationWorkspace({
   });
   const result = useAtomValue(conversationsAtom);
   const loadedConversations = Option.getOrNull(AsyncResult.value(result))?.conversations;
-  const sortedLoadedConversations = useMemo(
-    () =>
-      [...(loadedConversations ?? [])].sort((left, right) =>
-        (right.latestMessageAt ?? "").localeCompare(left.latestMessageAt ?? ""),
-      ),
-    [loadedConversations],
+  const [stableLoadedConversations, setStableLoadedConversations] = useState(loadedConversations);
+  if (loadedConversations !== undefined && loadedConversations !== stableLoadedConversations) {
+    setStableLoadedConversations(loadedConversations);
+  }
+  const conversations = sortConversationsByLatest(
+    loadedConversations ?? stableLoadedConversations ?? [],
   );
-  const [stableConversations, setStableConversations] = useState(sortedLoadedConversations);
-  useEffect(() => {
-    if (loadedConversations !== undefined) setStableConversations(sortedLoadedConversations);
-  }, [loadedConversations, sortedLoadedConversations]);
-  const conversations =
-    loadedConversations === undefined ? stableConversations : sortedLoadedConversations;
   const selected = conversations.find(
     (conversation) => conversation.conversationId === requestedConversationId,
   );
@@ -263,72 +301,68 @@ function MessagePanel({
     intervalMs: 3_000,
   });
   const loadedMessages = Option.getOrNull(AsyncResult.value(result))?.messages;
-  const sortedLoadedMessages = useMemo(
-    () =>
-      [...(loadedMessages ?? [])].sort((left, right) => left.sentAt.localeCompare(right.sentAt)),
-    [loadedMessages],
-  );
-  const [stableMessages, setStableMessages] = useState<ReadonlyArray<ChannelMessage>>([]);
+  const [stableLoadedMessages, setStableLoadedMessages] = useState(loadedMessages);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [liveSnapshot, setLiveSnapshot] = useState<DiscordAccessibilitySnapshotResult | null>(null);
   const snapshotInFlight = useRef(false);
-  useEffect(() => {
-    if (loadedMessages !== undefined) {
-      setStableMessages(sortedLoadedMessages);
-      setLoadingOlder(false);
-    }
-  }, [loadedMessages, sortedLoadedMessages]);
-  const archivedMessages = loadedMessages === undefined ? stableMessages : sortedLoadedMessages;
+  if (loadedMessages !== undefined && loadedMessages !== stableLoadedMessages) {
+    setStableLoadedMessages(loadedMessages);
+    setLoadingOlder(false);
+  }
+  const archivedMessages = sortMessagesBySentAt(loadedMessages ?? stableLoadedMessages ?? []);
   const discordAccessibility =
     account.service === "discord" && account.transport !== "discord-local-user"
       ? readLocalApi()?.discordAccessibility
       : undefined;
-  const refreshLiveMessages = useCallback(() => {
-    if (!discordAccessibility || snapshotInFlight.current) return;
-    snapshotInFlight.current = true;
-    void discordAccessibility
-      .snapshot({
+  const refreshLiveMessages = () => {
+    if (!discordAccessibility) return;
+    requestDiscordLiveSnapshot(
+      discordAccessibility,
+      snapshotInFlight,
+      {
         accountId: account.accountId,
         conversationId: conversation.conversationId,
         conversationTitle: conversation.title,
-        maxMessages: 150,
-      })
-      .then((snapshot) => {
-        if (snapshot.targetVerified) setLiveSnapshot(snapshot);
-      })
-      .finally(() => {
-        snapshotInFlight.current = false;
-      });
-  }, [account.accountId, conversation.conversationId, conversation.title, discordAccessibility]);
+      },
+      setLiveSnapshot,
+    );
+  };
   useEffect(() => {
-    refreshLiveMessages();
-  }, [refreshLiveMessages]);
+    if (!discordAccessibility) return;
+    requestDiscordLiveSnapshot(
+      discordAccessibility,
+      snapshotInFlight,
+      {
+        accountId: account.accountId,
+        conversationId: conversation.conversationId,
+        conversationTitle: conversation.title,
+      },
+      setLiveSnapshot,
+    );
+  }, [account.accountId, conversation.conversationId, conversation.title, discordAccessibility]);
   useVisiblePolling(refreshLiveMessages, {
     enabled: discordAccessibility !== undefined,
     intervalMs: 3_000,
   });
-  const messages = useMemo(
-    () => mergeDiscordLiveSnapshot(archivedMessages, account, conversation, liveSnapshot),
-    [account, archivedMessages, conversation, liveSnapshot],
-  );
+  const messages = mergeDiscordLiveSnapshot(archivedMessages, account, conversation, liveSnapshot);
   const canSend = account.capabilities.some(
     (capability) =>
       capability.operation === "message.send" && capability.availability === "available",
   );
   const canReplyThroughDiscord = discordAccessibility !== undefined;
   const canLoadOlder = messages.length >= messageLimit && messageLimit < 5_000;
-  const loadOlder = useCallback(() => {
+  const loadOlder = () => {
     if (!canLoadOlder || loadingOlder) return;
     setLoadingOlder(true);
     setMessageLimit((current) => Math.min(current + 250, 5_000));
-  }, [canLoadOlder, loadingOlder]);
+  };
 
   return (
     <section className="flex min-h-0 min-w-0 flex-col">
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{conversation.title}</p>
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-3xs text-muted-foreground">
             {account.service === "discord"
               ? account.transport === "discord-local-user"
                 ? "Live on this device · Discrawl archive fallback"
@@ -447,7 +481,7 @@ function MessagePanel({
               );
             }}
             ListHeaderComponent={
-              <div className="flex h-8 items-center justify-center text-[11px] text-muted-foreground">
+              <div className="flex h-8 items-center justify-center text-2xs text-muted-foreground">
                 {loadingOlder ? "Loading earlier messages…" : null}
               </div>
             }
@@ -489,7 +523,7 @@ function MessageRow({
           displayName={message.sender.displayName}
         />
       ) : (
-        <time className="invisible w-8 shrink-0 pt-1 text-right text-[9px] text-muted-foreground group-hover:visible">
+        <time className="invisible w-8 shrink-0 pt-1 text-right text-3xs text-muted-foreground group-hover:visible">
           {formatTime(message.sentAt)}
         </time>
       )}
@@ -497,7 +531,7 @@ function MessageRow({
         {showHeader ? (
           <div className="flex items-baseline gap-2">
             <span className="truncate text-sm font-semibold">{message.sender.displayName}</span>
-            <time className="shrink-0 text-[10px] text-muted-foreground">
+            <time className="shrink-0 text-3xs text-muted-foreground">
               {formatTime(message.sentAt)}
             </time>
           </div>
@@ -647,7 +681,7 @@ function ParticipantAvatar({
       src={avatarUrl}
     />
   ) : (
-    <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
+    <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-3xs font-semibold text-muted-foreground">
       {initials}
     </div>
   );
@@ -758,10 +792,11 @@ function Composer({
     <div className="border-t border-border bg-background p-3">
       {canReply ? (
         <div className="mx-auto max-w-3xl">
-          <div className="flex items-end gap-2 rounded-lg border border-border bg-muted/20 p-2 focus-within:border-ring">
+          <div className="flex items-end gap-2 rounded-lg border border-border bg-muted/20 p-2 text-base focus-within:border-ring sm:text-sm">
             <Textarea
               aria-label={`Message ${conversation.title}`}
-              className="max-h-36 min-h-9 resize-none border-0 bg-transparent px-1 py-2 shadow-none focus-visible:ring-0"
+              className="mx-1 my-2 max-h-32 min-h-5 w-full resize-none"
+              unstyled
               onChange={(event) => setText(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -785,7 +820,7 @@ function Composer({
           {(!canSend || useAccessibilityFallback) &&
           accessibilityStatus?.permission !== "granted" ? (
             <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 Allow Accessibility so Ditto can verify this Discord composer and send only when you
                 click.
               </p>
@@ -802,7 +837,7 @@ function Composer({
           ) : null}
           {canSend && error && accessibility && !useAccessibilityFallback ? (
             <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2">
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 The live send did not return a receipt. Check Discord before using the local UI
                 fallback so you don’t send twice.
               </p>
@@ -812,7 +847,7 @@ function Composer({
             </div>
           ) : null}
           {sending && activeActionId && accessibility ? (
-            <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-2xs text-muted-foreground">
               <span>Verifying the exact Discord conversation…</span>
               <Button
                 onClick={() => void accessibility.cancel(activeActionId)}
@@ -824,7 +859,7 @@ function Composer({
             </div>
           ) : null}
           {accessibilityResult?.draftPrepared ? (
-            <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-2xs text-muted-foreground">
               <span>{accessibilityResult.detail}</span>
               <Button
                 onClick={() => {
@@ -839,14 +874,14 @@ function Composer({
             </div>
           ) : null}
           {accessibilityResult?.sent ? (
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
+            <p className="mt-1.5 text-2xs text-muted-foreground">
               Sent through the verified Discord composer.
             </p>
           ) : null}
           {error ? <p className="mt-1.5 text-xs text-destructive">{error}</p> : null}
         </div>
       ) : (
-        <p className="text-center text-[11px] text-muted-foreground">
+        <p className="text-center text-2xs text-muted-foreground">
           Replies from Ditto aren’t enabled for this connection yet.
         </p>
       )}

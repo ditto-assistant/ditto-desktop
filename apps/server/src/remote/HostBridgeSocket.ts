@@ -69,59 +69,56 @@ function resolveWebSocketConstructor(): WebSocketConstructor | null {
 const makeWebSocketHostBridgeSocketFactory = (
   WebSocketCtor: WebSocketConstructor | null = resolveWebSocketConstructor(),
 ): HostBridgeSocketFactoryShape => ({
-  connect: ({ url, bearerToken }) =>
-    Effect.gen(function* () {
-      if (WebSocketCtor === null) {
-        return yield* new HostBridgeSocketError({ detail: "WebSocket is not available." });
+  connect: Effect.fn("HostBridgeSocket.connect")(function* ({ url, bearerToken }) {
+    if (WebSocketCtor === null) {
+      return yield* new HostBridgeSocketError({ detail: "WebSocket is not available." });
+    }
+    const incoming = yield* Queue.unbounded<string, Cause.Done>();
+    const socket = yield* Effect.callback<WebSocketLike, HostBridgeSocketError>((resume) => {
+      let ws: WebSocketLike;
+      try {
+        ws = new WebSocketCtor(url, { headers: { Authorization: `Bearer ${bearerToken}` } });
+      } catch (cause) {
+        resume(Effect.fail(new HostBridgeSocketError({ detail: `Failed to open ${url}.`, cause })));
+        return;
       }
-      const incoming = yield* Queue.unbounded<string, Cause.Done>();
-      const socket = yield* Effect.callback<WebSocketLike, HostBridgeSocketError>((resume) => {
-        let ws: WebSocketLike;
-        try {
-          ws = new WebSocketCtor(url, { headers: { Authorization: `Bearer ${bearerToken}` } });
-        } catch (cause) {
-          resume(
-            Effect.fail(new HostBridgeSocketError({ detail: `Failed to open ${url}.`, cause })),
-          );
-          return;
-        }
-        let settled = false;
-        ws.addEventListener("open", () => {
-          settled = true;
-          resume(Effect.succeed(ws));
-        });
-        ws.addEventListener("error", (event) => {
-          if (settled) return;
-          settled = true;
-          resume(
-            Effect.fail(
-              new HostBridgeSocketError({ detail: `Failed to connect to ${url}.`, cause: event }),
-            ),
-          );
-        });
+      let settled = false;
+      ws.addEventListener("open", () => {
+        settled = true;
+        resume(Effect.succeed(ws));
       });
-      socket.addEventListener("message", (event) => {
-        const text =
-          typeof event.data === "string"
-            ? event.data
-            : event.data instanceof ArrayBuffer
-              ? new TextDecoder().decode(event.data)
-              : String(event.data);
-        void Effect.runPromise(Queue.offer(incoming, text));
+      ws.addEventListener("error", (event) => {
+        if (settled) return;
+        settled = true;
+        resume(
+          Effect.fail(
+            new HostBridgeSocketError({ detail: `Failed to connect to ${url}.`, cause: event }),
+          ),
+        );
       });
-      socket.addEventListener("close", () => {
-        void Effect.runPromise(Queue.end(incoming));
-      });
-      return {
-        incoming,
-        send: (text) =>
-          Effect.try({
-            try: () => socket.send(text),
-            catch: (cause) => new HostBridgeSocketError({ detail: "Failed to send frame.", cause }),
-          }),
-        close: Effect.sync(() => socket.close()),
-      } satisfies HostBridgeSocket;
-    }),
+    });
+    socket.addEventListener("message", (event) => {
+      const text =
+        typeof event.data === "string"
+          ? event.data
+          : event.data instanceof ArrayBuffer
+            ? new TextDecoder().decode(event.data)
+            : String(event.data);
+      void Effect.runPromise(Queue.offer(incoming, text));
+    });
+    socket.addEventListener("close", () => {
+      void Effect.runPromise(Queue.end(incoming));
+    });
+    return {
+      incoming,
+      send: (text) =>
+        Effect.try({
+          try: () => socket.send(text),
+          catch: (cause) => new HostBridgeSocketError({ detail: "Failed to send frame.", cause }),
+        }),
+      close: Effect.sync(() => socket.close()),
+    } satisfies HostBridgeSocket;
+  }),
 });
 
 export const layer = Layer.succeed(HostBridgeSocketFactory, makeWebSocketHostBridgeSocketFactory());

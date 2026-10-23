@@ -334,6 +334,68 @@ export function makeDiscrawlAdapter(
         ),
       );
 
+  const discoverAccount = Effect.fn("DiscrawlAdapter.discoverAccount")(
+    function* () {
+      const enabled = yield* runtime.isEnabled();
+      const discordInstalled = yield* runtime.isDiscordInstalled();
+      if (!enabled) {
+        return {
+          enabled,
+          discordInstalled,
+          state: discordInstalled ? ("setup_required" as const) : ("unavailable" as const),
+          detail: discordInstalled
+            ? "Connect Discord to import chats stored on this device."
+            : "Install and sign in to Discord first.",
+        };
+      }
+      yield* runtime.ensureContinuousSync();
+      const sync = yield* runtime.getSyncState();
+      if (sync.state === "syncing") {
+        return {
+          enabled,
+          discordInstalled,
+          state: "syncing" as const,
+          detail: "Connecting to Discord…",
+        };
+      }
+      if (sync.state === "error") {
+        return {
+          enabled,
+          discordInstalled,
+          state: "error" as const,
+          detail: "Discord could not finish connecting. Try again.",
+        };
+      }
+      const status = yield* Effect.result(execute(["--json", "status"]));
+      return status._tag === "Success"
+        ? {
+            enabled,
+            discordInstalled,
+            state: "ready" as const,
+            detail: "Discord chats are available on this device.",
+          }
+        : {
+            enabled,
+            discordInstalled,
+            state: "error" as const,
+            detail: "Discord could not finish connecting. Try again.",
+          };
+    },
+    Effect.map(({ enabled, state, detail }): ConnectedChannelAccount => ({
+      accountId: DISCRAWL_ACCOUNT_ID,
+      service: "discord",
+      transport: "discord-discrawl",
+      executionLocation: "device",
+      identityMode: "archive",
+      label: "Discord on this device",
+      enabled,
+      state,
+      capabilities: [...DISCRAWL_CAPABILITIES],
+      completeness: "device_cache_partial",
+      statusDetail: detail,
+    })),
+  );
+
   return {
     configure: (enabled) =>
       runtime.configure(enabled).pipe(Effect.andThen(Effect.suspend(() => discoverAccount()))),
@@ -553,67 +615,4 @@ export function makeDiscrawlAdapter(
         }),
       ),
   };
-
-  function discoverAccount(): Effect.Effect<ConnectedChannelAccount, ChannelOperationError> {
-    return Effect.gen(function* () {
-      const enabled = yield* runtime.isEnabled();
-      const discordInstalled = yield* runtime.isDiscordInstalled();
-      if (!enabled) {
-        return {
-          enabled,
-          discordInstalled,
-          state: discordInstalled ? ("setup_required" as const) : ("unavailable" as const),
-          detail: discordInstalled
-            ? "Connect Discord to import chats stored on this device."
-            : "Install and sign in to Discord first.",
-        };
-      }
-      yield* runtime.ensureContinuousSync();
-      const sync = yield* runtime.getSyncState();
-      if (sync.state === "syncing") {
-        return {
-          enabled,
-          discordInstalled,
-          state: "syncing" as const,
-          detail: "Connecting to Discord…",
-        };
-      }
-      if (sync.state === "error") {
-        return {
-          enabled,
-          discordInstalled,
-          state: "error" as const,
-          detail: "Discord could not finish connecting. Try again.",
-        };
-      }
-      const status = yield* Effect.result(execute(["--json", "status"]));
-      return status._tag === "Success"
-        ? {
-            enabled,
-            discordInstalled,
-            state: "ready" as const,
-            detail: "Discord chats are available on this device.",
-          }
-        : {
-            enabled,
-            discordInstalled,
-            state: "error" as const,
-            detail: "Discord could not finish connecting. Try again.",
-          };
-    }).pipe(
-      Effect.map(({ enabled, state, detail }): ConnectedChannelAccount => ({
-        accountId: DISCRAWL_ACCOUNT_ID,
-        service: "discord",
-        transport: "discord-discrawl",
-        executionLocation: "device",
-        identityMode: "archive",
-        label: "Discord on this device",
-        enabled,
-        state,
-        capabilities: [...DISCRAWL_CAPABILITIES],
-        completeness: "device_cache_partial",
-        statusDetail: detail,
-      })),
-    );
-  }
 }

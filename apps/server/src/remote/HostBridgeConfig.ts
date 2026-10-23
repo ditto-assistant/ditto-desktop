@@ -8,11 +8,7 @@
  * @module remote/HostBridgeConfig
  */
 import { HOST_BRIDGE_PATH } from "@t3tools/contracts";
-import {
-  HostProcessEnvironment,
-  HostProcessHostname,
-  HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -64,9 +60,9 @@ export const layer = (input: { readonly version: string }) =>
   Layer.effect(
     HostBridgeConfig,
     Effect.gen(function* () {
-      const env = yield* HostProcessEnvironment;
-      const hostName = yield* HostProcessHostname;
-      const platform = yield* HostProcessPlatform;
+      const env = yield* HostProcess.Environment;
+      const hostName = yield* HostProcess.Hostname;
+      const platform = yield* HostProcess.Platform;
       return resolveHostBridgeConfig({ env, hostName, platform, version: input.version });
     }),
   );

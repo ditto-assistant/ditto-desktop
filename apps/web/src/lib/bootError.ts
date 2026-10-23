@@ -1,5 +1,4 @@
 // DITTO: branding — upstream's "T3 Code" strings read "Ditto" here.
-/** Shows startup failures before React can replace the boot splash. */
 export function showBootError(error: unknown) {
   console.error("Ditto failed to start.", error);
   const bootShell = document.getElementById("boot-shell");

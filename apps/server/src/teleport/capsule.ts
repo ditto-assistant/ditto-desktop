@@ -4,6 +4,7 @@
  * manifest shape the Ditto API commits. No I/O here so the rules are unit
  * testable.
  */
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- capsule chunk hashing is synchronous; Effect's Crypto is effectful.
 import * as NodeCrypto from "node:crypto";
 
 import type { TeleportHarness } from "@t3tools/contracts";

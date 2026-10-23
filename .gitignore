@@ -27,12 +27,14 @@ squashfs-root/
 .vercel
 .gstack/
 .plans/
+/audits/
 dist-electron/
 apps/desktop/.native/
 .electron-runtime/
 .showcase/
 apps/mobile/.showcase/
 apps/mobile/.generated/
+apps/mobile/.android-cache/
 /.generated/
 artifacts/app-store/screenshots/
 .github/pr-assets/

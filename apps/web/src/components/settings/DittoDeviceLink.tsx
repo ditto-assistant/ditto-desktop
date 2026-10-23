@@ -10,7 +10,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { DittoAccountStatus } from "@t3tools/contracts";
 import { Link2Icon, Link2OffIcon } from "lucide-react";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useReducer, useRef, useState } from "react";
 
 import { getDittoApiBaseUrl } from "~/ditto/apiBase";
 import { dittoAccountCommands } from "~/ditto/account";
@@ -60,24 +60,27 @@ export function DeviceLinkRow(props: {
   // The poll loop checks this so a cancelled or unmounted flow stops asking Ditto.
   const activeFlowRef = useRef(0);
 
-  const refreshStatus = useCallback(async () => {
-    if (environmentId === null) return;
-    const result = await getStatus({ environmentId, input: {} });
-    if (result._tag === "Failure") {
-      if (!isAtomCommandInterrupted(result)) {
-        setStatusError(
-          describeError(squashAtomCommandFailure(result), "Could not read the account status."),
-        );
+  const refreshStatus = useEffectEvent(
+    async (forEnvironmentId: NonNullable<typeof environmentId>) => {
+      const result = await getStatus({ environmentId: forEnvironmentId, input: {} });
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          setStatusError(
+            describeError(squashAtomCommandFailure(result), "Could not read the account status."),
+          );
+        }
+        return;
       }
-      return;
-    }
-    setStatusError(null);
-    setStatus(result.value);
-  }, [environmentId, getStatus]);
+      setStatusError(null);
+      setStatus(result.value);
+    },
+  );
 
   useEffect(() => {
-    void refreshStatus();
-  }, [refreshStatus]);
+    if (environmentId === null) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- State changes only after the response arrives.
+    void refreshStatus(environmentId);
+  }, [environmentId]);
 
   useEffect(
     () => () => {
@@ -86,7 +89,7 @@ export function DeviceLinkRow(props: {
     [],
   );
 
-  const startLinking = useCallback(async () => {
+  const startLinking = async () => {
     if (environmentId === null) return;
     const flowId = ++activeFlowRef.current;
     const stillActive = () => activeFlowRef.current === flowId;
@@ -159,32 +162,29 @@ export function DeviceLinkRow(props: {
           return;
       }
     }
-  }, [environmentId, pollDeviceLink, startDeviceLink]);
+  };
 
-  const cancelLinking = useCallback(() => {
+  const cancelLinking = () => {
     activeFlowRef.current += 1;
     dispatch({ type: "reset" });
-  }, []);
+  };
 
-  const disconnect = useCallback(async () => {
+  const disconnect = async () => {
     if (environmentId === null) return;
     setDisconnecting(true);
-    try {
-      const result = await unlink({ environmentId, input: {} });
-      if (result._tag === "Failure") {
-        if (!isAtomCommandInterrupted(result)) {
-          setStatusError(
-            describeError(squashAtomCommandFailure(result), "Could not disconnect this computer."),
-          );
-        }
-        return;
+    const result = await unlink({ environmentId, input: {} });
+    setDisconnecting(false);
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        setStatusError(
+          describeError(squashAtomCommandFailure(result), "Could not disconnect this computer."),
+        );
       }
-      setStatus(result.value);
-      dispatch({ type: "reset" });
-    } finally {
-      setDisconnecting(false);
+      return;
     }
-  }, [environmentId, unlink]);
+    setStatus(result.value);
+    dispatch({ type: "reset" });
+  };
 
   if (environmentId === null) {
     return (
