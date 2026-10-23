@@ -1,3 +1,4 @@
+// DITTO: Ditto Desktop keeps these workflows disabled (*.yml.disabled).
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
 const { mkdtempSync, readFileSync, rmSync, existsSync } = require("node:fs");
@@ -5,8 +6,8 @@ const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { test } = require("node:test");
 
-const release = readFileSync(join(__dirname, "../workflows/release.yml"), "utf8");
-const preview = readFileSync(join(__dirname, "../workflows/web-preview.yml"), "utf8");
+const release = readFileSync(join(__dirname, "../workflows/release.yml.disabled"), "utf8");
+const preview = readFileSync(join(__dirname, "../workflows/web-preview.yml.disabled"), "utf8");
 const stepPattern =
   /        name: (?:Build staged deployment|Deploy preview)\n        shell: bash\n        run: \|\n((?:          .*\n|\n)+)/g;
 const steps = [
