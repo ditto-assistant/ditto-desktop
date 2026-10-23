@@ -285,7 +285,7 @@ function RemoteSessionBody({
         <Input
           aria-label="Message to the remote session"
           placeholder={
-            hostOffline ? "Host offline — turns are queued" : "Send a turn, or / for commands"
+            hostOffline ? "Host offline. Turns are queued." : "Send a turn, or / for commands"
           }
           value={text}
           onChange={(event) => setText(event.target.value)}

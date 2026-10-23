@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   deviceLinkDeadlineMs,
@@ -69,8 +69,14 @@ describe("device-code helpers", () => {
 
   it("derives the polling deadline from the server's expiry", () => {
     expect(deviceLinkDeadlineMs(challenge)).toBe(Date.parse("2030-01-01T00:10:00.000Z"));
-    expect(deviceLinkDeadlineMs({ ...challenge, expiresAt: "garbage" })).toBeGreaterThan(
-      Date.now(),
-    );
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse("2030-01-01T00:00:00.000Z"));
+    try {
+      expect(deviceLinkDeadlineMs({ ...challenge, expiresAt: "garbage" })).toBe(
+        Date.parse("2030-01-01T00:10:00.000Z"),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

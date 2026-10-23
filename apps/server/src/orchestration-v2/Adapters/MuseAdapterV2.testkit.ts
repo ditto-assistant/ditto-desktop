@@ -247,8 +247,9 @@ class MuseReplayController {
     return id;
   }
 
-  receive(host: MuseReplayHost, actual: unknown): void {
+  receive(host: MuseReplayHost, received: unknown): void {
     if (this.failure !== null) return;
+    const actual = withUpstreamProductName(received);
     const entries = this.transcript.entries;
     let possible = false;
     for (let index = this.cursor; index < entries.length && !possible; index += 1) {
@@ -493,4 +494,23 @@ export const MuseOrchestratorReplayHarness: OrchestratorV2ProviderReplayHarness<
         });
       }),
     ),
+};
+
+// DITTO: the fork tells agents they run in Ditto (runtime_info), while upstream's
+// recorded frames say T3 Code. Matching against the upstream name keeps the
+// fixtures byte-identical to upstream's.
+const withUpstreamProductName = (value: unknown): unknown => {
+  if (typeof value === "string") {
+    return value.replaceAll(
+      "you are running in Ditto through",
+      "you are running in T3 Code through",
+    );
+  }
+  if (Array.isArray(value)) return value.map(withUpstreamProductName);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, withUpstreamProductName(entry)]),
+    );
+  }
+  return value;
 };

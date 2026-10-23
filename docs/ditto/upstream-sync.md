@@ -20,20 +20,29 @@ git merge -s ours <upstream-sha-the-squash-contained>
 git merge upstream/main
 ```
 
-## GitHub Actions are disabled
+## GitHub Actions: mostly disabled
 
-Every workflow is renamed to `*.yml.disabled`, so nothing in GitHub Actions runs
-(no PR CI, releases, previews or the weekly sync below). Validate on remote
-compute instead. A workflow is re-enabled by renaming it back.
+Only two workflows run. Every other one is renamed to `*.yml.disabled`, because
+upstream targets paid Blacksmith runners.
 
-Upstream merges can add new workflow files under their normal names, and those
-would run. After each sync, rename any new `.github/workflows/*.yml` to
-`.yml.disabled`. Edits upstream makes to existing workflows follow git's rename
-detection into the `.disabled` files.
+- `ci.yml` runs on the standard GitHub-hosted runners, which are free for this
+  public repo. `scripts/ditto/ci-standard-runners.sh .github/workflows/ci.yml`
+  swaps upstream's `blacksmith-*` labels for `ubuntu-24.04` / `macos-15` /
+  `windows-2025`, doubles each swapped job's timeout (fewer cores), and fails
+  if a Blacksmith label is left. Re-run it after every sync that touches
+  `ci.yml`; it is idempotent. A conflict on a `runs-on:` or `timeout-minutes:`
+  line is resolved by taking upstream's line and re-running the script.
+- `upstream-sync.yml` (below) already runs on `ubuntu-24.04`.
+
+To enable another workflow, rename it back and run the script on it. Upstream
+merges can add new workflow files under their normal names, and those would
+run. After each sync, rename any new `.github/workflows/*.yml` to
+`.yml.disabled` unless you mean to enable it. Edits upstream makes to existing
+disabled workflows follow git's rename detection into the `.disabled` files.
 
 ## Weekly sync PR
 
-`.github/workflows/upstream-sync.yml` (disabled, see above) runs on Mondays (and on demand) and opens
+`.github/workflows/upstream-sync.yml` runs on Mondays (and on demand) and opens
 `sync/t3code-<date>-<sha>` with upstream merged in. A clean merge opens a normal
 PR; a conflicted one opens a draft with the markers committed and the conflicting
 files listed. Resolve on that branch, push, mark ready. Only one sync PR is open
@@ -55,6 +64,12 @@ opens do not run CI. Without the secret the job fails at its first step.
   names, URLs, bundle ids and the client labels sent to T3 Connect stay as
   upstream has them. Re-apply the rebrand to new upstream strings in files you
   touch.
+- Protocol identity and model-facing prompts also stay upstream's: Codex
+  `clientInfo`, agent instructions (orchestration, interaction modes, devices)
+  and title-generation prompts. Provider replay fixtures record them, so a
+  rebrand there breaks the replay suites. The one exception is `runtime_info`
+  ("you are running in Ditto"), which is how an agent names the product to the
+  user; `MuseAdapterV2.testkit.ts` matches it against upstream's recording.
 
 ## Where Ditto code goes
 

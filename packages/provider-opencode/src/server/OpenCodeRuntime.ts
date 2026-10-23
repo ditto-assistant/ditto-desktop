@@ -54,7 +54,7 @@ const OpenCodeHealthSchema = Schema.Struct({
 });
 const decodeOpenCodeHealth = Schema.decodeUnknownEffect(OpenCodeHealthSchema);
 
-export function resolveOpenCodeConfigContent(
+function resolveOpenCodeConfigContent(
   inputEnvironment: Readonly<Record<string, string | undefined>> | undefined,
   inheritedEnvironment: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
@@ -702,6 +702,7 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
       args,
       name: "opencode",
       env: input.environment,
+      shared: true,
     });
     const spawnCommand = yield* resolveCommand(launch.command, launch.args, input.environment);
     const serverPassword = resolveOpenCodeServerPassword({

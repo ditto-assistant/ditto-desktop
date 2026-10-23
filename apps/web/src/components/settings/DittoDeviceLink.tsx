@@ -248,7 +248,7 @@ export function DeviceLinkRow(props: {
             <span className="font-mono text-base font-semibold tracking-wide text-foreground">
               {flow.challenge.userCode}
             </span>
-            {flow.phase === "linking" ? " — approved, finishing up…" : "."}
+            {flow.phase === "linking" ? ": approved, finishing up…" : "."}
           </>
         ) : (
           "Link this computer to your Ditto account so threads can teleport to Ditto Cloud and open in Ditto Code. Ditto issues the desktop its own key; you can revoke it any time from the Ditto app."
