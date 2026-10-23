@@ -71,7 +71,7 @@ const CODEX_APP_SERVER_PROBE_FORCE_KILL_AFTER = "2 seconds" as const;
 const CODEX_CATALOG_REFRESH_TIMEOUT_MS = 3_000;
 const CODEX_CONFIG_PROBE_TIMEOUT_MS = 3_000;
 const CODEX_CATALOG_REFRESH_POLL = "100 millis" as const;
-// Identifier stays T3 (originator/analytics label); only the display title is rebranded.
+// Codex clientInfo stays T3 Code: it is protocol identity, and replay fixtures record it.
 const CODEX_CLIENT_NAME = "T3 Code";
 // Codex's probe does a full handshake plus account, models, and skills requests, which can
 // legitimately run past the shared 10s AUTH_PROBE_TIMEOUT_MS on a loaded or slow machine
@@ -459,7 +459,7 @@ export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
   return {
     clientInfo: {
       name: CODEX_CLIENT_NAME,
-      title: "Ditto",
+      title: CODEX_CLIENT_NAME,
       version: packageJson.version,
     },
     capabilities: {

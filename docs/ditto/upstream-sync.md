@@ -64,6 +64,12 @@ opens do not run CI. Without the secret the job fails at its first step.
   names, URLs, bundle ids and the client labels sent to T3 Connect stay as
   upstream has them. Re-apply the rebrand to new upstream strings in files you
   touch.
+- Protocol identity and model-facing prompts also stay upstream's: Codex
+  `clientInfo`, agent instructions (orchestration, interaction modes, devices)
+  and title-generation prompts. Provider replay fixtures record them, so a
+  rebrand there breaks the replay suites. The one exception is `runtime_info`
+  ("you are running in Ditto"), which is how an agent names the product to the
+  user; `MuseAdapterV2.testkit.ts` matches it against upstream's recording.
 
 ## Where Ditto code goes
 
