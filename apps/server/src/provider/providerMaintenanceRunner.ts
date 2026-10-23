@@ -31,6 +31,7 @@ import * as ProviderRegistry from "./ProviderRegistry.ts";
 import { makeProviderMaintenanceCommandCoordinator } from "./providerMaintenanceCommandCoordinator.ts";
 import {
   enrichProviderSnapshotWithVersionAdvisory,
+  invalidateLatestProviderVersion,
   makeTargetedProviderUpdateAction,
   resolveLatestProviderUpdateAction,
   resolveLatestProviderVersion,
@@ -242,14 +243,30 @@ function commandOutput(result: ProviderMaintenanceCommandResult): string | null 
   return truncateText(output, UPDATE_OUTPUT_MAX_BYTES);
 }
 
+// Updaters print their reason last, usually on stderr.
+function lastOutputLine(result: ProviderMaintenanceCommandResult): string | null {
+  for (const output of [result.stderr, result.stdout]) {
+    const line = output
+      .split(/\r\n|\r|\n/)
+      .map(toProgressLine)
+      .findLast(Boolean);
+    if (line) {
+      return line;
+    }
+  }
+  return null;
+}
+
 function failureMessage(result: ProviderMaintenanceCommandResult): string {
   if (result.timedOut) {
     return "Update timed out.";
   }
-  if (result.exitCode !== null && result.exitCode !== 0) {
-    return `Update command exited with code ${result.exitCode}.`;
-  }
-  return "Update command failed.";
+  const summary =
+    result.exitCode !== null && result.exitCode !== 0
+      ? `Update command exited with code ${result.exitCode}`
+      : "Update command failed";
+  const reason = lastOutputLine(result);
+  return reason ? `${summary}: ${reason}` : `${summary}.`;
 }
 
 function isOutdatedProvider(provider: ServerProvider | undefined): boolean {
@@ -307,28 +324,7 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
     maintenanceCapabilities: ProviderMaintenanceCapabilities,
     instanceId: ProviderInstanceId,
   ): Effect.Effect<VerifiedProviderRefresh> =>
-    providerRegistry.getProviders.pipe(
-      Effect.map((providers) => {
-        const instanceIds: Array<ProviderInstanceId> = [];
-        for (const candidate of providers) {
-          if (candidate.driver === provider && candidate.instanceId === instanceId) {
-            instanceIds.push(candidate.instanceId);
-          }
-        }
-        return instanceIds;
-      }),
-      Effect.flatMap((instanceIds) =>
-        instanceIds.length === 0
-          ? providerRegistry.refreshInstance(instanceId)
-          : Effect.forEach(
-              instanceIds,
-              (instanceId) => providerRegistry.refreshInstance(instanceId),
-              {
-                concurrency: "unbounded",
-                discard: true,
-              },
-            ).pipe(Effect.andThen(providerRegistry.getProviders)),
-      ),
+    providerRegistry.refreshAfterUpdate(provider, instanceId).pipe(
       Effect.flatMap((providers) => {
         const refreshedProviders = providers.filter(
           (candidate) => candidate.driver === provider && candidate.instanceId === instanceId,
@@ -450,9 +446,11 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
             }
 
             const manifest = yield* manifestService.current;
+            // Check compatibility against what an unpinned command would install now.
             const candidateVersion =
               targetVersion ??
-              (yield* resolveLatestProviderVersion(fresh).pipe(
+              (yield* invalidateLatestProviderVersion(fresh).pipe(
+                Effect.andThen(resolveLatestProviderVersion(fresh)),
                 Effect.provideService(HttpClient.HttpClient, httpClient),
                 Effect.provideService(
                   ProviderLatestVersions.ProviderLatestVersions,
@@ -493,6 +491,13 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
             const result = yield* runMaintenanceCommand(command, setRunningMessage);
             const finishedAt = yield* nowIso;
             if (result.timedOut || result.exitCode !== 0) {
+              yield* Effect.logWarning("Provider update command failed", {
+                provider,
+                command: describeCommand(command),
+                exitCode: result.exitCode,
+                timedOut: result.timedOut,
+                output: commandOutput(result),
+              });
               return yield* finish(
                 makeUpdateState({
                   status: "failed",
@@ -505,11 +510,13 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
             }
 
             yield* setRunningMessage("Verifying the installed version");
-            // Homebrew's "latest" moves once the upgrade lands; read it again.
             const verified = yield* providerRegistry.getProviderMaintenanceCapabilitiesForInstance(
               instanceId,
               provider,
               { fresh: true },
+            );
+            yield* invalidateLatestProviderVersion(verified).pipe(
+              Effect.provideService(ProviderLatestVersions.ProviderLatestVersions, latestVersions),
             );
             const { verifiedProviders } = yield* verifyRefreshedProvider(
               provider,
@@ -527,6 +534,9 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                     : verifiedProvider.version;
                 return (
                   !isStillInstalled(verifiedProvider) ||
+                  (verifiedProvider.status === "error" &&
+                    (verifiedProvider.auth.status !== "unauthenticated" ||
+                      !verifiedProvider.version)) ||
                   (targetVersion !== undefined &&
                     installedVersion?.replace(/^v/, "") !== targetVersion)
                 );

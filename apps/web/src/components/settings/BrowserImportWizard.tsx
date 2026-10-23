@@ -267,7 +267,7 @@ function FullDiskAccessStep({
         <DialogTitle>Let Ditto read {source.name}&rsquo;s cookies</DialogTitle>
         <DialogDescription>
           To import cookies from {source.name}, Ditto needs Full Disk Access. Turn it on in System
-          Settings, then come back to finish the import — you can revoke it again once the import is
+          Settings, then come back to finish the import. You can revoke it again once the import is
           done.
         </DialogDescription>
       </DialogHeader>
