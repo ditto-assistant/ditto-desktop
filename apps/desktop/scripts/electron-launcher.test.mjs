@@ -136,6 +136,8 @@ async function startupCleanupPattern(desktopDir) {
       NodeOS: { platform: () => "linux" },
       NodePath,
       desktopDir,
+      // DITTO: dev-electron.mjs takes a per-checkout launcher lock first.
+      acquireDevLauncherLock: () => ({ acquired: true, release: () => undefined }),
       resolveDevProtocolClient: () => null,
       resolveElectronLaunchCommand: (args) => ({ electronPath: "electron", args }),
       waitForResources: async () => undefined,
