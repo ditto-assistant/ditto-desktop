@@ -444,12 +444,7 @@ html[data-ditto-mode="dark"] .ditto-local-output {
   color: #d6e7fa;
 }
 .ditto-local-page {
-  font-family:
-    "Ditto Brand Local",
-    -apple-system,
-    system-ui,
-    "Segoe UI",
-    sans-serif;
+  font-family: "Ditto Brand Local", -apple-system, system-ui, "Segoe UI", sans-serif;
   background: var(--ditto-surface);
   color: var(--ditto-ink);
 }

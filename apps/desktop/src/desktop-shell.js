@@ -36,7 +36,7 @@
     computerStopButton.hidden = !enabled;
     const control = computerControls.querySelector("[data-ditto-computer]");
     if (!control) return;
-    const label = enabled ? "Computer Use is on — Open setup" : "Computer Use setup";
+    const label = enabled ? "Computer Use is on. Open setup" : "Computer Use setup";
     control.dataset.enabled = String(enabled);
     control.title = label;
     control.setAttribute("aria-label", label);
