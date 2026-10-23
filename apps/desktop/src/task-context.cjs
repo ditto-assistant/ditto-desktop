@@ -1,22 +1,28 @@
 function shouldRetrieveMemory(question) {
-  if (
-    /\b(?:do not|don't|without|no)\s+(?:(?:use|using|retrieve|search|recall|include)\s+)?(?:my\s+|local\s+)?memor(?:y|ies)\b/i.test(
-      question,
-    ) ||
-    /\b(?:do not|don't)\s+[^.!?;\n]*?\b(?:or|nor)\s+(?:(?:use|using|retrieve|search|recall|include)\s+)?(?:my\s+|local\s+)?memor(?:y|ies)\b/i.test(
-      question,
-    )
-  )
-    return false;
+  const memory = "(?:(?:my|local)\\s+)*memor(?:y|ies)\\b";
+  const action = "(?:use|using|retrieve|search|recall|include)\\s+";
+  if (new RegExp(`\\b(?:without|no)\\s+(?:${action})?${memory}`, "i").test(question)) return false;
   for (const clause of question.split(/\b(?:do not|don't)\s+/i).slice(1)) {
     const prohibited = clause.split(/[!?;\n]|\.(?=\s|$)|\b(?:but|then)\b/i)[0];
     if (/^(?:forget|hesitate|worry)\b/i.test(prohibited)) continue;
-    for (const [, qualifier] of prohibited.matchAll(
-      /,\s*(?:use|using|retrieve|search|recall|include)\s+(?:my\s+|local\s+)?memor(?:y|ies)\b([^,.!?;\n]*)/gi,
-    )) {
-      // A comma can introduce an affirmative replacement ("use memory or
-      // history instead"). Require an action, not an assertion about memory.
-      if (!/\b(?:instead|rather than)\b/i.test(qualifier)) return false;
+    const actions = prohibited.split(",");
+    for (const [index, part] of actions.entries()) {
+      const coordinated = /^(?:or|nor)\b/i.test(part.trim());
+      // A final comma instruction can replace the prohibited action. An item
+      // followed by more prohibited actions still belongs to the negative list.
+      if (
+        index > 0 &&
+        index === actions.length - 1 &&
+        !coordinated &&
+        /\b(?:instead|rather than)\b/i.test(part)
+      )
+        continue;
+      const memoryAction = index > 0 && !coordinated ? action : `(?:${action})?`;
+      if (
+        new RegExp(`^\\s*(?:(?:or|nor)\\s+)?${memoryAction}${memory}`, "i").test(part) ||
+        new RegExp(`\\b(?:or|nor)\\s+(?:${action})?${memory}`, "i").test(part)
+      )
+        return false;
     }
   }
   // A direct operation must inspect the selected workspace. Similar historical
