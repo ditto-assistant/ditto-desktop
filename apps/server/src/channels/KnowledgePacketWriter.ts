@@ -341,7 +341,7 @@ function renderTranscript(
       lines.push(
         attachment.relativePath
           ? `- Attachment: [${label}](${attachment.relativePath}) · \`${attachment.mimeType ?? "unknown"}\` · ${attachment.sizeBytes ?? 0} bytes · SHA-256 \`${attachment.sha256}\``
-          : `- Attachment unavailable in the local snapshot: ${label} — ${attachment.error ?? "source unavailable"}`,
+          : `- Attachment unavailable in the local snapshot: ${label} (${attachment.error ?? "source unavailable"})`,
       );
     }
     if ((byMessage.get(message.messageId)?.length ?? 0) > 0) lines.push("");

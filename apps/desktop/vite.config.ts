@@ -1,5 +1,5 @@
 import "vite-plus/test/config";
-import { configDefaults, defineConfig } from "vite-plus";
+import { configDefaults, defaultInclude, defineConfig } from "vite-plus";
 
 import { isDesktopRuntimeExternalDependency } from "../../scripts/lib/desktop-external-packages.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
@@ -42,6 +42,11 @@ export default defineConfig({
         command: "node scripts/dev-electron.mjs",
         dependsOn: ["t3#build"],
         cache: false,
+      },
+      // tsc (tsc-rs) rewrites the tsbuildinfo it reads, which keeps a task out of the cache.
+      typecheck: {
+        command: "tsc --noEmit",
+        cache: { input: [{ auto: true }, "!*.tsbuildinfo"] },
       },
     },
   },
@@ -144,9 +149,13 @@ export default defineConfig({
     // The bundled Solid renderer is tested with its web compiler by the local
     // service suite, rather than the workbench's Node-only Vitest project.
     exclude: [...configDefaults.exclude, "renderer/**", "web/**"],
+    include: [...defaultInclude, "../../native/kde-snap-shot/src/*.test.ts"],
     // The Windows lane runs workspace suites concurrently; filesystem-heavy
     // desktop integration tests can exceed Vitest's 5 second default there.
     testTimeout: 15_000,
-    setupFiles: ["../../packages/shared/src/testing/longTempDir.ts"],
+    setupFiles: [
+      "../../packages/shared/src/testing/longTempDir.ts",
+      "../../packages/shared/src/testing/providerEnv.ts",
+    ],
   },
 });

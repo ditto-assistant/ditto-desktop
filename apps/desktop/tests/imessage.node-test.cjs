@@ -118,13 +118,11 @@ for (const [index, archive] of require("./imessage-archives.json").entries()) {
       ? require("node:zlib").gunzipSync(Buffer.from(archive.gzipBase64, "base64"))
       : Buffer.from(archive.base64, "base64");
     const hex = bytes.toString("hex");
-    // Large synthetic archives can exceed Linux's per-argument size limit.
-    const insert = promisify(childProcess.execFile)("/usr/bin/sqlite3", [
-      channels.imessageDatabase,
-    ]);
-    insert.child.stdin.end(`INSERT INTO message VALUES (NULL,0,1,4000000000,X'${hex}');
-       INSERT INTO chat_message_join VALUES (1,last_insert_rowid());`);
-    await insert;
+    // Large archives exceed Linux's 128 KiB per-argument limit, so the SQL goes over stdin.
+    childProcess.execFileSync("/usr/bin/sqlite3", [channels.imessageDatabase], {
+      input: `INSERT INTO message VALUES (NULL,0,1,4000000000,X'${hex}');
+       INSERT INTO chat_message_join VALUES (1,last_insert_rowid());`,
+    });
     const history = await channels.messages("imessage", "1", 1);
     const text = archive.text ?? archive.repeat.repeat(archive.length);
     const expected = text.replaceAll("\uFFFC", "[Attachment]") || "[Message content unavailable]";
