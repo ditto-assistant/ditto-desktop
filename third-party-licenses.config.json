@@ -1089,6 +1089,111 @@
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2019-present Fabio Spampinato, Andrew Maney"]
       }
+    },
+    {
+      "name": "@earendil-works/pi-coding-agent",
+      "version": "1.0.0",
+      "sourceUrl": "https://github.com/earendil-works/pi/blob/main/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Mario Zechner"]
+      }
+    },
+    {
+      "name": "@earendil-works/chord",
+      "version": "1.4.0",
+      "sourceUrl": "https://github.com/earendil-works/pi/blob/main/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Mario Zechner"]
+      }
+    },
+    {
+      "name": "@earendil-works/pi-telemetry",
+      "version": "1.4.0",
+      "sourceUrl": "https://github.com/earendil-works/pi/blob/main/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Mario Zechner"]
+      }
+    },
+    {
+      "name": "@earendil-works/pi-agent-core",
+      "version": "1.4.0",
+      "sourceUrl": "https://github.com/earendil-works/pi/blob/main/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Mario Zechner"]
+      }
+    },
+    {
+      "name": "@earendil-works/pi-ai",
+      "version": "1.4.0",
+      "sourceUrl": "https://github.com/earendil-works/pi/blob/main/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Mario Zechner"]
+      }
+    },
+    {
+      "name": "@earendil-works/pi-codemode",
+      "version": "1.4.0",
+      "sourceUrl": "https://github.com/earendil-works/pi/blob/main/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Mario Zechner"]
+      }
+    },
+    {
+      "name": "@earendil-works/pi-mcp",
+      "version": "1.4.0",
+      "sourceUrl": "https://github.com/earendil-works/pi/blob/main/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Mario Zechner"]
+      }
+    },
+    {
+      "name": "@earendil-works/pi-tui",
+      "version": "1.4.0",
+      "sourceUrl": "https://github.com/earendil-works/pi/blob/main/LICENSE",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Mario Zechner"]
+      }
+    },
+    {
+      "name": "data-uri-to-buffer",
+      "version": "4.0.1",
+      "sourceUrl": "https://github.com/TooTallNate/node-data-uri-to-buffer",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>"]
+      }
+    },
+    {
+      "name": "standardwebhooks",
+      "version": "1.0.0",
+      "sourceUrl": "https://github.com/standard-webhooks/standard-webhooks",
+      "generatedNotice": {
+        "licenseId": "MIT"
+      }
+    },
+    {
+      "name": "@xai-official/grok",
+      "version": "1.0.67",
+      "sourceUrl": "https://www.npmjs.com/package/@xai-official/grok",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0"
+      }
+    },
+    {
+      "name": "@xai-official/grok-linux-x64",
+      "version": "1.0.67",
+      "sourceUrl": "https://www.npmjs.com/package/@xai-official/grok-linux-x64",
+      "generatedNotice": {
+        "licenseId": "Apache-2.0"
+      }
     }
   ]
 }

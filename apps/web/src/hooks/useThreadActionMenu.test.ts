@@ -35,6 +35,11 @@ function recordEffect(action: string) {
 }
 
 vi.mock("../components/CustomSnoozeDialog", () => ({ requestCustomSnooze: vi.fn() }));
+// DITTO: the teleport hook pulls in toast and router contexts the react mock lacks.
+vi.mock("./useTeleportThread", () => ({
+  threadSupportsTeleport: () => false,
+  useTeleportThread: () => async () => undefined,
+}));
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
   useMemo: (factory: () => unknown) => factory(),
