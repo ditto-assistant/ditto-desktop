@@ -12,6 +12,7 @@ cmux-cua Computer Use sidecar, and can drive the Ditto app itself. When the user
 window the agent knows it from the frames plus a frontmost-app context note.
 
 Hard constraints
+
 - No changes to the ditto-app repo or to production behaviour. Desktop-only code lives in
   `apps/desktop/**`. Backend additions are additive and gated by the per-user flag
   `desktop_live_mode` **and** an explicit `client=ditto-desktop` query param. Without both, the
@@ -23,12 +24,12 @@ Hard constraints
 
 ## Components and file ownership
 
-| Piece | Owner workstream | Files |
-|---|---|---|
-| Backend client-tool protocol + desktop toolset + flag | `backend-live-tools` | backend repo `pkg/api/v2/realtime*.go`, new `realtime_desktop_tools.go` |
-| Aura overlay window, entry points, permissions, token bridge | `desktop-aura-shell` | `apps/desktop/src/main.cjs` (wiring only), `src/live/aura-window.cjs`, `src/live/aura-preload.cjs`, `src/live/aura.html`, `preload.cjs`, `desktop-shell.js` (Live button), `electron-builder.ditto.yml`, `renderer/` token push |
-| Main-process live bridge (screen capture, frontmost app, computer adapter, Ditto app actions) | `desktop-live-bridge` | `src/live/live-bridge.cjs` + `tests/live-bridge*.node-test.cjs` |
-| Live client in the aura renderer (WS, mic, playback, frames, tool round-trip, aura visuals) | `desktop-live-client` | `src/live/client/**` + `tests/live-client*.node-test.cjs` |
+| Piece                                                                                         | Owner workstream      | Files                                                                                                                                                                                                                           |
+| --------------------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend client-tool protocol + desktop toolset + flag                                         | `backend-live-tools`  | backend repo `pkg/api/v2/realtime*.go`, new `realtime_desktop_tools.go`                                                                                                                                                         |
+| Aura overlay window, entry points, permissions, token bridge                                  | `desktop-aura-shell`  | `apps/desktop/src/main.cjs` (wiring only), `src/live/aura-window.cjs`, `src/live/aura-preload.cjs`, `src/live/aura.html`, `preload.cjs`, `desktop-shell.js` (Live button), `electron-builder.ditto.yml`, `renderer/` token push |
+| Main-process live bridge (screen capture, frontmost app, computer adapter, Ditto app actions) | `desktop-live-bridge` | `src/live/live-bridge.cjs` + `tests/live-bridge*.node-test.cjs`                                                                                                                                                                 |
+| Live client in the aura renderer (WS, mic, playback, frames, tool round-trip, aura visuals)   | `desktop-live-client` | `src/live/client/**` + `tests/live-client*.node-test.cjs`                                                                                                                                                                       |
 
 Stay inside your files. If you need a change in someone else's file, write it in your PR body under
 "Requests for other workstreams" and the orchestrator integrates it.
@@ -38,6 +39,7 @@ Stay inside your files. If you need a change in someone else's file, write it in
 Endpoint unchanged: `GET /api/v2/realtime/ws?token=<firebase>&session_id=<id>&client=ditto-desktop[&activity_detection=client_vad]`.
 
 When `client=ditto-desktop` AND flag `desktop_live_mode` is on for the user:
+
 - System prompt gets a desktop addendum (you see the user's screen as periodic images; coordinates are
   normalized 0-1000 on the latest frame; confirm before destructive or sending/purchasing actions;
   narrate briefly what you do; prefer `ditto_app` for Ditto-internal navigation).
@@ -46,18 +48,19 @@ When `client=ditto-desktop` AND flag `desktop_live_mode` is on for the user:
 
 Desktop toolset (server-declared; executed on the client):
 
-| name | args |
-|---|---|
-| `computer_click` | `{x:int 0-1000, y:int 0-1000, button?: "left"\|"right", double?: bool}` |
-| `computer_type_text` | `{text: string}` |
-| `computer_press_key` | `{key: string, modifiers?: string[]}` (e.g. key "return", modifiers ["cmd"]) |
-| `computer_scroll` | `{x:int, y:int, direction:"up"\|"down"\|"left"\|"right", amount?: int}` |
-| `computer_drag` | `{from_x, from_y, to_x, to_y}` |
-| `computer_open_app` | `{name: string}` |
-| `computer_get_state` | `{}` -> frontmost app, window title, screen size, and forces a fresh frame |
-| `ditto_app` | `{action: "show"\|"hide"\|"navigate"\|"new_chat"\|"ask_code", target?: string, prompt?: string}` |
+| name                 | args                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------ |
+| `computer_click`     | `{x:int 0-1000, y:int 0-1000, button?: "left"\|"right", double?: bool}`                          |
+| `computer_type_text` | `{text: string}`                                                                                 |
+| `computer_press_key` | `{key: string, modifiers?: string[]}` (e.g. key "return", modifiers ["cmd"])                     |
+| `computer_scroll`    | `{x:int, y:int, direction:"up"\|"down"\|"left"\|"right", amount?: int}`                          |
+| `computer_drag`      | `{from_x, from_y, to_x, to_y}`                                                                   |
+| `computer_open_app`  | `{name: string}`                                                                                 |
+| `computer_get_state` | `{}` -> frontmost app, window title, screen size, and forces a fresh frame                       |
+| `ditto_app`          | `{action: "show"\|"hide"\|"navigate"\|"new_chat"\|"ask_code", target?: string, prompt?: string}` |
 
 Wire messages (new types only; old ones unchanged):
+
 - server -> client: `{"type":"client_tool_call","id":"<call id>","name":"computer_click","args":{...}}`
 - client -> server: `{"type":"client_tool_result","id":"<call id>","ok":true,"result":{...}|"text","error":"..."?}`
   Backend parks the Gemini function call (like `realtime_user_approval.go`) and sends the
@@ -71,13 +74,30 @@ Wire messages (new types only; old ones unchanged):
 
 ```ts
 interface DittoLive {
-  session(): Promise<{ token: string; apiBase: string; wsUrl: string; sessionId: string; voice?: string }>;
-  captureScreen(opts?: { maxWidth?: number; quality?: number }): Promise<{ data: string; mimeType: "image/jpeg"; width: number; height: number; display: { x: number; y: number; width: number; height: number; scaleFactor: number } }>;
+  session(): Promise<{
+    token: string;
+    apiBase: string;
+    wsUrl: string;
+    sessionId: string;
+    voice?: string;
+  }>;
+  captureScreen(opts?: {
+    maxWidth?: number;
+    quality?: number;
+  }): Promise<{
+    data: string;
+    mimeType: "image/jpeg";
+    width: number;
+    height: number;
+    display: { x: number; y: number; width: number; height: number; scaleFactor: number };
+  }>;
   frontmost(): Promise<{ app: string; bundleId?: string; title?: string; isDitto: boolean }>;
   tool(name: string, args: unknown): Promise<{ ok: boolean; result?: unknown; error?: string }>; // computer_* and ditto_app
-  setState(state: "connecting" | "listening" | "thinking" | "speaking" | "acting" | "error" | "idle"): void;
+  setState(
+    state: "connecting" | "listening" | "thinking" | "speaking" | "acting" | "error" | "idle",
+  ): void;
   setInteractive(interactive: boolean): void; // toggles click-through of the transparent window
-  stop(reason?: string): void;               // ends live mode, closes aura + computer session
+  stop(reason?: string): void; // ends live mode, closes aura + computer session
   onCommand(cb: (cmd: { type: "start" | "stop" | "mute" | "unmute" }) => void): () => void;
 }
 ```
@@ -88,6 +108,7 @@ Main side registration (implemented by `desktop-live-bridge`, wired by `desktop-
 // src/live/live-bridge.cjs
 module.exports.registerLiveBridge = ({ ipcMain, computer /* ComputerService */, getMainWindow, getAuraWindow, getSession /* async () => {token,...} */, emit }) => ({ dispose, onStop(cb) })
 ```
+
 IPC channel names: `ditto-live:session`, `ditto-live:capture`, `ditto-live:frontmost`, `ditto-live:tool`,
 `ditto-live:state`, `ditto-live:interactive`, `ditto-live:stop`, push `ditto-live:command`.
 
