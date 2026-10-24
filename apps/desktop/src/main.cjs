@@ -5,6 +5,7 @@ const {
   globalShortcut,
   ipcMain,
   Menu,
+  powerMonitor,
   Notification,
   safeStorage,
   session,
@@ -125,6 +126,12 @@ function setupLive() {
   aura = createAuraWindow({
     getSetting: (key, fallback) => store.getSetting(key, fallback),
     setSetting: (key, value) => store.setSetting(key, value),
+    // Crash, reload or an outside close leaves no client to stop the session.
+    onGone: (reason) => {
+      if (live?.state === "idle") return;
+      void live.stop(reason);
+      showLiveNotice("Live stopped", "The Live window closed unexpectedly. Start it again.");
+    },
   });
   // Live borrows the signed-in renderer's Firebase token; it is never stored.
   liveTokens = createTokenRequester({
@@ -181,6 +188,9 @@ function setupLive() {
   });
   if (!globalShortcut.register(LIVE_SHORTCUT, () => void toggleLive()))
     console.warn(`Ditto Live shortcut ${LIVE_SHORTCUT} is in use by another app.`);
+  // Nobody is at the screen to watch or stop the agent.
+  powerMonitor.on("suspend", () => void live.stop("suspend"));
+  powerMonitor.on("lock-screen", () => void live.stop("lock-screen"));
 }
 
 // A message box without a parent runs a modal loop that stalls the main
@@ -555,6 +565,11 @@ function registerIpc() {
     return toggleLive();
   });
   ipcMain.handle("ditto:live-status", () => ({ active: live.state !== "idle" }));
+  // The Ditto window signed out of Firebase; Live must not keep acting for it.
+  ipcMain.handle("ditto:live-stop", (event) => {
+    if (fromMainWindow(event)) return live.stop("signed-out");
+    return false;
+  });
   ipcMain.handle("ditto:live-token", (event, id, reply) => {
     if (fromMainWindow(event) && typeof id === "string") liveTokens.resolve(id, reply);
   });
@@ -872,6 +887,7 @@ function registerIpc() {
 
   ipcMain.handle("ditto:sign-out", async () => {
     pendingLink = null;
+    void live?.stop("sign-out");
     devices.stop();
     remoteHost.stop();
     store.setSetting("deviceNetworkEnabled", false);

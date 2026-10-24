@@ -40,6 +40,12 @@ const MODIFIERS = {
 const ROUTES = { home: "/", chat: "/", chats: "/", code: "/code" };
 const FRONTMOST_TTL = 250;
 const TITLE_TTL = 1000;
+// The backend reads client frames with a 1 MiB limit and drops the whole
+// session on a larger one, so a frame's base64 stays well under it.
+const MAX_FRAME_BASE64 = 900_000;
+const FALLBACK_QUALITIES = [0.45, 0.3];
+// Channels that hand out the token, the screen, or input; refused once stopped.
+const LIVE_ONLY = new Set(["session", "capture", "frontmost", "tool"]);
 
 class LiveToolError extends Error {}
 
@@ -203,7 +209,8 @@ function routeFor(target) {
   const value = target.trim();
   const alias = ROUTES[value.toLowerCase()];
   if (alias) return { path: alias };
-  if (/^\/[\w\-/.?=&%]{0,200}$/.test(value)) return { path: value };
+  // "//host" is protocol-relative, not a Ditto path.
+  if (/^\/(?!\/)[\w\-/.?=&%]{0,200}$/.test(value)) return { path: value };
   if (/^[\w ]{1,40}$/.test(value)) return { label: value };
   throw new LiveToolError("Use a Ditto section name or a path that starts with /.");
 }
@@ -246,7 +253,11 @@ function registerLiveBridge({
   // Only the aura renderer may drive the live bridge.
   const fromAura = (event) => {
     const window = aura();
-    return Boolean(window && event?.sender === window.webContents);
+    return Boolean(
+      window &&
+      event?.sender === window.webContents &&
+      event.senderFrame === window.webContents.mainFrame,
+    );
   };
 
   function currentDisplay() {
@@ -266,8 +277,13 @@ function registerLiveBridge({
     const quality = Number.isFinite(options.quality)
       ? Math.max(0.1, Math.min(1, options.quality))
       : 0.6;
-    const width = Math.min(maxWidth, Math.round(bounds.width * scaleFactor));
-    const height = Math.round((width * bounds.height) / bounds.width);
+    // maxWidth bounds the long edge, so a portrait display stays as small.
+    let width = Math.min(maxWidth, Math.round(bounds.width * scaleFactor));
+    let height = Math.round((width * bounds.height) / bounds.width);
+    if (height > maxWidth) {
+      height = maxWidth;
+      width = Math.round((maxWidth * bounds.width) / bounds.height);
+    }
     // Content protection keeps the aura out of captures; fall back to hiding it
     // for this one capture when the shell could not protect it.
     const window = aura();
@@ -290,9 +306,15 @@ function registerLiveBridge({
     if (!source || source.thumbnail.isEmpty())
       throw new Error("Allow Screen Recording for Ditto Desktop to share your screen with Live.");
     const size = source.thumbnail.getSize();
+    let data = "";
+    for (const step of [quality, ...FALLBACK_QUALITIES.filter((item) => item < quality)]) {
+      data = source.thumbnail.toJPEG(Math.round(step * 100)).toString("base64");
+      if (data.length <= MAX_FRAME_BASE64) break;
+    }
+    if (data.length > MAX_FRAME_BASE64) throw new Error("The screen frame is too large to send.");
     display = target;
     return {
-      data: source.thumbnail.toJPEG(Math.round(quality * 100)).toString("base64"),
+      data,
       mimeType: "image/jpeg",
       width: size.width,
       height: size.height,
@@ -487,7 +509,10 @@ function registerLiveBridge({
       case "new_chat":
         if (!(await script(NEW_CHAT_SCRIPT)))
           throw new LiveToolError("Ditto's New chat button is not available right now.");
-        return "Started a new chat in Ditto.";
+        // The tool declaration offers a first message, but nothing here sends one.
+        return typeof prompt === "string" && prompt.trim()
+          ? "Opened a new chat in Ditto. The message was not sent; type it into the composer if the user wants it sent."
+          : "Started a new chat in Ditto.";
       case "ask_code": {
         const text = typeof prompt === "string" && prompt.trim() ? prompt : target;
         if (typeof text !== "string" || !text.trim() || text.length > 12000)
@@ -634,7 +659,7 @@ function registerLiveBridge({
         });
       }
       case "computer_open_app":
-        if (typeof input.name !== "string" || !/^[\w .&'()+-]{1,80}$/.test(input.name))
+        if (typeof input.name !== "string" || !/^[\p{L}\p{N}_ .&'()+-]{1,80}$/u.test(input.name))
           throw new LiveToolError("Name the app to open.");
         frontCache = null;
         return act("computer_launch_app", { name: input.name });
@@ -704,7 +729,8 @@ function registerLiveBridge({
     watched = null;
   }
   const onClientContext = (event, message) => {
-    if (!active || event?.sender !== usable(getMainWindow?.())?.webContents) return;
+    const main = usable(getMainWindow?.())?.webContents;
+    if (!active || !main || event?.sender !== main || event.senderFrame !== main.mainFrame) return;
     if (message && typeof message === "object" && typeof message.route === "string")
       send({ type: "client_context", message });
   };
@@ -754,6 +780,12 @@ function registerLiveBridge({
     (key) =>
     (event, ...args) => {
       if (!fromAura(event)) throw new Error("Live mode is only available in the Ditto aura.");
+      if (!active && LIVE_ONLY.has(key)) {
+        // Tool errors are results, like every other tool failure.
+        if (key === "tool")
+          return Promise.resolve({ ok: false, error: "Live mode is not running." });
+        throw new LiveToolError("Live mode is not running.");
+      }
       return handlers[key](event, ...args);
     };
   for (const key of INVOKE) ipcMain.handle(`ditto-live:${key}`, guarded(key));

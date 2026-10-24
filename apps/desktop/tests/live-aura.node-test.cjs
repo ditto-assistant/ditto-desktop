@@ -138,6 +138,7 @@ test("token requests resolve only by their own id and time out", async (t) => {
 test("the signed-in renderer answers token requests and refuses when signed out", async () => {
   const { answerDesktopLiveTokens } = await import("../renderer/desktopLive.ts");
   const replies = [];
+  let stops = 0;
   let request;
   global.window = {
     ditto: {
@@ -148,6 +149,7 @@ test("the signed-in renderer answers token requests and refuses when signed out"
         };
       },
       liveTokenReply: (id, reply) => replies.push([id, reply]),
+      liveStop: async () => stops++,
     },
   };
   try {
@@ -162,6 +164,7 @@ test("the signed-in renderer answers token requests and refuses when signed out"
       ["a", { error: "Sign in to Ditto Desktop before starting Live." }],
       ["b", { token: "fixture-token" }],
     ]);
+    assert.equal(stops, 1, "signing out stops a running Live session");
   } finally {
     delete global.window;
   }
@@ -173,4 +176,118 @@ test("only a failed live session explains why the aura went away", () => {
   assert.match(liveStopNotice("disconnected"), /lost its connection/);
   assert.match(liveStopNotice("resume_unavailable"), /could not resume/);
   assert.equal(liveStopNotice("error: Microphone is blocked"), "Microphone is blocked");
+});
+
+// aura-window.cjs talks to Electron directly; this stands in for the pieces it uses.
+function loadAuraWindow() {
+  const Module = require("node:module");
+  const windows = [];
+  class FakeWebContents {
+    constructor() {
+      this.listeners = new Map();
+    }
+    on(name, listener) {
+      this.listeners.set(name, listener);
+    }
+    emit(name, ...args) {
+      this.listeners.get(name)?.({}, ...args);
+    }
+    setWindowOpenHandler() {}
+  }
+  class FakeBrowserWindow {
+    constructor() {
+      this.webContents = new FakeWebContents();
+      this.events = new Map();
+      this.destroyed = false;
+      this.hidden = false;
+      windows.push(this);
+    }
+    on(name, listener) {
+      this.events.set(name, listener);
+    }
+    once(name, listener) {
+      this.events.set(name, listener);
+    }
+    isDestroyed() {
+      return this.destroyed;
+    }
+    destroy() {
+      this.destroyed = true;
+      this.events.get("closed")?.();
+    }
+    hide() {
+      this.hidden = true;
+    }
+    setAlwaysOnTop() {}
+    setVisibleOnAllWorkspaces() {}
+    setContentProtection() {}
+    setIgnoreMouseEvents() {}
+    async loadFile() {}
+  }
+  const display = { id: 1, workArea: { x: 0, y: 0, width: 1440, height: 900 } };
+  const electron = {
+    BrowserWindow: FakeBrowserWindow,
+    ipcMain: {
+      listeners: new Map(),
+      on(channel, listener) {
+        this.listeners.set(channel, listener);
+      },
+      removeListener(channel, listener) {
+        if (this.listeners.get(channel) === listener) this.listeners.delete(channel);
+      },
+    },
+    session: {
+      fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }),
+    },
+    systemPreferences: { getMediaAccessStatus: () => "granted" },
+    screen: { getPrimaryDisplay: () => display, getAllDisplays: () => [display] },
+  };
+  const path = require.resolve("../src/live/aura-window.cjs");
+  delete require.cache[path];
+  const load = Module._load;
+  Module._load = function (request, ...rest) {
+    return request === "electron" ? electron : load.call(this, request, ...rest);
+  };
+  try {
+    return { ...require(path), windows, ipcMain: electron.ipcMain };
+  } finally {
+    Module._load = load;
+  }
+}
+
+test("an aura that crashes, reloads or closes on its own stops Live; a stop does not", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { createAuraWindow, windows, ipcMain } = loadAuraWindow();
+  const gone = [];
+  const aura = createAuraWindow({
+    getSetting: () => null,
+    setSetting() {},
+    onGone: (reason) => gone.push(reason),
+  });
+
+  await aura.open();
+  windows[0].webContents.emit("did-finish-load");
+  windows[0].webContents.emit("render-process-gone", { reason: "crashed" });
+  windows[0].webContents.emit("did-finish-load");
+  assert.deepEqual(gone, ["aura-crashed", "aura-reloaded"]);
+  windows[0].destroy();
+  assert.deepEqual(gone, ["aura-crashed", "aura-reloaded", "aura-closed"]);
+  assert.equal(aura.window, null);
+
+  // Live's own stop hides at once and destroys once the client has sent
+  // stop_session (or after the grace period); none of it reports the aura as gone.
+  gone.length = 0;
+  await aura.open();
+  aura.close();
+  assert.equal(windows[1].hidden, true);
+  assert.equal(windows[1].destroyed, false);
+  assert.equal(aura.window, null);
+  t.mock.timers.tick(1500);
+  assert.equal(windows[1].destroyed, true);
+  // The client's own stop report ends the wait early.
+  await aura.open();
+  aura.dispose();
+  ipcMain.listeners.get("ditto-live:stop")({ sender: windows[2].webContents });
+  assert.equal(windows[2].destroyed, true);
+  assert.deepEqual(gone, []);
 });

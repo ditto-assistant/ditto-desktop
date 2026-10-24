@@ -3,6 +3,7 @@ import type { User } from "firebase/auth";
 interface LiveBridge {
   onLiveTokenRequest(listener: (id: string) => void): () => void;
   liveTokenReply(id: string, reply: { token?: string; error?: string }): void;
+  liveStop?(): Promise<unknown>;
 }
 
 function bridge(): LiveBridge | undefined {
@@ -17,6 +18,8 @@ function bridge(): LiveBridge | undefined {
 export function answerDesktopLiveTokens(user: User | null): () => void {
   const desktop = bridge();
   if (!desktop) return () => {};
+  // A running session would keep acting on this computer for whoever signed out.
+  if (!user) void desktop.liveStop?.();
   return desktop.onLiveTokenRequest((id) => {
     if (!user) {
       desktop.liveTokenReply(id, { error: "Sign in to Ditto Desktop before starting Live." });

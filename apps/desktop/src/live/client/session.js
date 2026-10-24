@@ -25,6 +25,9 @@ const ERROR_FLASH_MS = 2000;
 // The model may answer a tool or a question with silence; don't spin forever.
 const THINKING_MAX_MS = 8000;
 const POST_ACTION_FRAME_MS = 1500;
+// A frame is ~100-400 KB; on a slow uplink unsent frames would pile up in the
+// socket buffer without bound, so a tick is skipped while one is still queued.
+const MAX_BUFFERED_BYTES = 512 * 1024;
 const CAPTURE_OPTIONS = { maxWidth: 1280 };
 
 export function createLiveSession({
@@ -94,7 +97,10 @@ export function createLiveSession({
 
   const frames = createFrameScheduler({
     capture: () => live.captureScreen(CAPTURE_OPTIONS),
-    send: (frame) => send(imageMessage(frame.data, frame.mimeType)),
+    send: (frame) => {
+      if (ws && ws.bufferedAmount > MAX_BUFFERED_BYTES) return;
+      send(imageMessage(frame.data, frame.mimeType));
+    },
     onError: (error) => log("frame capture failed", error),
     intervalMs: frameIntervalMs,
     idlePauseMs,
@@ -209,7 +215,13 @@ export function createLiveSession({
         frames.noteActivity();
         actions.handle(message.frame, replyOn(ws));
         break;
+      case "client_tool_cancel":
+        runner.drop(message.ids);
+        break;
       case "interrupt":
+        // The server has already answered the model for every parked call;
+        // queued actions the user talked over must not run.
+        runner.cancelQueued("The user interrupted before this action ran.");
         audio.flush();
         settle();
         break;
