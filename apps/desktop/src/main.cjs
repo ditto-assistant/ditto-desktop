@@ -5,6 +5,7 @@ const {
   globalShortcut,
   ipcMain,
   Menu,
+  powerMonitor,
   safeStorage,
   session,
   shell,
@@ -42,6 +43,8 @@ const WEB_ORIGIN = "https://assistant.heyditto.ai";
 const WEB_PARTITION = "persist:ditto-connections";
 const LIVE_WS_URL = "wss://api.heyditto.ai/api/v2/realtime/ws";
 const LIVE_SHORTCUT = "CommandOrControl+Shift+L";
+// The aura's client waits up to 1 s for the server to acknowledge stop_session.
+const LIVE_STOP_GRACE_MS = 1500;
 const PI_SCRIPT = path.join(
   __dirname,
   "..",
@@ -119,6 +122,8 @@ function setupLive() {
   aura = createAuraWindow({
     getSetting: (key, fallback) => store.getSetting(key, fallback),
     setSetting: (key, value) => store.setSetting(key, value),
+    // Crash, reload or an outside close leaves no client to stop the session.
+    onGone: (reason) => void live?.stop(reason),
   });
   // Live borrows the signed-in renderer's Firebase token; it is never stored.
   liveTokens = createTokenRequester({
@@ -163,12 +168,16 @@ function setupLive() {
       const bridge = liveBridge;
       liveBridge = null;
       bridge?.dispose();
-      aura.close();
+      // Hidden at once; destroyed after the client has sent stop_session.
+      aura.close(LIVE_STOP_GRACE_MS);
     },
     onActive: (active) => emit("ditto:live-active", active),
   });
   if (!globalShortcut.register(LIVE_SHORTCUT, () => void toggleLive()))
     console.warn(`Ditto Live shortcut ${LIVE_SHORTCUT} is in use by another app.`);
+  // Nobody is at the screen to watch or stop the agent.
+  powerMonitor.on("suspend", () => void live.stop("suspend"));
+  powerMonitor.on("lock-screen", () => void live.stop("lock-screen"));
 }
 
 async function toggleLive() {
@@ -531,6 +540,11 @@ function registerIpc() {
     return toggleLive();
   });
   ipcMain.handle("ditto:live-status", () => ({ active: live.state !== "idle" }));
+  // The Ditto window signed out of Firebase; Live must not keep acting for it.
+  ipcMain.handle("ditto:live-stop", (event) => {
+    if (fromMainWindow(event)) return live.stop("signed-out");
+    return false;
+  });
   ipcMain.handle("ditto:live-token", (event, id, reply) => {
     if (fromMainWindow(event) && typeof id === "string") liveTokens.resolve(id, reply);
   });
@@ -848,6 +862,7 @@ function registerIpc() {
 
   ipcMain.handle("ditto:sign-out", async () => {
     pendingLink = null;
+    void live?.stop("sign-out");
     devices.stop();
     remoteHost.stop();
     store.setSetting("deviceNetworkEnabled", false);

@@ -1,8 +1,11 @@
 // Aura orb view. Visual states are CSS (`data-state`); the only per-frame work
 // is a transform/opacity write driven by the mic or speaker level, and that
-// rAF loop runs only in listening/speaking and stops otherwise.
+// rAF loop runs only in listening/speaking while there is sound. A silent
+// session parks it until the audio engine reports a level again (`wake`).
 
 const LEVEL_STATES = new Set(["listening", "speaking"]);
+// Below this the orb's scale change is invisible; the mic noise floor sits here.
+const QUIET_LEVEL = 0.03;
 const LABELS = {
   connecting: "Connecting",
   listening: "Listening",
@@ -59,6 +62,12 @@ export function createOrbView({ root, levels, embedded = false, onMute, onStop, 
       core.style.transform = `scale(${1 + shown * 0.1})`;
       glow.style.transform = `scale(${1 + shown * 0.45})`;
       glow.style.opacity = String(0.55 + shown * 0.45);
+    } else if (target < QUIET_LEVEL) {
+      // Settled near silence: the remaining step would be invisible.
+      frame = null;
+      shown = 0;
+      core.style.transform = glow.style.transform = glow.style.opacity = "";
+      return;
     }
     frame = requestAnimationFrame(loop);
   }
@@ -97,6 +106,8 @@ export function createOrbView({ root, levels, embedded = false, onMute, onStop, 
       muteButton?.setAttribute("aria-pressed", String(value));
       syncLoop();
     },
+    // Mic or speaker level arrived; restarts a parked loop.
+    wake: syncLoop,
     destroy() {
       if (frame !== null) cancelAnimationFrame(frame);
       frame = null;

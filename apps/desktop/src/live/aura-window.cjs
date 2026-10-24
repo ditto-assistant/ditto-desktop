@@ -37,7 +37,7 @@ function restrictPermissions(auraSession, isAura) {
   );
 }
 
-function createAuraWindow({ getSetting, setSetting }) {
+function createAuraWindow({ getSetting, setSetting, onGone = () => {} }) {
   let window = null;
   let drag = null;
   const auraSession = session.fromPartition(AURA_PARTITION);
@@ -114,7 +114,19 @@ function createAuraWindow({ getSetting, setSetting }) {
     current.setIgnoreMouseEvents(true, { forward: true });
     current.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     current.webContents.on("will-navigate", (event) => event.preventDefault());
+    // Each of these leaves no live client to stop the session from inside.
+    const gone = (reason) => {
+      if (window === current) onGone(reason);
+    };
+    current.webContents.on("render-process-gone", (_event, details) =>
+      gone(`aura-${details?.reason ?? "gone"}`),
+    );
+    let loads = 0;
+    current.webContents.on("did-finish-load", () => {
+      if (++loads > 1) gone("aura-reloaded");
+    });
     current.on("closed", () => {
+      gone("aura-closed");
       if (window === current) window = null;
       drag = null;
     });
@@ -125,11 +137,21 @@ function createAuraWindow({ getSetting, setSetting }) {
     return current;
   };
 
-  const close = () => {
+  // graceMs keeps the hidden renderer alive long enough to end its socket
+  // cleanly; it has already released the mic and stopped frames by then.
+  const close = (graceMs = 0) => {
     const current = window;
     window = null;
     drag = null;
-    if (current && !current.isDestroyed()) current.destroy();
+    if (!current || current.isDestroyed()) return;
+    if (graceMs <= 0) {
+      current.destroy();
+      return;
+    }
+    current.hide();
+    setTimeout(() => {
+      if (!current.isDestroyed()) current.destroy();
+    }, graceMs);
   };
 
   return {

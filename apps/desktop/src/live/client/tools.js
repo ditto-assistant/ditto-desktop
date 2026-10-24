@@ -4,6 +4,8 @@
 // session teardown all produce a `client_tool_result`.
 
 export const TOOL_TIMEOUT_MS = 25_000; // under the backend's 30 s park timeout
+// The backend parks at most 8 calls; anything past this is a misbehaving server.
+export const MAX_QUEUED_CALLS = 16;
 
 export function createToolRunner({
   tool,
@@ -83,12 +85,20 @@ export function createToolRunner({
         answer(call.id, { ok: false, error: "Live session ended" });
         return;
       }
+      if (queue.length >= MAX_QUEUED_CALLS) {
+        answer(call.id, { ok: false, error: "Too many desktop actions are waiting." });
+        return;
+      }
       queue.push(call);
       void drain();
     },
     // Answers anything still queued so the backend is never left parked.
     close(reason = "Live session ended") {
       closed = true;
+      this.cancelQueued(reason);
+    },
+    // Drops calls that have not started; the one in flight cannot be recalled.
+    cancelQueued(reason) {
       for (const call of queue.splice(0)) answer(call.id, { ok: false, error: reason });
     },
     isBusy: () => running,

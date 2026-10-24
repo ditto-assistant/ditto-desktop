@@ -86,6 +86,13 @@ test("protocol parses server frames and drops malformed or unanswerable ones", a
     ok: false,
     error: "Tool failed",
   });
+  // The backend's typed decode drops the whole session on a non-string error.
+  assert.deepEqual(clientToolResultMessage("c1", { ok: false, error: { code: 1 } }), {
+    type: "client_tool_result",
+    id: "c1",
+    ok: false,
+    error: "Tool failed",
+  });
   assert.equal(isFatalServerError("Your balance is depleted"), true);
   assert.equal(isFatalServerError("Model hiccup"), false);
 });
@@ -355,6 +362,29 @@ test("closing the tool runner answers queued and in-flight calls", async () => {
     ["c", false, "Live session ended"],
     ["a", false, "Live session ended"],
   ]);
+});
+
+test("the tool runner caps its queue and can drop calls that have not started", async () => {
+  const { createToolRunner, MAX_QUEUED_CALLS } = await client("tools");
+  const gate = deferred();
+  const answers = [];
+  const runner = createToolRunner({
+    tool: () => gate.promise,
+    respond: (id, outcome) => answers.push([id, outcome.ok, outcome.error]),
+  });
+  runner.handle({ id: "running", name: "computer_click", args: {} });
+  await settle();
+  for (let i = 0; i <= MAX_QUEUED_CALLS; i++)
+    runner.handle({ id: `q${i}`, name: "computer_click", args: {} });
+  assert.deepEqual(answers, [
+    [`q${MAX_QUEUED_CALLS}`, false, "Too many desktop actions are waiting."],
+  ]);
+  runner.cancelQueued("interrupted");
+  assert.equal(answers.length, MAX_QUEUED_CALLS + 1);
+  assert.ok(answers.slice(1).every(([, ok, error]) => !ok && error === "interrupted"));
+  gate.resolve({ ok: true });
+  await settle();
+  assert.deepEqual(answers.at(-1), ["running", true, undefined]);
 });
 
 class FakeSocket {
@@ -852,4 +882,20 @@ test("the session answers client actions on the socket that delivered them", asy
   session.relayContext({ type: "client_context", route: "/memory", surface: "memory" });
   assert.equal(socket.sent.at(-1).route, "/memory");
   await session.stop();
+});
+
+test("frames are skipped while the socket still has an unsent frame queued", async (t) => {
+  const { socket } = await startSession(t);
+  socket.serve({ type: "session_started" });
+  await settle();
+  const frames = () => socket.types().filter((type) => type === "image").length;
+  const before = frames();
+  socket.bufferedAmount = 2 * 1024 * 1024;
+  t.mock.timers.tick(1000);
+  await settle();
+  assert.equal(frames(), before, "a slow uplink does not queue frames without bound");
+  socket.bufferedAmount = 0;
+  t.mock.timers.tick(1000);
+  await settle();
+  assert.equal(frames(), before + 1);
 });

@@ -24,10 +24,15 @@ export const imageMessage = (data, mimeType = "image/jpeg") => ({ type: "image",
 export const contextMessage = (text) => ({ type: "context", text });
 export const stopSessionMessage = () => ({ type: "stop_session" });
 
+// The backend decodes every client frame into one typed struct and drops the
+// whole session when a field has the wrong JSON type, so `id` and `error` are
+// always strings here.
 export function clientToolResultMessage(id, outcome) {
-  const message = { type: "client_tool_result", id, ok: outcome.ok === true };
+  const message = { type: "client_tool_result", id: String(id), ok: outcome.ok === true };
   if (outcome.result !== undefined) message.result = outcome.result;
-  if (!message.ok) message.error = outcome.error || "Tool failed";
+  if (!message.ok)
+    message.error =
+      typeof outcome.error === "string" && outcome.error ? outcome.error : "Tool failed";
   return message;
 }
 

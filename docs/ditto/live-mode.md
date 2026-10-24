@@ -126,7 +126,10 @@ any action that changes focus. The aura window itself must be excluded from capt
    the frontmost app changes.
 3. On `client_tool_call` the client calls `dittoLive.tool(name,args)`, sets state `acting`, and replies
    with `client_tool_result`.
-4. Stop: aura button, shortcut, `stop_session`, WS close, or Computer Use disabled -> everything torn down.
+4. Stop: aura button, shortcut, `stop_session`, WS close, Computer Use disabled, sign-out, sleep or
+   screen lock, or the aura renderer crashing or reloading -> everything torn down. An `interrupt`
+   drops queued desktop actions; the one already running finishes. The aura is hidden at once and
+   destroyed 1.5 s later so its client can end the socket with `stop_session`.
 
 ## Testing expectations
 

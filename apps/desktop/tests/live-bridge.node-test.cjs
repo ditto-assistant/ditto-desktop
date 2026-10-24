@@ -29,6 +29,7 @@ function fakeWindow({ id, bounds = { x: 0, y: 0, width: 100, height: 100 }, prot
     page: null,
     navListeners: new Map(),
     webContents: {
+      mainFrame: { name: "main" },
       send: (channel, value) => sent.push([channel, value]),
       executeJavaScript(source) {
         scripts.push(source);
@@ -160,7 +161,8 @@ function fixture({ cursor = { x: 10, y: 10 }, windows = [], enabled = true } = {
           thumbnail: {
             isEmpty: () => false,
             getSize: () => options.thumbnailSize,
-            toJPEG: (quality) => Buffer.from(`jpeg:${display.id}:${quality}`),
+            toJPEG: (quality) =>
+              state.jpeg ? state.jpeg(quality) : Buffer.from(`jpeg:${display.id}:${quality}`),
           },
         }));
       },
@@ -189,8 +191,8 @@ function fixture({ cursor = { x: 10, y: 10 }, windows = [], enabled = true } = {
       return `"LSDisplayName"="Safari"\n"CFBundleIdentifier"="com.apple.Safari"\n"pid"=${state.frontPid}\n`;
     },
   });
-  const event = { sender: aura.webContents };
-  const fromMain = { sender: main.webContents };
+  const event = { sender: aura.webContents, senderFrame: aura.webContents.mainFrame };
+  const fromMain = { sender: main.webContents, senderFrame: main.webContents.mainFrame };
   const invoke = (key, ...args) => handlers.get(`ditto-live:${key}`)(event, ...args);
   return {
     bridge,
@@ -204,6 +206,7 @@ function fixture({ cursor = { x: 10, y: 10 }, windows = [], enabled = true } = {
     computer,
     original,
     capturer,
+    electron,
     state,
     runs,
     invoke,
@@ -443,8 +446,21 @@ test("only the aura renderer can use the live channels", async () => {
     () => handler({ sender: live.main.webContents }, "computer_get_state", {}),
     /only available in the Ditto aura/,
   );
+  const subframe = { sender: live.aura.webContents, senderFrame: { name: "child" } };
+  assert.throws(
+    () => live.handlers.get("ditto-live:session")(subframe),
+    /only available in the Ditto aura/,
+  );
+  // The token, the screen and the frontmost app are only handed out while Live runs.
+  assert.throws(() => live.invoke("session"), /not running/);
+  assert.throws(() => live.invoke("capture", {}), /not running/);
+  assert.throws(() => live.invoke("frontmost"), /not running/);
+  live.bridge.startSession();
   assert.deepEqual(await live.invoke("session"), { token: "t", sessionId: "s" });
-  live.listeners.get("ditto-live:interactive")({ sender: live.aura.webContents }, true);
+  live.listeners.get("ditto-live:interactive")(
+    { sender: live.aura.webContents, senderFrame: live.aura.webContents.mainFrame },
+    true,
+  );
   assert.equal(live.aura.ignore, false);
   live.listeners.get("ditto-live:interactive")({ sender: live.main.webContents }, false);
   assert.equal(live.aura.ignore, false);
@@ -457,6 +473,7 @@ test("frontmost reports Ditto focus, otherwise the macOS frontmost app", async (
     pid: 9,
   });
   const live = fixture();
+  live.bridge.startSession();
   live.setFocused(live.main);
   assert.deepEqual(await live.invoke("frontmost"), {
     app: "Ditto Desktop",
@@ -476,12 +493,14 @@ test("frontmost reports Ditto focus, otherwise the macOS frontmost app", async (
 
 test("frontmost counts Ditto's own process as Ditto", async () => {
   const live = fixture();
+  live.bridge.startSession();
   live.state.frontPid = 4242;
   assert.equal((await live.invoke("frontmost")).isDitto, true);
 });
 
 test("capture hides an unprotected aura for the frame and restores it", async () => {
   const live = fixture();
+  live.bridge.startSession();
   live.aura.isContentProtected = () => false;
   live.aura.opacity = 0.9;
   await live.invoke("capture", { maxWidth: 4000, quality: 0.5 });
@@ -523,8 +542,17 @@ test("ditto_app drives the main window", async () => {
   });
   assert.equal(injected.ok, false);
 
+  assert.equal(
+    (await live.tool("ditto_app", { action: "navigate", target: "//evil.example" })).ok,
+    false,
+  );
+
   live.main.scriptResult = false;
   assert.equal((await live.tool("ditto_app", { action: "new_chat" })).ok, false);
+  // The declaration offers a first message; the result must not claim it was sent.
+  live.main.scriptResult = true;
+  const opened = await live.tool("ditto_app", { action: "new_chat", prompt: "Plan my week" });
+  assert.match(opened.result, /not sent/);
 
   live.main.scriptResult = { status: "started", jobId: "x" };
   const asked = await live.tool("ditto_app", { action: "ask_code", prompt: 'fix "quotes"' });
@@ -710,10 +738,40 @@ test("Ditto window navigation and shim contexts reach the aura while Live runs",
   live.listeners.get("ditto-live:client-context")(live.fromMain, message);
   // Only the main window may push a context.
   live.listeners.get("ditto-live:client-context")({ sender: live.aura.webContents }, message);
+  live.listeners.get("ditto-live:client-context")(
+    { sender: live.main.webContents, senderFrame: { name: "iframe" } },
+    message,
+  );
   assert.deepEqual(commands(), ["start", "context_changed", "client_context"]);
   assert.deepEqual(live.aura.sent.at(-1)[1], { type: "client_context", message });
   live.bridge.stopSession("user");
   assert.equal(live.main.navListeners.size, 0);
   live.listeners.get("ditto-live:client-context")(live.fromMain, message);
   assert.equal(commands().filter((type) => type === "client_context").length, 1);
+});
+
+test("frames stay under the backend's 1 MiB read limit", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  const portrait = { id: 1, bounds: { x: 0, y: 0, width: 1080, height: 1920 }, scaleFactor: 2 };
+  const realNearest = live.electron.screen.getDisplayNearestPoint;
+  live.electron.screen.getDisplayNearestPoint = () => portrait;
+  await live.invoke("capture", { maxWidth: 1280 });
+  assert.deepEqual(live.capturer.requests.at(-1).options.thumbnailSize, {
+    width: 720,
+    height: 1280,
+  });
+  live.electron.screen.getDisplayNearestPoint = realNearest;
+
+  // A busy screen re-encodes at lower quality instead of dropping the socket.
+  const qualities = [];
+  live.state.jpeg = (quality) => {
+    qualities.push(quality);
+    return Buffer.alloc(quality > 40 ? 800_000 : 300_000);
+  };
+  const frame = await live.invoke("capture", {});
+  assert.deepEqual(qualities, [60, 45, 30]);
+  assert.ok(frame.data.length <= 900_000);
+  live.state.jpeg = () => Buffer.alloc(800_000);
+  await assert.rejects(live.invoke("capture", {}), /too large/);
 });
