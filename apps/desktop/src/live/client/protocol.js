@@ -82,6 +82,14 @@ export function parseServerMessage(raw) {
     case "client_action":
       // Validated by actions.js, which answers malformed actions that have an id.
       return { type: "client_action", frame: data };
+    case "client_tool_cancel":
+      // Gemini canceled these calls and the server has already answered them.
+      return Array.isArray(data.ids)
+        ? {
+            type: "client_tool_cancel",
+            ids: data.ids.filter((id) => typeof id === "string" && id).slice(0, 64),
+          }
+        : null;
     case "interrupt":
       return { type: "interrupt" };
     case "session_ended":

@@ -128,8 +128,10 @@ any action that changes focus. The aura window itself must be excluded from capt
    with `client_tool_result`.
 4. Stop: aura button, shortcut, `stop_session`, WS close, Computer Use disabled, sign-out, sleep or
    screen lock, or the aura renderer crashing or reloading -> everything torn down. An `interrupt`
-   drops queued desktop actions; the one already running finishes. The aura is hidden at once and
-   destroyed 1.5 s later so its client can end the socket with `stop_session`.
+   drops queued desktop actions; the one already running finishes. `{"type":"client_tool_cancel",
+   "ids":[...]}` (Gemini canceled those calls) drops the matching queued calls without a result,
+   since the server has already answered them. The aura is hidden at once and destroyed when its
+   client reports it has sent `stop_session` (1.5 s at most).
 
 ## Testing expectations
 

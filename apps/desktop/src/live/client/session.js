@@ -215,6 +215,9 @@ export function createLiveSession({
         frames.noteActivity();
         actions.handle(message.frame, replyOn(ws));
         break;
+      case "client_tool_cancel":
+        runner.drop(message.ids);
+        break;
       case "interrupt":
         // The server has already answered the model for every parked call;
         // queued actions the user talked over must not run.

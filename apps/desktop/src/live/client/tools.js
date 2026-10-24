@@ -1,7 +1,8 @@
 // Client-executed tool calls (`client_tool_call`). Calls run one at a time in
 // arrival order because they act on one shared mouse and keyboard. Every call
 // is answered exactly once: success, bridge error, thrown error, timeout, or
-// session teardown all produce a `client_tool_result`.
+// session teardown all produce a `client_tool_result`. The exception is a call
+// the server cancels while it is still queued: it is dropped unanswered.
 
 export const TOOL_TIMEOUT_MS = 25_000; // under the backend's 30 s park timeout
 // The backend parks at most 8 calls; anything past this is a misbehaving server.
@@ -96,6 +97,16 @@ export function createToolRunner({
     close(reason = "Live session ended") {
       closed = true;
       this.cancelQueued(reason);
+    },
+    // Forgets queued calls the server already resolved; nothing is answered for
+    // them, and a call already running still finishes and reports.
+    drop(ids) {
+      const dropped = new Set(ids);
+      for (let i = queue.length - 1; i >= 0; i--) {
+        if (!dropped.has(queue[i].id)) continue;
+        answered.add(queue[i].id);
+        queue.splice(i, 1);
+      }
     },
     // Drops calls that have not started; the one in flight cannot be recalled.
     cancelQueued(reason) {

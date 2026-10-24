@@ -9,8 +9,7 @@ const MIC_CONSTRAINTS = {
   audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
 };
 
-// `onLevel` fires when there is sound to show, so the orb can sleep in silence.
-export function createAudioEngine({ onLevel = () => {} } = {}) {
+export function createAudioEngine() {
   let stream = null;
   let captureContext = null;
   let worklet = null;
@@ -48,8 +47,6 @@ export function createAudioEngine({ onLevel = () => {} } = {}) {
         return;
       }
       inputLevel = Math.min(1, data.level * 3);
-      // Matches the orb's QUIET_LEVEL, so room noise does not keep it awake.
-      if (inputLevel >= 0.03) onLevel();
       onChunk(int16ToBase64(new Int16Array(data.pcm)));
     };
     // The worklet writes silence; connecting it to the destination keeps the
@@ -88,7 +85,6 @@ export function createAudioEngine({ onLevel = () => {} } = {}) {
     node.start(nextPlayTime);
     nextPlayTime += buffer.duration;
     sources.push(node);
-    onLevel();
     node.onended = () => {
       const index = sources.indexOf(node);
       if (index !== -1) sources.splice(index, 1);

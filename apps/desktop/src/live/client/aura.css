@@ -117,6 +117,13 @@ body {
   pointer-events: none;
 }
 
+/* orb.js steps the glow with the voice level; a transition here would restart
+   on every step and keep the compositor animating through the whole session. */
+.ditto-aura[data-state="listening"] .ditto-aura-glow,
+.ditto-aura[data-state="speaking"] .ditto-aura-glow {
+  transition: none;
+}
+
 .ditto-aura[data-state="connecting"] .ditto-aura-glow {
   animation: aura-breathe 1.6s ease-in-out infinite;
 }

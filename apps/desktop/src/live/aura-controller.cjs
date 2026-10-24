@@ -144,9 +144,20 @@ function createTokenRequester({ send, timeoutMs = 20000, newId = randomUUID }) {
   return { request, resolve };
 }
 
+// The aura closes itself when a session fails, so the reason it sends is the
+// only explanation the user gets. Stops the user asked for stay silent.
+function liveStopNotice(reason) {
+  if (typeof reason !== "string") return null;
+  if (reason === "disconnected") return "Live lost its connection to Ditto. Try starting it again.";
+  if (reason === "resume_unavailable") return "Live could not resume this session. Start it again.";
+  if (reason.startsWith("error:")) return reason.slice("error:".length).trim() || "Live stopped.";
+  return null;
+}
+
 module.exports = {
   AURA_SIZE,
   clampAuraPosition,
   createLiveController,
   createTokenRequester,
+  liveStopNotice,
 };

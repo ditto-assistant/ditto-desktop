@@ -9,7 +9,7 @@ export function mountAura({
   live = globalThis.dittoLive,
   // aura.html (desktop-aura-shell) provides #aura-orb and owns the window chrome.
   host = document.getElementById("aura-orb"),
-  audio: providedAudio,
+  audio = createAudioEngine(),
   WebSocket = globalThis.WebSocket,
   frameIntervalMs,
   idlePauseMs,
@@ -18,7 +18,6 @@ export function mountAura({
 
   const log = (...args) => console.info("[ditto-live]", ...args);
   let session = null;
-  const audio = providedAudio ?? createAudioEngine({ onLevel: () => view.wake() });
 
   const view = createOrbView({
     root: host || document.body,

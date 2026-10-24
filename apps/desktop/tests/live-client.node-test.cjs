@@ -69,6 +69,11 @@ test("protocol parses server frames and drops malformed or unanswerable ones", a
     name: "",
     args: {},
   });
+  assert.deepEqual(
+    parseServerMessage('{"type":"client_tool_cancel","ids":["desktop-1",7,"","desktop-2"]}'),
+    { type: "client_tool_cancel", ids: ["desktop-1", "desktop-2"] },
+  );
+  assert.equal(parseServerMessage('{"type":"client_tool_cancel"}'), null);
   assert.deepEqual(parseServerMessage('{"type":"error"}'), {
     type: "error",
     message: "Live mode error",
@@ -379,8 +384,9 @@ test("the tool runner caps its queue and can drop calls that have not started", 
   assert.deepEqual(answers, [
     [`q${MAX_QUEUED_CALLS}`, false, "Too many desktop actions are waiting."],
   ]);
+  runner.drop(["q0", "unknown"]);
   runner.cancelQueued("interrupted");
-  assert.equal(answers.length, MAX_QUEUED_CALLS + 1);
+  assert.equal(answers.length, MAX_QUEUED_CALLS, "a dropped call is never answered");
   assert.ok(answers.slice(1).every(([, ok, error]) => !ok && error === "interrupted"));
   gate.resolve({ ok: true });
   await settle();

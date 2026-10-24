@@ -460,6 +460,34 @@ test("an interrupt drops queued desktop actions instead of running them", async 
   await session.stop();
 });
 
+test("client_tool_cancel drops queued calls unanswered and lets the running one finish", async (t) => {
+  const { socket, session, calls } = await connected(t);
+  const ids = [desktopId(), desktopId(), desktopId()];
+  for (const [i, id] of ids.entries())
+    socket.serve(
+      serverFrame({
+        type: "client_tool_call",
+        id,
+        name: "computer_type_text",
+        args: { text: `step ${i}` },
+      }),
+    );
+  // Gemini's toolCallCancellation, relayed with the minted wire ids.
+  socket.serve(serverFrame({ type: "client_tool_cancel", ids: ids.slice(0, 2) }));
+  assert.equal(parseRealtimeClientToolResult(await socket.resultFor(ids[0])).outcome.OK, true);
+  assert.equal(parseRealtimeClientToolResult(await socket.resultFor(ids[2])).outcome.OK, true);
+  assert.deepEqual(
+    socket.results().map((message) => message.id),
+    [ids[0], ids[2]],
+    "the canceled queued call gets no result",
+  );
+  assert.deepEqual(
+    calls.filter(([name]) => name === "computer_type_text").map(([, args]) => args.text),
+    ["step 0", "step 2"],
+  );
+  await session.stop();
+});
+
 test("session_ended, a fatal error, and a second drop all end Live on the desktop", async (t) => {
   for (const end of [
     (socket) => socket.serve(serverFrame({ type: "session_ended" })),

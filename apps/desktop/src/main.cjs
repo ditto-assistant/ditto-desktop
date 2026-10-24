@@ -6,6 +6,7 @@ const {
   ipcMain,
   Menu,
   powerMonitor,
+  Notification,
   safeStorage,
   session,
   shell,
@@ -35,7 +36,11 @@ const { createComputerSetup } = require("./computer-setup.cjs");
 const { EngineMaintenance } = require("./maintenance.cjs");
 const { DesktopDevices } = require("./devices.cjs");
 const { createAuraWindow } = require("./live/aura-window.cjs");
-const { createLiveController, createTokenRequester } = require("./live/aura-controller.cjs");
+const {
+  createLiveController,
+  createTokenRequester,
+  liveStopNotice,
+} = require("./live/aura-controller.cjs");
 const { registerLiveBridge } = require("./live/live-bridge.cjs");
 
 const API_BASE = "https://api.heyditto.ai";
@@ -43,8 +48,7 @@ const WEB_ORIGIN = "https://assistant.heyditto.ai";
 const WEB_PARTITION = "persist:ditto-connections";
 const LIVE_WS_URL = "wss://api.heyditto.ai/api/v2/realtime/ws";
 const LIVE_SHORTCUT = "CommandOrControl+Shift+L";
-// The aura's client waits up to 1 s for the server to acknowledge stop_session.
-const LIVE_STOP_GRACE_MS = 1500;
+const LIVE_CHAT_SESSION = "main";
 const PI_SCRIPT = path.join(
   __dirname,
   "..",
@@ -123,7 +127,11 @@ function setupLive() {
     getSetting: (key, fallback) => store.getSetting(key, fallback),
     setSetting: (key, value) => store.setSetting(key, value),
     // Crash, reload or an outside close leaves no client to stop the session.
-    onGone: (reason) => void live?.stop(reason),
+    onGone: (reason) => {
+      if (live?.state === "idle") return;
+      void live.stop(reason);
+      showLiveNotice("Live stopped", "The Live window closed unexpectedly. Start it again.");
+    },
   });
   // Live borrows the signed-in renderer's Firebase token; it is never stored.
   liveTokens = createTokenRequester({
@@ -142,7 +150,7 @@ function setupLive() {
     openComputerSetup: () => computerSetup.show(),
     // Fail before the aura appears when nobody is signed in.
     prepare: () => liveTokens.request(),
-    open: async (sessionId) => {
+    open: async () => {
       liveBridge = registerLiveBridge({
         ipcMain,
         computer,
@@ -152,13 +160,19 @@ function setupLive() {
           token: await liveTokens.request(),
           apiBase: API_BASE,
           wsUrl: LIVE_WS_URL,
-          sessionId,
+          // The realtime endpoint accepts "main" or an existing thread id; any
+          // other id is refused with 409 before the socket opens.
+          sessionId: LIVE_CHAT_SESSION,
         }),
         emit,
       });
       // The controller is already idle when close() disposes the bridge, so the
       // onStop that dispose fires is a no-op rather than a second stop.
-      liveBridge.onStop(() => void live.stop("aura"));
+      liveBridge.onStop((reason) => {
+        void live.stop("aura");
+        const notice = liveStopNotice(reason);
+        if (notice) showLiveNotice("Live stopped", notice);
+      });
       await aura.open();
       liveBridge.startSession();
     },
@@ -168,8 +182,7 @@ function setupLive() {
       const bridge = liveBridge;
       liveBridge = null;
       bridge?.dispose();
-      // Hidden at once; destroyed after the client has sent stop_session.
-      aura.close(LIVE_STOP_GRACE_MS);
+      aura.close();
     },
     onActive: (active) => emit("ditto:live-active", active),
   });
@@ -180,15 +193,27 @@ function setupLive() {
   powerMonitor.on("lock-screen", () => void live.stop("lock-screen"));
 }
 
+// A message box without a parent runs a modal loop that stalls the main
+// process, and during Live it opens behind whatever app the user is in. Use a
+// sheet when Ditto is in front and a system notification otherwise; if
+// notifications are off for Ditto, bring Ditto forward with the sheet.
+function showLiveNotice(message, detail) {
+  const sheet = () => {
+    if (!win || win.isDestroyed()) return;
+    win.show();
+    void dialog.showMessageBox(win, { type: "warning", message, detail });
+  };
+  if (win && !win.isDestroyed() && win.isFocused()) return sheet();
+  const notification = new Notification({ title: message, body: detail });
+  notification.once("failed", sheet);
+  notification.show();
+}
+
 async function toggleLive() {
   try {
     await live.toggle();
   } catch (error) {
-    void dialog.showMessageBox({
-      type: "warning",
-      message: "Live could not start",
-      detail: errorMessage(error),
-    });
+    showLiveNotice("Live could not start", errorMessage(error));
   }
   return live.state !== "idle";
 }
