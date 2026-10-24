@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const acorn = require("acorn");
 const { codeComposerOverlay } = require("../scripts/desktop-code-bridge.cjs");
 const sourcePath = path.join(__dirname, "../web/ditto-app/src/components/code/codeComposer.ts");
 
@@ -51,3 +52,50 @@ test(
     assert.equal(api.codeTaskDraft(), "local draft");
   },
 );
+
+for (const provider of ["pi", "claude"]) {
+  test(`${provider} task failures show the provider reason and release the composer`, async () => {
+    const source = fs.readFileSync(path.join(__dirname, "../src/desktop-shell.js"), "utf8");
+    const body = acorn.parse(source, { ecmaVersion: "latest" }).body[0].expression.callee.body.body;
+    const run = body.find(
+      (node) => node.type === "FunctionDeclaration" && node.id.name === "runLocalTask",
+    );
+    const formatter = body
+      .filter((node) => node.type === "VariableDeclaration")
+      .flatMap((node) => node.declarations)
+      .find((node) => node.id.name === "desktopError").init;
+    const controls = new Map();
+    const control = (selector) => {
+      if (!controls.has(selector)) controls.set(selector, {});
+      return controls.get(selector);
+    };
+    control("#dl-provider").value = provider;
+    const reason = "Failed to authenticate: OAuth session expired and could not be refreshed";
+    const fail = async () => {
+      const method = provider === "pi" ? "ditto:chat" : "ditto:run-provider";
+      throw new Error(`Error invoking remote method '${method}': Error: ${reason}`);
+    };
+    const context = {
+      $: control,
+      activeCodeThread: null,
+      localSessionId: "qa-session",
+      running: false,
+      syncCodeTools() {},
+      addLocalTurn() {},
+      mountLocalCode() {},
+      refresh: async () => {},
+      window: { ditto: { chat: fail, runProvider: fail } },
+      show: (selector, message) => {
+        control(selector).textContent = message;
+      },
+    };
+    context.desktopError = vm.runInNewContext(source.slice(formatter.start, formatter.end));
+    const dispatch = vm.runInNewContext(`(${source.slice(run.start, run.end)})`, context);
+    await dispatch("Review this disposable fixture without editing it.");
+    assert.equal(control("#dl-context").textContent, reason);
+    assert.equal(context.running, false);
+    assert.equal(control("#dl-provider").disabled, false);
+    assert.equal(control("#dl-run").disabled, false);
+    assert.equal(control("#dl-cancel").hidden, true);
+  });
+}

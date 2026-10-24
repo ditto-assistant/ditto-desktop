@@ -1259,7 +1259,7 @@
       if (provider === "pi") await window.ditto.chat(prompt, localSessionId);
       else await window.ditto.runProvider(provider, prompt);
     } catch (error) {
-      show("#dl-context", error.message);
+      show("#dl-context", desktopError(error));
     } finally {
       running = false;
       $("#dl-provider").disabled = false;
@@ -1505,7 +1505,7 @@
       await window.ditto.providerLogin($("#dl-provider").value);
       show("#dl-context", "Provider sign-in opened in Terminal.");
     } catch (error) {
-      show("#dl-context", error.message);
+      show("#dl-context", desktopError(error));
     }
   });
   $("#dl-chat-form").addEventListener("submit", async (event) => {
@@ -1519,7 +1519,7 @@
         workspaceReady = true;
         show("#dl-workspace", folder);
       } catch (error) {
-        show("#dl-context", error.message);
+        show("#dl-context", desktopError(error));
         return;
       }
     }
@@ -1537,7 +1537,7 @@
       else await window.ditto.runProvider(provider, prompt);
       $("#dl-prompt").value = "";
     } catch (error) {
-      show("#dl-context", error.message);
+      show("#dl-context", desktopError(error));
     } finally {
       running = false;
       $("#dl-run").disabled = false;
