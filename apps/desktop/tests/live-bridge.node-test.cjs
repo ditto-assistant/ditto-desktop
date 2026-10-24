@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const vm = require("node:vm");
 const {
   registerLiveBridge,
   toScreenPoint,
@@ -245,15 +246,9 @@ test("clicks map onto the display of the latest frame and observe before acting"
     ok: true,
     result: "computer_click done",
   });
-  assert.deepEqual(await live.tool("computer_click", { x: 0, y: 0, double: true }), {
-    ok: true,
-    result: "computer_click done",
-  });
   assert.deepEqual(live.calls, [
     ["computer_get_desktop_state", {}],
     ["computer_click", { x: -1920, y: 1080, scope: "desktop", button: "left" }],
-    ["computer_get_desktop_state", {}],
-    ["computer_click", { x: -3840, y: 0, scope: "desktop", button: "left", count: 2 }],
   ]);
 });
 
@@ -325,6 +320,13 @@ test("scroll and drag target the topmost window under the point in its own pixel
       y: (491 - 100) * 2,
       delivery_mode: "foreground",
     },
+  ]);
+  // The engine's screen-absolute click has no click count; double_click
+  // needs the window under the point.
+  assert.equal((await live.tool("computer_click", { x: 500, y: 500, double: true })).ok, true);
+  assert.deepEqual(live.calls.at(-1), [
+    "computer_double_click",
+    { pid: 11, window_id: 2, x: (756 - 100) * 2, y: (491 - 100) * 2 },
   ]);
   const result = await live.tool("computer_drag", { from_x: 0, from_y: 0, to_x: 100, to_y: 100 });
   assert.equal(result.ok, true);
@@ -621,6 +623,18 @@ test("client action frames reach ditto-app's live actions in the Ditto window", 
   assert.deepEqual(shim.ready, [true, false]);
 });
 
+test("stopping Live tells ditto-app's live actions the session is over", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  const shim = fakeShim(async () => null);
+  live.main.page = shim.page;
+  await live.tool("ditto_client_session", { ready: true });
+  // The aura cannot do this itself once main has disposed the bridge.
+  live.bridge.stopSession("user");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(shim.ready, [true, false]);
+});
+
 test("without the driver, actions relay no result and context is the route alone", async () => {
   const live = fixture();
   live.bridge.startSession();
@@ -716,4 +730,25 @@ test("Ditto window navigation and shim contexts reach the aura while Live runs",
   assert.equal(live.main.navListeners.size, 0);
   live.listeners.get("ditto-live:client-context")(live.fromMain, message);
   assert.equal(commands().filter((type) => type === "client_context").length, 1);
+});
+
+test("navigate reports the path the router lands on, not the one it left", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  await live.tool("ditto_app", { action: "navigate", target: "code" });
+  const location = { pathname: "/", search: "" };
+  const link = {
+    getAttribute: (name) => (name === "href" ? "/code" : null),
+    // The app's router commits the new route after the click returns.
+    click: () => setTimeout(() => (location.pathname = "/code")),
+  };
+  const page = {
+    location,
+    document: { querySelectorAll: () => [link] },
+    history: { pushState() {} },
+    dispatchEvent() {},
+    PopStateEvent: class {},
+    setTimeout,
+  };
+  assert.equal(await vm.runInNewContext(live.main.scripts.at(-1), page), "/code");
 });

@@ -5,6 +5,7 @@ const {
   clampAuraPosition,
   createLiveController,
   createTokenRequester,
+  liveStopNotice,
 } = require("../src/live/aura-controller.cjs");
 
 const primary = { x: 0, y: 25, width: 1440, height: 875 };
@@ -164,4 +165,12 @@ test("the signed-in renderer answers token requests and refuses when signed out"
   } finally {
     delete global.window;
   }
+});
+
+test("only a failed live session explains why the aura went away", () => {
+  for (const reason of ["user", "aura-button", "toggle", "command", "session_ended", "quit"])
+    assert.equal(liveStopNotice(reason), null);
+  assert.match(liveStopNotice("disconnected"), /lost its connection/);
+  assert.match(liveStopNotice("resume_unavailable"), /could not resume/);
+  assert.equal(liveStopNotice("error: Microphone is blocked"), "Microphone is blocked");
 });

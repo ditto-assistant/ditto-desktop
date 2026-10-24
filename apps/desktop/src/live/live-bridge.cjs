@@ -121,18 +121,26 @@ function resultText(result) {
 }
 
 function navigateScript(route) {
-  // Prefer the app's own rail links so the router handles the transition.
-  return `(() => {
+  // Prefer the app's own rail links so the router handles the transition. The
+  // router commits after the click returns, so wait briefly for the new path
+  // rather than reporting the page being left.
+  return `(async () => {
     const route = ${JSON.stringify(route)};
     const label = route.label && route.label.toLowerCase();
+    const before = location.pathname + location.search;
     const link = [...document.querySelectorAll("nav.v2-studio-rail a, a[href]")].find((item) =>
       label ? (item.getAttribute("aria-label") || "").toLowerCase() === label
         : item.getAttribute("href") === route.path);
     if (link) link.click();
-    else if (route.path && location.pathname + location.search !== route.path) {
+    else if (route.path && before !== route.path) {
       history.pushState(null, "", route.path);
       dispatchEvent(new PopStateEvent("popstate", { state: null }));
     } else if (!route.path) return null;
+    const arrived = () =>
+      route.path ? location.pathname + location.search === route.path
+        : location.pathname + location.search !== before;
+    for (let waited = 0; !arrived() && waited < 1000; waited += 50)
+      await new Promise((resolve) => setTimeout(resolve, 50));
     return location.pathname;
   })()`;
 }
@@ -557,6 +565,15 @@ function registerLiveBridge({
     switch (name) {
       case "computer_click": {
         const point = screenPoint(input.x, input.y);
+        // Only single clicks can be screen-absolute; double_click is window-local.
+        if (input.double === true && input.button !== "right") {
+          const { target, pixels } = await windowAt(point);
+          return act("computer_double_click", {
+            pid: target.pid,
+            window_id: target.window_id,
+            ...pixels(point),
+          });
+        }
         const button = input.button === "right" ? "right" : "left";
         return act("computer_click", () => ({
           ...toDesktopPixels(
@@ -565,7 +582,6 @@ function registerLiveBridge({
           ),
           scope: "desktop",
           button,
-          ...(input.double === true ? { count: 2 } : {}),
         }));
       }
       case "computer_type_text":
@@ -710,6 +726,8 @@ function registerLiveBridge({
     display = null;
     unwatchMainWindow();
     closeSession();
+    // The aura's own goodbye arrives after main has disposed this bridge.
+    void clientSession({ ready: false });
     send({ type: "stop" });
     for (const listener of stopListeners) {
       try {

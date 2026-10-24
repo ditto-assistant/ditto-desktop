@@ -6,6 +6,8 @@ const { AURA_SIZE, clampAuraPosition } = require("./aura-controller.cjs");
 
 const AURA_PARTITION = "ditto-live-aura";
 const POSITION_SETTING = "liveAuraPosition";
+// The client waits up to a second for the server to acknowledge stop_session.
+const STOP_GRACE_MS = 1500;
 
 // `screen` may only be read once the app is ready.
 const workAreas = () => {
@@ -125,11 +127,26 @@ function createAuraWindow({ getSetting, setSetting }) {
     return current;
   };
 
+  // Main's stop reaches the client as a `stop` command; it then sends
+  // stop_session and reports back through `ditto-live:stop`. A socket that just
+  // drops is parked by the server for resume and never summarized into memory,
+  // so hide at once but keep the page alive until it has said goodbye.
   const close = () => {
     const current = window;
     window = null;
     drag = null;
-    if (current && !current.isDestroyed()) current.destroy();
+    if (!current || current.isDestroyed()) return;
+    const contents = current.webContents;
+    let timer;
+    const finish = (event) => {
+      if (event && event.sender !== contents) return;
+      clearTimeout(timer);
+      ipcMain.removeListener("ditto-live:stop", finish);
+      if (!current.isDestroyed()) current.destroy();
+    };
+    timer = setTimeout(finish, STOP_GRACE_MS);
+    ipcMain.on("ditto-live:stop", finish);
+    current.hide();
   };
 
   return {

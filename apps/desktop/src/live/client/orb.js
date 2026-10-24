@@ -1,8 +1,14 @@
 // Aura orb view. Visual states are CSS (`data-state`); the only per-frame work
 // is a transform/opacity write driven by the mic or speaker level, and that
-// rAF loop runs only in listening/speaking and stops otherwise.
+// loop runs only in listening/speaking and stops otherwise.
 
 const LEVEL_STATES = new Set(["listening", "speaking"]);
+// Listening lasts most of a session and the mic level only changes every
+// 40 ms, so a display-rate loop repainted the orb ~85 times a second on room
+// noise alone. A 15 Hz tick with coarse steps keeps the breathing visible at a
+// fraction of the renderer and GPU cost.
+const LEVEL_TICK_MS = 66;
+const LEVEL_STEP = 0.05;
 const LABELS = {
   connecting: "Connecting",
   listening: "Listening",
@@ -49,27 +55,27 @@ export function createOrbView({ root, levels, embedded = false, onMute, onStop, 
   let muted = false;
   let frame = null;
   let shown = 0;
+  let drawn = 0;
 
-  function loop() {
+  function tick() {
     const target = state === "speaking" ? levels.output() : muted ? 0 : levels.input();
     // Fast attack, slow release reads as "breathing" instead of jitter.
-    const next = shown + (target - shown) * (target > shown ? 0.5 : 0.12);
-    if (Math.abs(next - shown) > 0.004) {
-      shown = next;
-      core.style.transform = `scale(${1 + shown * 0.1})`;
-      glow.style.transform = `scale(${1 + shown * 0.45})`;
-      glow.style.opacity = String(0.55 + shown * 0.45);
-    }
-    frame = requestAnimationFrame(loop);
+    shown += (target - shown) * (target > shown ? 0.6 : 0.3);
+    const step = Math.round(shown / LEVEL_STEP) * LEVEL_STEP;
+    if (step === drawn) return;
+    drawn = step;
+    core.style.transform = `scale(${1 + step * 0.1})`;
+    glow.style.transform = `scale(${1 + step * 0.45})`;
+    glow.style.opacity = String(0.55 + step * 0.45);
   }
 
   function syncLoop() {
     const wants = !reducedMotion && LEVEL_STATES.has(state) && !(state === "listening" && muted);
-    if (wants && frame === null) frame = requestAnimationFrame(loop);
+    if (wants && frame === null) frame = setInterval(tick, LEVEL_TICK_MS);
     if (!wants && frame !== null) {
-      cancelAnimationFrame(frame);
+      clearInterval(frame);
       frame = null;
-      shown = 0;
+      shown = drawn = 0;
       core.style.transform = glow.style.transform = glow.style.opacity = "";
     }
   }
@@ -98,7 +104,7 @@ export function createOrbView({ root, levels, embedded = false, onMute, onStop, 
       syncLoop();
     },
     destroy() {
-      if (frame !== null) cancelAnimationFrame(frame);
+      if (frame !== null) clearInterval(frame);
       frame = null;
       el.remove();
     },
