@@ -5,6 +5,7 @@ const {
   globalShortcut,
   ipcMain,
   Menu,
+  Notification,
   safeStorage,
   session,
   shell,
@@ -163,8 +164,7 @@ function setupLive() {
       liveBridge.onStop((reason) => {
         void live.stop("aura");
         const notice = liveStopNotice(reason);
-        if (notice)
-          void dialog.showMessageBox({ type: "warning", message: "Live stopped", detail: notice });
+        if (notice) showLiveNotice("Live stopped", notice);
       });
       await aura.open();
       liveBridge.startSession();
@@ -183,15 +183,27 @@ function setupLive() {
     console.warn(`Ditto Live shortcut ${LIVE_SHORTCUT} is in use by another app.`);
 }
 
+// A message box without a parent runs a modal loop that stalls the main
+// process, and during Live it opens behind whatever app the user is in. Use a
+// sheet when Ditto is in front and a system notification otherwise; if
+// notifications are off for Ditto, bring Ditto forward with the sheet.
+function showLiveNotice(message, detail) {
+  const sheet = () => {
+    if (!win || win.isDestroyed()) return;
+    win.show();
+    void dialog.showMessageBox(win, { type: "warning", message, detail });
+  };
+  if (win && !win.isDestroyed() && win.isFocused()) return sheet();
+  const notification = new Notification({ title: message, body: detail });
+  notification.once("failed", sheet);
+  notification.show();
+}
+
 async function toggleLive() {
   try {
     await live.toggle();
   } catch (error) {
-    void dialog.showMessageBox({
-      type: "warning",
-      message: "Live could not start",
-      detail: errorMessage(error),
-    });
+    showLiveNotice("Live could not start", errorMessage(error));
   }
   return live.state !== "idle";
 }
