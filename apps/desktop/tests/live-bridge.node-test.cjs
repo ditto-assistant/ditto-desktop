@@ -24,11 +24,26 @@ function fakeWindow({ id, bounds = { x: 0, y: 0, width: 100, height: 100 }, prot
     shown: false,
     hidden: false,
     scriptResult: undefined,
+    url: "app://ditto/",
+    // When set, scripts run against it as `window`, like the renderer would.
+    page: null,
+    navListeners: new Map(),
     webContents: {
       send: (channel, value) => sent.push([channel, value]),
       executeJavaScript(source) {
         scripts.push(source);
+        const { page } = this.owner;
+        if (page) return Promise.resolve(new Function("window", `return ${source}`)(page));
         return Promise.resolve(this.owner.scriptResult);
+      },
+      getURL() {
+        return this.owner.url;
+      },
+      on(name, listener) {
+        this.owner.navListeners.set(name, listener);
+      },
+      removeListener(name) {
+        this.owner.navListeners.delete(name);
       },
     },
     isDestroyed: () => false,
@@ -175,6 +190,7 @@ function fixture({ cursor = { x: 10, y: 10 }, windows = [], enabled = true } = {
     },
   });
   const event = { sender: aura.webContents };
+  const fromMain = { sender: main.webContents };
   const invoke = (key, ...args) => handlers.get(`ditto-live:${key}`)(event, ...args);
   return {
     bridge,
@@ -195,6 +211,7 @@ function fixture({ cursor = { x: 10, y: 10 }, windows = [], enabled = true } = {
       focused = window;
     },
     tool: (name, args) => invoke("tool", name, args),
+    fromMain,
   };
 }
 
@@ -545,4 +562,121 @@ test("an onStop listener may dispose the bridge without re-entering stop", async
   assert.deepEqual(stops, ["disposed"]);
   assert.equal(live.closed.length, 1);
   assert.equal(live.handlers.size, 0);
+});
+
+test("client actions run in the Ditto window through its live shim", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  const ran = [];
+  live.main.page = {
+    __dittoDesktopLive: {
+      snapshot: () => ({
+        route: "/agents/a1",
+        surface: "agent",
+        activeAgentId: "a1",
+        activeThreadId: "t1",
+        destinations: [{ key: "settings.memory", label: "Memory settings" }],
+      }),
+      run: async (action) => {
+        ran.push(action);
+        return { ok: true, summary: "Opened Memory settings.", error: null, reply: null };
+      },
+    },
+  };
+  const navigate = { kind: "navigate", destination: 'settings."memory"' };
+  assert.deepEqual(await live.tool("ditto_client_action", navigate), {
+    ok: true,
+    result: { ok: true, summary: "Opened Memory settings.", error: null, reply: null },
+  });
+  assert.deepEqual(ran, [navigate], "the action reaches the shim intact");
+  assert.deepEqual(await live.tool("ditto_client_context", {}), {
+    ok: true,
+    result: {
+      route: "/agents/a1",
+      surface: "agent",
+      activeAgentId: "a1",
+      activeThreadId: "t1",
+      destinations: [{ key: "settings.memory", label: "Memory settings" }],
+    },
+  });
+});
+
+test("without the driver, actions are unsupported and context is the route alone", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  live.main.page = {};
+  live.main.url = "app://ditto/code?task=1";
+  const action = await live.tool("ditto_client_action", { kind: "open_agent", agentId: "a1" });
+  assert.equal(action.ok, true);
+  assert.equal(action.result.ok, false);
+  assert.equal(action.result.error, "unsupported");
+  assert.deepEqual(await live.tool("ditto_client_context", {}), {
+    ok: true,
+    result: {
+      route: "/code?task=1",
+      surface: "",
+      activeAgentId: null,
+      activeThreadId: null,
+      destinations: [],
+    },
+  });
+  // An older shim that answers null for a missing module reads the same.
+  live.main.page = { __dittoDesktopLive: { snapshot: () => null, run: async () => null } };
+  const old = await live.tool("ditto_client_action", { kind: "new_chat", agentId: null });
+  assert.equal(old.result.error, "unsupported");
+});
+
+test("set_live_view expands to the Ditto window and leaves the orb alone", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  live.main.page = {
+    __dittoDesktopLive: { snapshot: () => null, run: async () => assert.fail("not forwarded") },
+  };
+  assert.deepEqual(await live.tool("ditto_client_action", { kind: "set_live_view", view: "orb" }), {
+    ok: true,
+    result: { ok: true, summary: "Live stays in the aura." },
+  });
+  assert.equal(live.main.shown, false);
+  const expanded = await live.tool("ditto_client_action", {
+    kind: "set_live_view",
+    view: "expanded",
+  });
+  assert.equal(expanded.result.ok, true);
+  assert.equal(live.main.shown, true);
+});
+
+test("a long client action does not hold up computer tools", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  let release;
+  live.main.page = {
+    __dittoDesktopLive: {
+      snapshot: () => null,
+      run: () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true, summary: "Sent.", error: null, reply: "hi" });
+        }),
+    },
+  };
+  const prompt = live.tool("ditto_client_action", { kind: "prompt_agent", text: "hi" });
+  const click = await live.tool("computer_click", { x: 1, y: 1 });
+  assert.equal(click.ok, true);
+  release();
+  assert.equal((await prompt).result.reply, "hi");
+});
+
+test("Ditto window route and shim changes ask the aura for fresh context", () => {
+  const live = fixture();
+  const contextSends = () =>
+    live.aura.sent.filter(([, value]) => value?.type === "context_changed").length;
+  live.bridge.startSession();
+  live.main.navListeners.get("did-navigate-in-page")();
+  live.listeners.get("ditto-live:context-changed")(live.fromMain);
+  // Only the main window may report a change.
+  live.listeners.get("ditto-live:context-changed")({ sender: live.aura.webContents });
+  assert.equal(contextSends(), 2);
+  live.bridge.stopSession("user");
+  assert.equal(live.main.navListeners.size, 0);
+  live.listeners.get("ditto-live:context-changed")(live.fromMain);
+  assert.equal(contextSends(), 2);
 });

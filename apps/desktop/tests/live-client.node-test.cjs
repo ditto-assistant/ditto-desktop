@@ -10,6 +10,7 @@ const modules = {
   tools: () => import("../src/live/client/tools.js"),
   session: () => import("../src/live/client/session.js"),
   mock: () => import("../src/live/client/mock.js"),
+  actions: () => import("../src/live/client/actions.js"),
 };
 const client = (name) => modules[name]();
 // Lets awaited promise chains settle between fake-timer ticks.
@@ -482,7 +483,7 @@ test("session connects as the desktop client and streams once started", async (t
 test("client tool calls act, send a fresh frame, then answer", async (t) => {
   const { session, live, socket } = await startSession(t);
   socket.serve({ type: "session_started" });
-  await settle();
+  await drive(t);
   socket.sent.length = 0;
   socket.serve({
     type: "client_tool_call",
@@ -493,7 +494,7 @@ test("client tool calls act, send a fresh frame, then answer", async (t) => {
   assert.equal(session.state, "acting");
   await drive(t);
   assert.deepEqual(
-    live.calls.find((c) => c[0] === "tool"),
+    live.calls.find((c) => c[0] === "tool" && c[1] === "computer_click"),
     ["tool", "computer_click", { x: 10, y: 20 }],
   );
   assert.deepEqual(socket.types(), ["image", "client_tool_result"]);
@@ -646,4 +647,209 @@ test("a microphone failure ends the session as an error", async (t) => {
   assert.equal(session.active, false);
   assert.equal(live.state, "error");
   assert.deepEqual(live.calls.at(-1), ["stop", "error: Permission denied"]);
+});
+
+// A fake `dittoLive.tool` for client actions: each call parks until the test
+// resolves it, so ordering and idempotency are explicit.
+function fakeActionTool() {
+  const calls = [];
+  const tool = (name, args) => {
+    const call = { name, args };
+    call.promise = new Promise((resolve) => (call.resolve = resolve));
+    calls.push(call);
+    if (name === "ditto_client_context")
+      call.resolve({ ok: true, result: { route: `/r${calls.length}`, surface: "home" } });
+    return call.promise;
+  };
+  return { calls, tool, actions: () => calls.filter((c) => c.name === "ditto_client_action") };
+}
+
+async function clientActions(t, overrides = {}) {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { createClientActions } = await client("actions");
+  const fake = fakeActionTool();
+  const sent = [];
+  const actions = createClientActions({
+    tool: fake.tool,
+    sendContext: (message) => sent.push(message),
+    ...overrides,
+  });
+  const reply = (result) => sent.push(result);
+  return { actions, fake, sent, reply };
+}
+
+test("client actions answer once per id and never run an id twice", async (t) => {
+  const { actions, fake, sent, reply } = await clientActions(t);
+  actions.sessionStarted();
+  await settle();
+  sent.length = 0;
+  const frame = {
+    id: "a1",
+    action: { kind: "prompt_agent", agentId: null, text: " hi ", awaitReply: true },
+  };
+  actions.handle(frame, reply);
+  actions.handle(frame, reply); // resent while running
+  await settle();
+  assert.equal(fake.actions().length, 1);
+  assert.deepEqual(fake.actions()[0].args, {
+    kind: "prompt_agent",
+    agentId: null,
+    text: "hi",
+    awaitReply: true,
+  });
+  fake.actions()[0].resolve({
+    ok: true,
+    result: { ok: true, summary: "Main replied.", error: null, reply: "x".repeat(5000) },
+  });
+  await settle();
+  const results = sent.filter((m) => m.type === "client_action_result");
+  assert.equal(results.length, 1, "a running duplicate gets the one result");
+  assert.equal(results[0].reply.length, 4000);
+  assert.equal(results[0].error, null);
+
+  // After a reconnect the server may resend the id: answer from the ledger.
+  actions.pause();
+  actions.sessionStarted();
+  actions.handle(frame, reply);
+  await settle();
+  assert.equal(fake.actions().length, 1, "a prompt is never replayed");
+  assert.deepEqual(sent.filter((m) => m.type === "client_action_result").at(-1), results[0]);
+});
+
+test("a fresh client_context goes out right before every result", async (t) => {
+  const { actions, sent, fake, reply } = await clientActions(t);
+  actions.sessionStarted();
+  await settle();
+  assert.deepEqual(sent, [
+    {
+      type: "client_context",
+      route: "/r1",
+      surface: "home",
+      activeAgentId: null,
+      activeThreadId: null,
+      destinations: [],
+    },
+  ]);
+  actions.handle({ id: "n1", action: { kind: "navigate", destination: "settings" } }, reply);
+  await settle();
+  fake.actions()[0].resolve({ ok: true, result: { ok: true, summary: "Opened Settings." } });
+  await settle();
+  assert.deepEqual(
+    sent.slice(1).map((m) => m.type),
+    ["client_context", "client_action_result"],
+  );
+  assert.equal(sent[1].route, "/r3", "context is read after the action finished");
+});
+
+test("route changes send a debounced, deduplicated client_context", async (t) => {
+  const { actions, sent } = await clientActions(t);
+  actions.contextChanged();
+  t.mock.timers.tick(250);
+  await settle();
+  assert.equal(sent.length, 0, "nothing before session_started");
+  actions.sessionStarted();
+  await settle();
+  actions.contextChanged();
+  actions.contextChanged();
+  t.mock.timers.tick(249);
+  await settle();
+  assert.equal(sent.length, 1);
+  t.mock.timers.tick(1);
+  await settle();
+  assert.equal(sent.length, 2, "one send per burst");
+  assert.equal(sent[1].route, "/r2");
+});
+
+test("client action outcomes map onto the contract's error codes", async (t) => {
+  const { actions, fake, sent, reply } = await clientActions(t);
+  const results = () => sent.filter((m) => m.type === "client_action_result");
+  actions.handle({ action: { kind: "navigate" } }, reply); // no id: unanswerable
+  actions.handle({ id: "bad", action: { kind: "fly" } }, reply);
+  actions.handle({ id: "empty", action: { kind: "prompt_agent", text: "  " } }, reply);
+  await settle();
+  assert.deepEqual(
+    results().map((r) => [r.id, r.ok, r.error]),
+    [
+      ["bad", false, "unsupported"],
+      ["empty", false, "unsupported"],
+    ],
+  );
+  assert.equal(fake.actions().length, 0);
+
+  const go = (id, answer) => {
+    actions.handle({ id, action: { kind: "new_chat", agentId: null } }, reply);
+    return settle().then(() => {
+      fake.actions().at(-1).resolve(answer);
+      return settle();
+    });
+  };
+  await go("driverless", { ok: false, error: "The Ditto window is not open." });
+  await go("busy", { ok: true, result: { ok: false, error: "busy", summary: "Hold on." } });
+  await go("odd", { ok: true, result: { ok: false, error: "exploded", summary: "x".repeat(900) } });
+  await go("garbage", { ok: true, result: "done" });
+  const byId = Object.fromEntries(results().map((r) => [r.id, r]));
+  assert.equal(byId.driverless.error, "unsupported");
+  assert.equal(byId.driverless.summary, "The Ditto window is not open.");
+  assert.equal(byId.busy.error, "busy");
+  assert.equal(byId.odd.error, "send_failed");
+  assert.equal(byId.odd.summary.length, 500);
+  assert.equal(byId.garbage.error, "send_failed");
+  for (const result of results()) assert.equal(result.reply, null);
+});
+
+test("client actions time out under the server's waits", async (t) => {
+  const { actions, fake, sent, reply } = await clientActions(t);
+  actions.handle({ id: "nav", action: { kind: "navigate", destination: "home" } }, reply);
+  actions.handle({ id: "ask", action: { kind: "prompt_agent", text: "hi" } }, reply);
+  await settle();
+  t.mock.timers.tick(8000);
+  await settle();
+  const results = () => sent.filter((m) => m.type === "client_action_result");
+  assert.deepEqual(
+    results().map((r) => [r.id, r.error]),
+    [["nav", "timeout"]],
+  );
+  t.mock.timers.tick(77_000);
+  await settle();
+  assert.deepEqual(results().at(-1).id, "ask");
+  assert.equal(results().at(-1).error, "timeout");
+  // A late answer is ignored; the id stays answered.
+  fake.actions()[1].resolve({ ok: true, result: { ok: true, summary: "late" } });
+  await settle();
+  assert.equal(results().length, 2);
+});
+
+test("the session answers client actions on the socket that delivered them", async (t) => {
+  const { session, live, socket } = await startSession(t);
+  socket.serve({ type: "session_started" });
+  await drive(t);
+  assert.equal(socket.sent.filter((m) => m.type === "client_context").length, 1);
+  socket.serve({ type: "client_action", id: "v1", action: { kind: "set_live_view", view: "orb" } });
+  await drive(t);
+  assert.deepEqual(
+    live.calls.find((c) => c[1] === "ditto_client_action"),
+    ["tool", "ditto_client_action", { kind: "set_live_view", view: "orb" }],
+  );
+  const tail = socket.sent.slice(-2);
+  assert.deepEqual(
+    tail.map((m) => m.type),
+    ["client_context", "client_action_result"],
+  );
+  assert.deepEqual(tail[1], {
+    type: "client_action_result",
+    id: "v1",
+    ok: true,
+    summary: "Did set_live_view.",
+    error: null,
+    reply: null,
+  });
+  session.contextChanged();
+  t.mock.timers.tick(250);
+  await drive(t);
+  assert.equal(
+    socket.sent.filter((m) => m.type === "client_context").length,
+    2,
+    "an unchanged context is not resent",
+  );
+  await session.stop();
 });

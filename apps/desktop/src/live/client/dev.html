@@ -158,6 +158,7 @@
           Speak: () => socket()?.speak(),
           "Tool call": () => socket()?.toolCall(),
           "Failing tool": () => socket()?.toolCall("computer_fail", {}),
+          "Client action": () => socket()?.clientAction(),
           Interrupt: () => socket()?.serve({ type: "interrupt" }),
           "Server error": () => socket()?.serve({ type: "error", message: "Model hiccup" }),
           "Switch app": () => live.switchApp(),

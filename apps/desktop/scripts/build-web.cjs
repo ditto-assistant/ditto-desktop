@@ -19,6 +19,8 @@ const {
 } = require("./desktop-code-bridge.cjs");
 const chatOverlays = require("./desktop-chat-bridge.cjs");
 const computerOverlays = require("./desktop-computer-bridge.cjs");
+const { liveModeOverlay } = require("./desktop-live-bridge.cjs");
+const liveModeSource = path.join(web, "src", "contexts", "LiveModeContext.tsx");
 const computerSources = new Map(
   [
     ["FullApp.tsx", computerOverlays.appOverlay],
@@ -68,6 +70,7 @@ const originals = new Map(
     codeSurfaceSource,
     ...chatSources.keys(),
     ...computerSources.keys(),
+    ...(fs.existsSync(liveModeSource) ? [liveModeSource] : []),
   ].map((file) => [file, fs.readFileSync(file, "utf8")]),
 );
 function run(command, args) {
@@ -102,6 +105,8 @@ try {
     fs.writeFileSync(file, transform(originals.get(file)));
   for (const [file, transform] of computerSources)
     fs.writeFileSync(file, transform(originals.get(file)));
+  if (originals.has(liveModeSource))
+    fs.writeFileSync(liveModeSource, liveModeOverlay(originals.get(liveModeSource)));
   if (!fs.existsSync(path.join(web, "node_modules"))) run("bun", ["install", "--frozen-lockfile"]);
   run("bun", ["run", "build"]);
   fs.rmSync(output, { recursive: true, force: true });

@@ -56,6 +56,9 @@ export function mountAura({
       case "unmute":
         session.setMuted(false);
         break;
+      case "context_changed":
+        session.contextChanged();
+        break;
     }
   });
 
