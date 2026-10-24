@@ -353,7 +353,9 @@ test("one computer session per live session, closed on stop and on Computer Use 
   });
 
   live.bridge.startSession();
-  assert.deepEqual(live.commands.at(-1), ["ditto-live:command", { type: "start" }]);
+  assert.deepEqual(live.aura.sent.at(-1), ["ditto-live:command", { type: "start" }]);
+  live.invoke("state", "listening");
+  live.invoke("state", "bogus");
   await live.tool("computer_click", { x: 1, y: 1 });
   await live.tool("computer_click", { x: 2, y: 2 });
   live.invoke("stop", "aura button");
@@ -361,7 +363,13 @@ test("one computer session per live session, closed on stop and on Computer Use 
   await Promise.resolve();
   assert.equal(live.closed.length, 1);
   assert.deepEqual(stops, ["aura button"]);
-  assert.deepEqual(live.commands.at(-1), ["ditto-live:command", { type: "stop" }]);
+  assert.deepEqual(live.aura.sent.at(-1), ["ditto-live:command", { type: "stop" }]);
+  // The main window hears state changes through main.cjs's emit.
+  assert.deepEqual(live.commands, [
+    ["ditto:live-state", "connecting"],
+    ["ditto:live-state", "listening"],
+    ["ditto:live-state", "idle"],
+  ]);
   assert.equal(live.bridge.active, false);
 
   // A new live session opens a fresh computer session and re-observes.
@@ -520,4 +528,21 @@ test("dispose removes every channel and restores the Computer Use hook", () => {
   assert.equal(live.listeners.size, 0);
   assert.equal(live.computer.onChange, live.original);
   assert.throws(() => live.bridge.startSession(), /shut down/);
+});
+
+test("an onStop listener may dispose the bridge without re-entering stop", async () => {
+  const live = fixture();
+  const stops = [];
+  live.bridge.onStop((reason) => {
+    stops.push(reason);
+    live.bridge.dispose();
+  });
+  live.bridge.startSession();
+  await live.tool("computer_click", { x: 1, y: 1 });
+  live.bridge.dispose();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(stops, ["disposed"]);
+  assert.equal(live.closed.length, 1);
+  assert.equal(live.handlers.size, 0);
 });

@@ -4,9 +4,11 @@ const { execFile } = require("node:child_process");
 // Main-process side of the aura's `window.dittoLive` (docs/ditto/live-mode.md,
 // Contract 2). Wiring from main.cjs, after app ready:
 //   const live = registerLiveBridge({ ipcMain, computer, getMainWindow: () => win,
-//     getAuraWindow, getSession, emit: (channel, value) => aura.webContents.send(channel, value) });
+//     getAuraWindow, getSession, emit });
 //   live.onStop((reason) => closeAura()); live.startSession() once the aura loads;
 //   live.stopSession(reason) for the shortcut; live.dispose() on quit.
+// `ditto-live:command` goes straight to the aura's webContents; `emit` is
+// main.cjs's main-window emitter and receives `ditto:live-state`.
 // The aura preload uses ipcRenderer.invoke for session/capture/frontmost/tool
 // and may use send or invoke for state/interactive/stop. Only the aura's
 // webContents is accepted. Disabling Computer Use stops Live by itself.
@@ -197,9 +199,11 @@ function registerLiveBridge({
   let titles = { at: 0, byPid: new Map(), refreshing: false };
 
   const aura = () => usable(getAuraWindow?.());
-  const send = (command) => {
-    if (emit) emit("ditto-live:command", command);
-    else aura()?.webContents.send("ditto-live:command", command);
+  const send = (command) => aura()?.webContents.send("ditto-live:command", command);
+  const setState = (state) => {
+    if (state === liveState) return;
+    liveState = state;
+    emit?.("ditto:live-state", state);
   };
 
   // Only the aura renderer may drive the live bridge.
@@ -565,7 +569,7 @@ function registerLiveBridge({
   function startSession() {
     if (disposed) throw new Error("Live mode was shut down.");
     active = true;
-    liveState = "connecting";
+    setState("connecting");
     display = null;
     send({ type: "start" });
   }
@@ -573,7 +577,7 @@ function registerLiveBridge({
   function stopSession(reason = "stopped") {
     if (!active) return;
     active = false;
-    liveState = "idle";
+    setState("idle");
     display = null;
     closeSession();
     send({ type: "stop" });
@@ -590,7 +594,7 @@ function registerLiveBridge({
     frontmost: () => frontmost(),
     tool: (_event, name, args) => tool(name, args),
     state: (_event, state) => {
-      if (STATES.has(state)) liveState = state;
+      if (active && STATES.has(state)) setState(state);
     },
     interactive: (_event, interactive) => {
       aura()?.setIgnoreMouseEvents(interactive !== true, { forward: true });
@@ -641,8 +645,8 @@ function registerLiveBridge({
     },
     dispose() {
       if (disposed) return;
-      stopSession("disposed");
       disposed = true;
+      stopSession("disposed");
       for (const key of [...INVOKE, ...SEND]) ipcMain.removeHandler(`ditto-live:${key}`);
       for (const [key, listener] of listeners)
         ipcMain.removeListener(`ditto-live:${key}`, listener);
