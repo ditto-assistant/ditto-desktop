@@ -1,0 +1,229 @@
+/* Ditto Live aura. Everything that moves is transform or opacity on its own
+   layer; glows are pre-rendered radial gradients, never animated blur. The
+   only infinite animations belong to transient states (connecting, thinking,
+   acting) and none run while idle. */
+
+:root {
+  --aura-tide: oklch(82% 0.13 210); /* --ditto-paper, the app icon's tide */
+  --aura-blue: #2b75d0;
+  --aura-ink: oklch(17% 0.06 244);
+  --aura-accent: var(--aura-tide);
+  --aura-accent-2: var(--aura-blue);
+  --aura-size: 120px;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+.ditto-aura {
+  position: relative;
+  width: calc(var(--aura-size) + 40px);
+  height: calc(var(--aura-size) + 40px);
+  display: grid;
+  place-items: center;
+  user-select: none;
+  -webkit-user-select: none;
+  font:
+    12px/1 system-ui,
+    sans-serif;
+}
+
+.ditto-aura[data-state="thinking"] {
+  --aura-accent: oklch(78% 0.12 250);
+  --aura-accent-2: oklch(56% 0.18 285);
+}
+.ditto-aura[data-state="speaking"] {
+  --aura-accent: oklch(90% 0.11 205);
+  --aura-accent-2: var(--aura-tide);
+}
+.ditto-aura[data-state="acting"] {
+  --aura-accent: oklch(84% 0.14 80);
+  --aura-accent-2: var(--aura-tide);
+}
+.ditto-aura[data-state="error"] {
+  --aura-accent: oklch(70% 0.19 25);
+  --aura-accent-2: oklch(50% 0.17 25);
+}
+
+.aura-glow,
+.aura-ring,
+.aura-core {
+  grid-area: 1 / 1;
+  border-radius: 50%;
+  will-change: transform;
+}
+
+.aura-glow {
+  width: calc(var(--aura-size) + 36px);
+  height: calc(var(--aura-size) + 36px);
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklch, var(--aura-accent) 70%, transparent) 55%,
+    color-mix(in oklch, var(--aura-accent-2) 30%, transparent) 75%,
+    transparent 100%
+  );
+  opacity: 0.55;
+  transition: opacity 240ms ease;
+  pointer-events: none;
+}
+
+.aura-core {
+  position: relative;
+  width: var(--aura-size);
+  height: var(--aura-size);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 34% 28%, oklch(98% 0.03 210 / 0.9), transparent 34%),
+    radial-gradient(circle at 70% 78%, var(--aura-accent-2), transparent 62%),
+    radial-gradient(circle at 50% 50%, var(--aura-accent), var(--aura-ink) 115%);
+  box-shadow:
+    inset 0 0 18px oklch(100% 0 0 / 0.35),
+    0 6px 24px oklch(17% 0.06 244 / 0.35);
+  cursor: grab;
+  transition: filter 240ms ease;
+}
+.aura-core:active {
+  cursor: grabbing;
+}
+
+.aura-sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 70%,
+    oklch(100% 0 0 / 0.35) 85%,
+    transparent 100%
+  );
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+
+.aura-ring {
+  width: calc(var(--aura-size) + 14px);
+  height: calc(var(--aura-size) + 14px);
+  border: 2px solid transparent;
+  border-top-color: var(--aura-accent);
+  border-right-color: color-mix(in oklch, var(--aura-accent) 40%, transparent);
+  opacity: 0;
+  transition: opacity 240ms ease;
+  pointer-events: none;
+}
+
+.ditto-aura[data-state="connecting"] .aura-glow {
+  animation: aura-breathe 1.6s ease-in-out infinite;
+}
+.ditto-aura[data-state="thinking"] .aura-sheen,
+.ditto-aura[data-state="acting"] .aura-sheen {
+  opacity: 1;
+  animation: aura-spin 2.4s linear infinite;
+}
+.ditto-aura[data-state="acting"] .aura-ring,
+.ditto-aura[data-state="connecting"] .aura-ring {
+  opacity: 1;
+  animation: aura-spin 1.1s linear infinite;
+}
+.ditto-aura[data-state="error"] .aura-core {
+  animation: aura-shake 360ms ease-in-out 2;
+}
+.ditto-aura[data-state="idle"] .aura-core {
+  filter: saturate(0.35) brightness(0.85);
+}
+.ditto-aura[data-state="idle"] .aura-glow {
+  opacity: 0.2;
+}
+.ditto-aura.is-muted .aura-core {
+  filter: saturate(0.5);
+}
+
+.aura-controls {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+  pointer-events: none;
+}
+.ditto-aura:hover .aura-controls,
+.ditto-aura:focus-within .aura-controls {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.aura-button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid oklch(100% 0 0 / 0.35);
+  border-radius: 50%;
+  background: oklch(17% 0.06 244 / 0.82);
+  color: oklch(97% 0.01 210);
+  cursor: pointer;
+}
+.aura-button:hover {
+  background: oklch(25% 0.07 244 / 0.95);
+}
+.aura-button:focus-visible {
+  outline: 2px solid var(--aura-tide);
+  outline-offset: 1px;
+}
+.aura-stop:hover {
+  background: oklch(50% 0.17 25);
+}
+.aura-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.aura-slash {
+  display: none;
+}
+.ditto-aura.is-muted .aura-slash {
+  display: inline;
+}
+.ditto-aura.is-muted .aura-mute {
+  background: oklch(50% 0.17 25 / 0.9);
+}
+
+@keyframes aura-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes aura-breathe {
+  50% {
+    opacity: 0.9;
+    transform: scale(1.12);
+  }
+}
+@keyframes aura-shake {
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ditto-aura *,
+  .ditto-aura *::before {
+    animation: none !important;
+  }
+}
