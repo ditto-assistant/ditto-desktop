@@ -84,6 +84,8 @@
         "src/computer-setup.css!",
         "src/desktop-shell.js!",
         "src/desktop-shell.css!",
+        "src/live/aura-preload.cjs!",
+        "src/live/aura-shell.js!",
         "src/live/client/index.js!",
         "src/live/client/pcm-worklet.js!",
         "src/live/client/aura.css!",

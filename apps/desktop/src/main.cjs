@@ -2,6 +2,7 @@ const {
   app,
   BrowserWindow,
   dialog,
+  globalShortcut,
   ipcMain,
   Menu,
   safeStorage,
@@ -32,10 +33,15 @@ const { ComputerRelay } = require("./computer-relay.cjs");
 const { createComputerSetup } = require("./computer-setup.cjs");
 const { EngineMaintenance } = require("./maintenance.cjs");
 const { DesktopDevices } = require("./devices.cjs");
+const { createAuraWindow } = require("./live/aura-window.cjs");
+const { createLiveController, createTokenRequester } = require("./live/aura-controller.cjs");
+const { registerLiveBridge } = require("./live/live-bridge.cjs");
 
 const API_BASE = "https://api.heyditto.ai";
 const WEB_ORIGIN = "https://assistant.heyditto.ai";
 const WEB_PARTITION = "persist:ditto-connections";
+const LIVE_WS_URL = "wss://api.heyditto.ai/api/v2/realtime/ws";
+const LIVE_SHORTCUT = "CommandOrControl+Shift+L";
 const PI_SCRIPT = path.join(
   __dirname,
   "..",
@@ -68,9 +74,16 @@ let quittingLocalTask = null;
 let remoteHost;
 let desktopBrowser;
 let desktopTerminal;
+let aura;
+let liveBridge = null;
+let liveTokens;
+let live;
 const computer = new ComputerService({
   onChange: (status) => {
-    if (!status.enabled) computerRelay?.stop();
+    if (!status.enabled) {
+      computerRelay?.stop();
+      void live?.stop("computer-disabled");
+    }
     emit("ditto:computer-enabled", status.enabled);
   },
 });
@@ -100,6 +113,75 @@ function emit(channel, value) {
 }
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function setupLive() {
+  aura = createAuraWindow({
+    getSetting: (key, fallback) => store.getSetting(key, fallback),
+    setSetting: (key, value) => store.setSetting(key, value),
+  });
+  // Live borrows the signed-in renderer's Firebase token; it is never stored.
+  liveTokens = createTokenRequester({
+    send: (id) => {
+      if (!win || win.isDestroyed()) createWindow();
+      const target = win.webContents;
+      // A message sent before the preload runs is dropped, so wait for the load.
+      if (target.isLoading())
+        target.once("did-finish-load", () => target.send("ditto:live-token-request", id));
+      else target.send("ditto:live-token-request", id);
+      return true;
+    },
+  });
+  live = createLiveController({
+    isComputerEnabled: () => computer.enabled,
+    openComputerSetup: () => computerSetup.show(),
+    // Fail before the aura appears when nobody is signed in.
+    prepare: () => liveTokens.request(),
+    open: async (sessionId) => {
+      liveBridge = registerLiveBridge({
+        ipcMain,
+        computer,
+        getMainWindow: () => win,
+        getAuraWindow: () => aura.window,
+        getSession: async () => ({
+          token: await liveTokens.request(),
+          apiBase: API_BASE,
+          wsUrl: LIVE_WS_URL,
+          sessionId,
+        }),
+        emit,
+      });
+      // The controller is already idle when close() disposes the bridge, so the
+      // onStop that dispose fires is a no-op rather than a second stop.
+      liveBridge.onStop(() => void live.stop("aura"));
+      await aura.open();
+      liveBridge.startSession();
+    },
+    // Disposing first lets the bridge send `stop` to the aura and end its
+    // Computer Use session, which removes the cursor, before the window goes.
+    close: () => {
+      const bridge = liveBridge;
+      liveBridge = null;
+      bridge?.dispose();
+      aura.close();
+    },
+    onActive: (active) => emit("ditto:live-active", active),
+  });
+  if (!globalShortcut.register(LIVE_SHORTCUT, () => void toggleLive()))
+    console.warn(`Ditto Live shortcut ${LIVE_SHORTCUT} is in use by another app.`);
+}
+
+async function toggleLive() {
+  try {
+    await live.toggle();
+  } catch (error) {
+    void dialog.showMessageBox({
+      type: "warning",
+      message: "Live could not start",
+      detail: errorMessage(error),
+    });
+  }
+  return live.state !== "idle";
 }
 
 function prepareLocalPi(run) {
@@ -442,6 +524,16 @@ function registerIpc() {
   ipcMain.handle("ditto:computer-enable", async (_event, enabled) =>
     enabled === true ? computer.enable() : computer.stop(),
   );
+  const fromMainWindow = (event) =>
+    win && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame;
+  ipcMain.handle("ditto:live-toggle", (event) => {
+    if (!fromMainWindow(event)) throw new Error("Only Ditto Desktop can start Live.");
+    return toggleLive();
+  });
+  ipcMain.handle("ditto:live-status", () => ({ active: live.state !== "idle" }));
+  ipcMain.handle("ditto:live-token", (event, id, reply) => {
+    if (fromMainWindow(event) && typeof id === "string") liveTokens.resolve(id, reply);
+  });
   const linkedKey = () => {
     const account = loadAccount();
     if (!account?.key)
@@ -1046,6 +1138,14 @@ app
             submenu: [
               { role: "about", label: "About Ditto Desktop" },
               { type: "separator" },
+              {
+                label: "Toggle Live",
+                accelerator: LIVE_SHORTCUT,
+                // The global shortcut below owns the key; the menu only shows it.
+                registerAccelerator: false,
+                click: () => void toggleLive(),
+              },
+              { type: "separator" },
               { role: "services" },
               { type: "separator" },
               { role: "hide", label: "Hide Ditto Desktop" },
@@ -1103,6 +1203,7 @@ app
       onStatus: (status) => emit("ditto:devices-status", status),
     });
     await registerWebRenderer();
+    setupLive();
     registerIpc();
     createWindow();
     if (store.getSetting("deviceNetworkEnabled", false) && loadAccount()) devices.start();
@@ -1125,6 +1226,7 @@ app
     app.quit();
   });
 
+app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("window-all-closed", () => {
   if (os.platform() !== "darwin") app.quit();
 });
@@ -1164,6 +1266,7 @@ app.on("before-quit", (event) => {
     }
     return;
   }
+  void live?.stop("quit");
   void computer.stop();
   desktopTerminal?.closeAll();
   devices?.stop();

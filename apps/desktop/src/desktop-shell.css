@@ -779,6 +779,20 @@ body:is(.ditto-local-open, .ditto-browser-open) .ditto-desktop-local-history {
   background: var(--ditto-success, #34a87a);
   box-shadow: 0 0 0 2px var(--v2-surface, #fff);
 }
+.ditto-computer-controls [data-ditto-live][data-active="true"] {
+  color: var(--ditto-live, #7c5cff);
+}
+.ditto-computer-controls [data-ditto-live][data-active="true"]::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ditto-live, #7c5cff);
+  box-shadow: 0 0 0 2px var(--v2-surface, #fff);
+}
 .v2-studio-rail .ditto-computer-stop[hidden] {
   display: none;
 }
