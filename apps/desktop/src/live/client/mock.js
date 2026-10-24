@@ -60,9 +60,6 @@ export function createMockLive({ log = () => {}, toolDelayMs = 400 } = {}) {
     setInteractive(value) {
       live.interactive = value;
     },
-    moveBy(dx, dy) {
-      calls.push(["moveBy", dx, dy]);
-    },
     stop(reason) {
       calls.push(["stop", reason]);
       log("stop", reason);

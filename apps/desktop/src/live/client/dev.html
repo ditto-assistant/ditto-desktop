@@ -27,6 +27,16 @@
         flex-wrap: wrap;
         gap: 12px;
       }
+      .dev-frame {
+        position: relative;
+        width: 180px;
+        height: 180px;
+      }
+      .dev-host {
+        position: absolute;
+        inset: 34px;
+        border-radius: 50%;
+      }
       .cell {
         display: grid;
         justify-items: center;
@@ -105,7 +115,6 @@
             onMute() {},
             onStop() {},
             onInteractive() {},
-            onDrag() {},
           });
           view.setState(state);
           cell.append(state);
@@ -125,9 +134,16 @@
             super.send(raw);
           }
         }
+        // Same geometry as aura.html: a 180px window with the orb host inset 34px.
+        const frame = document.createElement("div");
+        frame.className = "dev-frame";
+        const host = document.createElement("div");
+        host.className = "dev-host";
+        frame.append(host);
+        stage.append(frame);
         mountAura({
           live: wrapped,
-          root: stage,
+          host,
           audio: createMockAudio(),
           WebSocket: LoggingSocket,
         });

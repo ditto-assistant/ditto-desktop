@@ -7,7 +7,8 @@ import { createLiveSession } from "./session.js";
 
 export function mountAura({
   live = globalThis.dittoLive,
-  root = document.body,
+  // aura.html (desktop-aura-shell) provides #aura-orb and owns the window chrome.
+  host = document.getElementById("aura-orb"),
   audio = createAudioEngine(),
   WebSocket = globalThis.WebSocket,
   frameIntervalMs,
@@ -19,7 +20,8 @@ export function mountAura({
   let session = null;
 
   const view = createOrbView({
-    root,
+    root: host || document.body,
+    embedded: Boolean(host),
     levels: { input: () => audio.inputLevel(), output: () => audio.outputLevel() },
     onMute: () => session?.toggleMute(),
     onStop: () => {
@@ -27,8 +29,6 @@ export function mountAura({
       else live.stop("user");
     },
     onInteractive: (interactive) => live.setInteractive(interactive),
-    // Window moves need main; preloads without it simply leave the aura where it is.
-    onDrag: (dx, dy) => live.moveBy?.(dx, dy),
   });
 
   session = createLiveSession({
