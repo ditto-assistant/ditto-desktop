@@ -151,15 +151,19 @@ function setupLive() {
         }),
         emit,
       });
+      // The controller is already idle when close() disposes the bridge, so the
+      // onStop that dispose fires is a no-op rather than a second stop.
       liveBridge.onStop(() => void live.stop("aura"));
       await aura.open();
-      aura.send("ditto-live:command", { type: "start" });
+      liveBridge.startSession();
     },
-    // Disposing the bridge ends its Computer Use session, which removes the cursor.
+    // Disposing first lets the bridge send `stop` to the aura and end its
+    // Computer Use session, which removes the cursor, before the window goes.
     close: () => {
-      aura.close();
-      liveBridge?.dispose();
+      const bridge = liveBridge;
       liveBridge = null;
+      bridge?.dispose();
+      aura.close();
     },
     onActive: (active) => emit("ditto:live-active", active),
   });

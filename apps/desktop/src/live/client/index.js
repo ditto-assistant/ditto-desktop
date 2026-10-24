@@ -1,19 +1,81 @@
-// PLACEHOLDER owned by the desktop-live-client workstream; replace wholesale.
-// It only renders a pulsing orb so the aura window can be exercised alone.
-const orb = document.getElementById("aura-orb");
-const style = document.createElement("style");
-style.textContent = `
-  .placeholder-orb { width: 100%; height: 100%; border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #c9b6ff, #6d4cff 55%, #2b1a7a);
-    box-shadow: 0 0 28px 6px rgb(120 90 255 / 0.55);
-    animation: placeholder-pulse 2.4s ease-in-out infinite; }
-  .muted .placeholder-orb { filter: grayscale(0.8); animation: none; }
-  @keyframes placeholder-pulse { 50% { transform: scale(0.92); opacity: 0.85; } }
-`;
-document.head.append(style);
-const inner = document.createElement("div");
-inner.className = "placeholder-orb";
-orb.append(inner);
-window.dittoLive.onCommand((command) => {
-  if (command.type === "start") window.dittoLive.setState("listening");
-});
+// Aura window entry point. aura.html loads this as a module next to aura.css;
+// it mounts on the preload's `window.dittoLive` and waits for main's `start`.
+
+import { createAudioEngine } from "./audio.js";
+import { createOrbView } from "./orb.js";
+import { createLiveSession } from "./session.js";
+
+export function mountAura({
+  live = globalThis.dittoLive,
+  // aura.html (desktop-aura-shell) provides #aura-orb and owns the window chrome.
+  host = document.getElementById("aura-orb"),
+  audio = createAudioEngine(),
+  WebSocket = globalThis.WebSocket,
+  frameIntervalMs,
+  idlePauseMs,
+} = {}) {
+  if (!live) throw new Error("window.dittoLive is not available in this window");
+
+  const log = (...args) => console.info("[ditto-live]", ...args);
+  let session = null;
+
+  const view = createOrbView({
+    root: host || document.body,
+    embedded: Boolean(host),
+    levels: { input: () => audio.inputLevel(), output: () => audio.outputLevel() },
+    onMute: () => session?.toggleMute(),
+    onStop: () => {
+      if (session?.active) void session.stop("user");
+      else live.stop("user");
+    },
+    onInteractive: (interactive) => live.setInteractive(interactive),
+  });
+
+  session = createLiveSession({
+    live,
+    audio,
+    WebSocket,
+    log,
+    frameIntervalMs,
+    idlePauseMs,
+    onState: (state) => view.setState(state),
+    onMuted: (value) => view.setMuted(value),
+  });
+
+  const unsubscribe = live.onCommand((command) => {
+    switch (command && command.type) {
+      case "start":
+        void session.start();
+        break;
+      case "stop":
+        void session.stop("command");
+        break;
+      case "mute":
+        session.setMuted(true);
+        break;
+      case "unmute":
+        session.setMuted(false);
+        break;
+    }
+  });
+
+  addEventListener("pagehide", () => {
+    if (session.active) void session.stop("window_closed");
+  });
+
+  return {
+    session,
+    destroy() {
+      unsubscribe();
+      if (session.active) void session.stop("destroyed");
+      view.destroy();
+    },
+  };
+}
+
+// dev.html mounts manually with mocks; the real aura window mounts here.
+if (globalThis.dittoLive && !globalThis.dittoLiveDev) {
+  const start = () => mountAura();
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+}

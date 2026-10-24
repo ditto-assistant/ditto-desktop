@@ -53,10 +53,6 @@ function createAuraWindow({ getSetting, setSetting }) {
     if (next.x !== x || next.y !== y) window.setPosition(next.x, next.y);
     setSetting(POSITION_SETTING, next);
   };
-  const onInteractive = (event, interactive) => {
-    if (!trusted(event)) return;
-    window.setIgnoreMouseEvents(interactive !== true, { forward: true });
-  };
   // The renderer reports drag phases; main reads the cursor itself so window
   // movement stays in global screen points across displays with mixed scale.
   const onDrag = (event, phase) => {
@@ -72,7 +68,6 @@ function createAuraWindow({ getSetting, setSetting }) {
       savePosition();
     }
   };
-  ipcMain.on("ditto-live:interactive", onInteractive);
   ipcMain.on("ditto-live:aura-drag", onDrag);
 
   const open = async () => {
@@ -137,20 +132,14 @@ function createAuraWindow({ getSetting, setSetting }) {
     if (current && !current.isDestroyed()) current.destroy();
   };
 
-  const send = (channel, value) => {
-    if (window && !window.isDestroyed()) window.webContents.send(channel, value);
-  };
-
   return {
     open,
     close,
-    send,
     get window() {
       return window && !window.isDestroyed() ? window : null;
     },
     dispose() {
       close();
-      ipcMain.removeListener("ditto-live:interactive", onInteractive);
       ipcMain.removeListener("ditto-live:aura-drag", onDrag);
     },
   };
