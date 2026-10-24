@@ -42,6 +42,7 @@ const WEB_ORIGIN = "https://assistant.heyditto.ai";
 const WEB_PARTITION = "persist:ditto-connections";
 const LIVE_WS_URL = "wss://api.heyditto.ai/api/v2/realtime/ws";
 const LIVE_SHORTCUT = "CommandOrControl+Shift+L";
+const LIVE_CHAT_SESSION = "main";
 const PI_SCRIPT = path.join(
   __dirname,
   "..",
@@ -137,7 +138,7 @@ function setupLive() {
     openComputerSetup: () => computerSetup.show(),
     // Fail before the aura appears when nobody is signed in.
     prepare: () => liveTokens.request(),
-    open: async (sessionId) => {
+    open: async () => {
       liveBridge = registerLiveBridge({
         ipcMain,
         computer,
@@ -147,7 +148,9 @@ function setupLive() {
           token: await liveTokens.request(),
           apiBase: API_BASE,
           wsUrl: LIVE_WS_URL,
-          sessionId,
+          // The realtime endpoint accepts "main" or an existing thread id; any
+          // other id is refused with 409 before the socket opens.
+          sessionId: LIVE_CHAT_SESSION,
         }),
         emit,
       });
