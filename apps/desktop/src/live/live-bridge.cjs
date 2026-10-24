@@ -565,6 +565,15 @@ function registerLiveBridge({
     switch (name) {
       case "computer_click": {
         const point = screenPoint(input.x, input.y);
+        // Only single clicks can be screen-absolute; double_click is window-local.
+        if (input.double === true && input.button !== "right") {
+          const { target, pixels } = await windowAt(point);
+          return act("computer_double_click", {
+            pid: target.pid,
+            window_id: target.window_id,
+            ...pixels(point),
+          });
+        }
         const button = input.button === "right" ? "right" : "left";
         return act("computer_click", () => ({
           ...toDesktopPixels(
@@ -573,7 +582,6 @@ function registerLiveBridge({
           ),
           scope: "desktop",
           button,
-          ...(input.double === true ? { count: 2 } : {}),
         }));
       }
       case "computer_type_text":

@@ -246,15 +246,9 @@ test("clicks map onto the display of the latest frame and observe before acting"
     ok: true,
     result: "computer_click done",
   });
-  assert.deepEqual(await live.tool("computer_click", { x: 0, y: 0, double: true }), {
-    ok: true,
-    result: "computer_click done",
-  });
   assert.deepEqual(live.calls, [
     ["computer_get_desktop_state", {}],
     ["computer_click", { x: -1920, y: 1080, scope: "desktop", button: "left" }],
-    ["computer_get_desktop_state", {}],
-    ["computer_click", { x: -3840, y: 0, scope: "desktop", button: "left", count: 2 }],
   ]);
 });
 
@@ -326,6 +320,13 @@ test("scroll and drag target the topmost window under the point in its own pixel
       y: (491 - 100) * 2,
       delivery_mode: "foreground",
     },
+  ]);
+  // The engine's screen-absolute click has no click count; double_click
+  // needs the window under the point.
+  assert.equal((await live.tool("computer_click", { x: 500, y: 500, double: true })).ok, true);
+  assert.deepEqual(live.calls.at(-1), [
+    "computer_double_click",
+    { pid: 11, window_id: 2, x: (756 - 100) * 2, y: (491 - 100) * 2 },
   ]);
   const result = await live.tool("computer_drag", { from_x: 0, from_y: 0, to_x: 100, to_y: 100 });
   assert.equal(result.ok, true);
