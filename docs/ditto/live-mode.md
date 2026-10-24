@@ -81,10 +81,7 @@ interface DittoLive {
     sessionId: string;
     voice?: string;
   }>;
-  captureScreen(opts?: {
-    maxWidth?: number;
-    quality?: number;
-  }): Promise<{
+  captureScreen(opts?: { maxWidth?: number; quality?: number }): Promise<{
     data: string;
     mimeType: "image/jpeg";
     width: number;
