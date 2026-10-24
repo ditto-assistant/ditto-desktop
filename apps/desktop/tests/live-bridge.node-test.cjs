@@ -4,6 +4,7 @@ const {
   registerLiveBridge,
   toScreenPoint,
   toDesktopPixels,
+  desktopRatio,
   parseFrontApp,
 } = require("../src/live/live-bridge.cjs");
 
@@ -70,7 +71,13 @@ function fixture({ cursor = { x: 10, y: 10 }, windows = [], enabled = true } = {
   const handlers = new Map();
   const listeners = new Map();
   let focused = null;
-  const state = { cursor, failNext: null, errorNext: null, frontPid: 77 };
+  const state = {
+    cursor,
+    failNext: null,
+    errorNext: null,
+    frontPid: 77,
+    desktop: { screenshot_width: 3024, screen_width: 1512 },
+  };
   // Mirrors ComputerService's barrier: an unverifiable action blocks input
   // until a desktop screenshot is observed.
   let unverified = false;
@@ -89,7 +96,13 @@ function fixture({ cursor = { x: 10, y: 10 }, windows = [], enabled = true } = {
       }
       if (name === "computer_get_desktop_state") {
         unverified = false;
-        return { content: [{ type: "image", data: "png" }, { type: "text", text: "desktop" }] };
+        return {
+          content: [
+            { type: "image", data: "png" },
+            { type: "text", text: "desktop" },
+          ],
+          structuredContent: state.desktop,
+        };
       }
       if (name === "computer_list_windows") return { structuredContent: { windows } };
       if (unverified) return { isError: true, content: [{ type: "text", text: "barrier" }] };
@@ -190,7 +203,12 @@ test("normalized coordinates map to global points on multi-display, retina setup
   assert.deepEqual(toScreenPoint(LEFT, 0, 0), { x: -1920, y: 0 });
   assert.deepEqual(toScreenPoint(LEFT, 1000, 1000), { x: -1, y: 1079 });
   // cmux desktop clicks take main-display screenshot pixels.
-  assert.deepEqual(toDesktopPixels(PRIMARY, { x: -960, y: 540 }), { x: -1920, y: 1080 });
+  assert.deepEqual(toDesktopPixels(2, { x: -960, y: 540 }), { x: -1920, y: 1080 });
+  // The sidecar divides by its screenshot/screen width ratio, which can differ
+  // from the backing scale (observed: 3592px shots of a 1728pt Retina screen).
+  assert.equal(desktopRatio({ screenshot_width: 3592, screen_width: 1728 }, 2), 3592 / 1728);
+  assert.equal(desktopRatio({ screenshot_width: 1512, screen_width: 1512 }, 2), 1);
+  assert.equal(desktopRatio(undefined, 2), 2);
   assert.throws(() => toScreenPoint(PRIMARY, 1001, 0), /0 to 1000/);
   assert.throws(() => toScreenPoint(PRIMARY, Number.NaN, 0), /0 to 1000/);
 });
@@ -222,6 +240,19 @@ test("clicks map onto the display of the latest frame and observe before acting"
   ]);
 });
 
+test("clicks use the ratio from the observation taken right before them", async () => {
+  const live = fixture();
+  live.state.desktop = { screenshot_width: 3592, screen_width: 1728 };
+  live.bridge.startSession();
+  await live.invoke("capture");
+  await live.tool("computer_click", { x: 500, y: 500, button: "right" });
+  const ratio = 3592 / 1728;
+  assert.deepEqual(live.calls.at(-1), [
+    "computer_click",
+    { x: 756 * ratio, y: 491 * ratio, scope: "desktop", button: "right" },
+  ]);
+});
+
 test("clicks on the aura are refused before reaching Computer Use", async () => {
   const live = fixture();
   live.bridge.startSession();
@@ -237,23 +268,60 @@ test("clicks on the aura are refused before reaching Computer Use", async () => 
 
 test("scroll and drag target the topmost window under the point in its own pixels", async () => {
   const windows = [
-    { pid: 10, window_id: 1, layer: 0, z_index: 1, bounds: { x: 0, y: 0, width: 1512, height: 982 } },
-    { pid: 11, window_id: 2, layer: 0, z_index: 5, bounds: { x: 100, y: 100, width: 800, height: 600 } },
-    { pid: 12, window_id: 3, layer: 25, z_index: 9, bounds: { x: 0, y: 0, width: 1512, height: 30 } },
+    {
+      pid: 10,
+      window_id: 1,
+      layer: 0,
+      z_index: 1,
+      bounds: { x: 0, y: 0, width: 1512, height: 982 },
+    },
+    {
+      pid: 11,
+      window_id: 2,
+      layer: 0,
+      z_index: 5,
+      bounds: { x: 100, y: 100, width: 800, height: 600 },
+    },
+    {
+      pid: 12,
+      window_id: 3,
+      layer: 25,
+      z_index: 9,
+      bounds: { x: 0, y: 0, width: 1512, height: 30 },
+    },
   ];
   const live = fixture({ windows });
   live.bridge.startSession();
   await live.invoke("capture");
-  assert.equal((await live.tool("computer_scroll", { x: 500, y: 500, direction: "down" })).ok, true);
+  assert.equal(
+    (await live.tool("computer_scroll", { x: 500, y: 500, direction: "down" })).ok,
+    true,
+  );
   assert.deepEqual(live.calls.at(-1), [
     "computer_scroll",
-    { pid: 11, window_id: 2, direction: "down", amount: 3, x: (756 - 100) * 2, y: (491 - 100) * 2 },
+    {
+      pid: 11,
+      window_id: 2,
+      direction: "down",
+      amount: 3,
+      x: (756 - 100) * 2,
+      y: (491 - 100) * 2,
+      delivery_mode: "foreground",
+    },
   ]);
   const result = await live.tool("computer_drag", { from_x: 0, from_y: 0, to_x: 100, to_y: 100 });
   assert.equal(result.ok, true);
   assert.deepEqual(live.calls.at(-1), [
     "computer_drag",
-    { pid: 10, window_id: 1, from_x: 0, from_y: 0, to_x: 302, to_y: 196 },
+    {
+      pid: 10,
+      window_id: 1,
+      from_x: 0,
+      from_y: 0,
+      to_x: 302,
+      to_y: 196,
+      delivery_mode: "foreground",
+    },
   ]);
 });
 
@@ -424,7 +492,10 @@ test("ditto_app drives the main window", async () => {
     result: "Ditto is showing /code.",
   });
   assert.match(live.main.scripts.at(-1), /"path":"\/code"/);
-  const injected = await live.tool("ditto_app", { action: "navigate", target: "javascript:alert(1)" });
+  const injected = await live.tool("ditto_app", {
+    action: "navigate",
+    target: "javascript:alert(1)",
+  });
   assert.equal(injected.ok, false);
 
   live.main.scriptResult = false;

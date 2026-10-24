@@ -1,10 +1,26 @@
+const os = require("node:os");
 const { execFile } = require("node:child_process");
 
 // Main-process side of the aura's `window.dittoLive` (docs/ditto/live-mode.md,
-// Contract 2). Invoke channels resolve values; send channels are fire-and-forget.
+// Contract 2). Wiring from main.cjs, after app ready:
+//   const live = registerLiveBridge({ ipcMain, computer, getMainWindow: () => win,
+//     getAuraWindow, getSession, emit: (channel, value) => aura.webContents.send(channel, value) });
+//   live.onStop((reason) => closeAura()); live.startSession() once the aura loads;
+//   live.stopSession(reason) for the shortcut; live.dispose() on quit.
+// The aura preload uses ipcRenderer.invoke for session/capture/frontmost/tool
+// and may use send or invoke for state/interactive/stop. Only the aura's
+// webContents is accepted. Disabling Computer Use stops Live by itself.
 const INVOKE = ["session", "capture", "frontmost", "tool"];
 const SEND = ["state", "interactive", "stop"];
-const STATES = new Set(["connecting", "listening", "thinking", "speaking", "acting", "error", "idle"]);
+const STATES = new Set([
+  "connecting",
+  "listening",
+  "thinking",
+  "speaking",
+  "acting",
+  "error",
+  "idle",
+]);
 const MODIFIERS = {
   cmd: "cmd",
   command: "cmd",
@@ -56,13 +72,23 @@ function toScreenPoint(display, x, y) {
 }
 
 // cmux `click` with scope "desktop" takes pixels of its main-display screenshot
-// and divides by that display's backing scale; other displays are negative or
+// and divides by screenshot width / screen width. That ratio is not always the
+// backing scale (a 1728pt Retina panel has produced 3592px shots), so use the
+// one the latest get_desktop_state reported. Other displays are negative or
 // beyond its width in the same global space.
-function toDesktopPixels(primary, point) {
-  return { x: point.x * primary.scaleFactor, y: point.y * primary.scaleFactor };
+function desktopRatio(observation, fallback) {
+  const shot = observation?.screenshot_width;
+  const width = observation?.screen_width;
+  return shot > 0 && width > 0 ? Math.max(1, shot / width) : fallback;
 }
 
-// cmux scroll and drag address a window in its own screenshot pixels.
+function toDesktopPixels(ratio, point) {
+  return { x: point.x * ratio, y: point.y * ratio };
+}
+
+// cmux scroll and drag address a window in its own screenshot pixels. They run
+// in foreground mode: macOS has no background drag and Electron windows reject
+// background scroll, and Live acts visibly like a desktop click anyway.
 function toWindowPixels(window, scaleFactor, point) {
   return {
     x: (point.x - window.bounds.x) * scaleFactor,
@@ -153,7 +179,7 @@ function registerLiveBridge({
   // Test seams; Electron and macOS by default.
   electron = require("electron"),
   run = execText,
-  platform = process.platform,
+  platform = os.platform(),
   pid = process.pid,
 }) {
   const { BrowserWindow, desktopCapturer, screen, app } = electron;
@@ -162,6 +188,7 @@ function registerLiveBridge({
   let disposed = false;
   let session = null;
   let needsObserve = true;
+  let observation = null;
   let pending = 0;
   let toolTail = Promise.resolve();
   let liveState = "idle";
@@ -240,7 +267,16 @@ function registerLiveBridge({
       const asn = (await run("/usr/bin/lsappinfo", ["front"])).trim();
       if (!/^ASN:[\w-]+:?$/.test(asn)) return { app: "", pid: undefined };
       return parseFrontApp(
-        await run("/usr/bin/lsappinfo", ["info", "-only", "name", "-only", "bundleid", "-only", "pid", asn]),
+        await run("/usr/bin/lsappinfo", [
+          "info",
+          "-only",
+          "name",
+          "-only",
+          "bundleid",
+          "-only",
+          "pid",
+          asn,
+        ]),
       );
     })();
     frontCache = { at: 0, loading };
@@ -337,18 +373,20 @@ function registerLiveBridge({
   // lazily before the next action, never by retrying the action itself.
   async function act(name, args) {
     if (needsObserve) {
-      await call("computer_get_desktop_state", {});
+      observation = (await call("computer_get_desktop_state", {})).structuredContent;
       needsObserve = false;
     }
     needsObserve = true;
-    return resultText(await call(name, args));
+    return resultText(await call(name, typeof args === "function" ? args() : args));
   }
 
   function screenPoint(x, y) {
     const point = toScreenPoint(currentDisplay(), x, y);
     const window = aura();
     if (window?.isVisible() && contains(window.getBounds(), point))
-      throw new LiveToolError("That point is on the Ditto aura. Choose a point in the app below it.");
+      throw new LiveToolError(
+        "That point is on the Ditto aura. Choose a point in the app below it.",
+      );
     return point;
   }
 
@@ -427,14 +465,17 @@ function registerLiveBridge({
     const input = args && typeof args === "object" && !Array.isArray(args) ? args : {};
     switch (name) {
       case "computer_click": {
-        const point = toDesktopPixels(screen.getPrimaryDisplay(), screenPoint(input.x, input.y));
+        const point = screenPoint(input.x, input.y);
         const button = input.button === "right" ? "right" : "left";
-        return act("computer_click", {
-          ...point,
+        return act("computer_click", () => ({
+          ...toDesktopPixels(
+            desktopRatio(observation, screen.getPrimaryDisplay().scaleFactor),
+            point,
+          ),
           scope: "desktop",
           button,
           ...(input.double === true ? { count: 2 } : {}),
-        });
+        }));
       }
       case "computer_type_text":
         if (typeof input.text !== "string" || !input.text || input.text.length > 10000)
@@ -466,6 +507,7 @@ function registerLiveBridge({
           direction: input.direction,
           amount,
           ...pixels(point),
+          delivery_mode: "foreground",
         });
       }
       case "computer_drag": {
@@ -481,6 +523,7 @@ function registerLiveBridge({
           from_y: start.y,
           to_x: end.x,
           to_y: end.y,
+          delivery_mode: "foreground",
         });
       }
       case "computer_open_app":
@@ -552,12 +595,15 @@ function registerLiveBridge({
     interactive: (_event, interactive) => {
       aura()?.setIgnoreMouseEvents(interactive !== true, { forward: true });
     },
-    stop: (_event, reason) => stopSession(typeof reason === "string" ? reason.slice(0, 80) : "user"),
+    stop: (_event, reason) =>
+      stopSession(typeof reason === "string" ? reason.slice(0, 80) : "user"),
   };
-  const guarded = (key) => (event, ...args) => {
-    if (!fromAura(event)) throw new Error("Live mode is only available in the Ditto aura.");
-    return handlers[key](event, ...args);
-  };
+  const guarded =
+    (key) =>
+    (event, ...args) => {
+      if (!fromAura(event)) throw new Error("Live mode is only available in the Ditto aura.");
+      return handlers[key](event, ...args);
+    };
   for (const key of INVOKE) ipcMain.handle(`ditto-live:${key}`, guarded(key));
   // Accept both send and invoke for void calls so either preload style works.
   const listeners = SEND.map((key) => {
@@ -598,7 +644,8 @@ function registerLiveBridge({
       stopSession("disposed");
       disposed = true;
       for (const key of [...INVOKE, ...SEND]) ipcMain.removeHandler(`ditto-live:${key}`);
-      for (const [key, listener] of listeners) ipcMain.removeListener(`ditto-live:${key}`, listener);
+      for (const [key, listener] of listeners)
+        ipcMain.removeListener(`ditto-live:${key}`, listener);
       if (computer.onChange === onChange) computer.onChange = previousOnChange;
       stopListeners.clear();
     },
@@ -609,6 +656,6 @@ module.exports = {
   registerLiveBridge,
   toScreenPoint,
   toDesktopPixels,
-  toWindowPixels,
+  desktopRatio,
   parseFrontApp,
 };
