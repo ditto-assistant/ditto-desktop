@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const vm = require("node:vm");
 const {
   registerLiveBridge,
   toScreenPoint,
@@ -716,4 +717,25 @@ test("Ditto window navigation and shim contexts reach the aura while Live runs",
   assert.equal(live.main.navListeners.size, 0);
   live.listeners.get("ditto-live:client-context")(live.fromMain, message);
   assert.equal(commands().filter((type) => type === "client_context").length, 1);
+});
+
+test("navigate reports the path the router lands on, not the one it left", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  await live.tool("ditto_app", { action: "navigate", target: "code" });
+  const location = { pathname: "/", search: "" };
+  const link = {
+    getAttribute: (name) => (name === "href" ? "/code" : null),
+    // The app's router commits the new route after the click returns.
+    click: () => setTimeout(() => (location.pathname = "/code")),
+  };
+  const page = {
+    location,
+    document: { querySelectorAll: () => [link] },
+    history: { pushState() {} },
+    dispatchEvent() {},
+    PopStateEvent: class {},
+    setTimeout,
+  };
+  assert.equal(await vm.runInNewContext(live.main.scripts.at(-1), page), "/code");
 });
