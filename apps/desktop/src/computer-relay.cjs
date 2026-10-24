@@ -9,6 +9,9 @@ class ComputerRelay {
     this.onChange = onChange;
     this.WebSocket = WebSocketImpl;
     this.sessions = new Map();
+    this.opening = new Map();
+    // Cancelled startups consume capacity until their helper creation settles.
+    this.creating = new Set();
     this.pending = new Set();
     this.completed = new Set();
     this.leaseID = "";
@@ -26,6 +29,7 @@ class ComputerRelay {
     socket?.terminate();
     for (const session of this.sessions.values()) session.close();
     this.sessions.clear();
+    this.opening.clear();
     this.pending.clear();
     this.completed.clear();
     this.onChange(this.status());
@@ -125,19 +129,39 @@ class ComputerRelay {
     let error;
     try {
       if (frame.method === "open") {
-        if (this.sessions.has(frame.turnID) || this.sessions.size >= 4) throw new Error();
-        const session = await this.service.createSession();
-        if (this.socket !== socket || this.leaseID !== owner || !this.service.enabled) {
-          session.close();
-          return;
+        if (
+          this.sessions.has(frame.turnID) ||
+          this.opening.has(frame.turnID) ||
+          this.sessions.size + this.creating.size >= 4
+        )
+          throw new Error();
+        // Reserve before yielding; Stop or a new lease may replace this reservation.
+        const reservation = {};
+        this.opening.set(frame.turnID, reservation);
+        this.creating.add(reservation);
+        try {
+          const session = await this.service.createSession();
+          if (
+            this.socket !== socket ||
+            this.leaseID !== owner ||
+            !this.service.enabled ||
+            this.opening.get(frame.turnID) !== reservation
+          ) {
+            session.close();
+            throw new Error();
+          }
+          this.sessions.set(frame.turnID, session);
+          result = { tools: session.tools };
+        } finally {
+          this.creating.delete(reservation);
+          if (this.opening.get(frame.turnID) === reservation) this.opening.delete(frame.turnID);
         }
-        this.sessions.set(frame.turnID, session);
-        result = { tools: session.tools };
       } else if (frame.method === "call") {
         const session = this.sessions.get(frame.turnID);
         if (!session) throw new Error();
         result = await session.call(frame.params?.name, frame.params?.arguments);
       } else if (frame.method === "close") {
+        this.opening.delete(frame.turnID);
         this.sessions.get(frame.turnID)?.close();
         this.sessions.delete(frame.turnID);
         result = {};

@@ -70,3 +70,143 @@ test("cloud relay binds tools to turns and closes capabilities on disconnect", a
   assert.equal(relay.status().connected, false);
   assert.equal(relay.sessions.size, 0);
 });
+
+function pendingOpens(t) {
+  const creations = [];
+  const responses = [];
+  const socket = {
+    readyState: 1,
+    send: (data) => responses.push(JSON.parse(data)),
+    terminate() {},
+  };
+  const relay = new ComputerRelay({
+    apiBase: "https://example.invalid",
+    service: {
+      enabled: true,
+      createSession: () => {
+        const ready = Promise.withResolvers();
+        const session = {
+          tools: [],
+          call() {},
+          closed: false,
+          close() {
+            this.closed = true;
+          },
+        };
+        creations.push({ ready, session });
+        return ready.promise;
+      },
+    },
+  });
+  relay.socket = socket;
+  relay.leaseID = randomUUID();
+  t.after(() => relay.stop());
+  return {
+    relay,
+    socket,
+    creations,
+    responses,
+    open: (turnID = randomUUID()) =>
+      relay.handle(socket, {
+        id: randomUUID(),
+        method: "open",
+        turnID,
+        deadline: Math.floor(Date.now() / 1000) + 60,
+      }),
+    release: () => creations.forEach(({ ready, session }) => ready.resolve(session)),
+  };
+}
+
+test("concurrent opens for one turn cannot overwrite an owned computer session", async (t) => {
+  const f = pendingOpens(t);
+  const turn = randomUUID();
+  const first = f.open(turn);
+  const duplicate = f.open(turn);
+  f.release();
+  await Promise.all([first, duplicate]);
+  assert.equal(f.creations.length, 1);
+  assert.equal(f.relay.sessions.get(turn), f.creations[0].session);
+  f.relay.stop();
+  assert.ok(f.creations.every(({ session }) => session.closed));
+});
+
+test("pending opens count toward the four-session relay limit", async (t) => {
+  const f = pendingOpens(t);
+  const opens = Array.from({ length: 5 }, () => f.open());
+  f.release();
+  await Promise.all(opens);
+  assert.equal(f.creations.length, 4);
+  assert.equal(f.relay.sessions.size, 4);
+});
+
+test("a stopped opening cannot release a replacement lease's turn reservation", async (t) => {
+  const f = pendingOpens(t);
+  const turn = randomUUID();
+  const stale = f.open(turn);
+  f.relay.stop();
+  f.relay.socket = f.socket;
+  f.relay.leaseID = randomUUID();
+  const current = f.open(turn);
+  f.creations[0].ready.resolve(f.creations[0].session);
+  await stale;
+  assert.equal(f.creations[0].session.closed, true);
+  const duplicate = f.open(turn);
+  f.release();
+  await Promise.all([current, duplicate]);
+  assert.equal(f.creations.length, 2);
+  assert.equal(f.relay.sessions.get(turn), f.creations[1].session);
+});
+
+test("a failed session opening releases its turn for another attempt", async (t) => {
+  const f = pendingOpens(t);
+  const turn = randomUUID();
+  const failed = f.open(turn);
+  f.creations[0].ready.reject(new Error("fixture helper disconnected"));
+  await failed;
+  const retry = f.open(turn);
+  f.creations[1].ready.resolve(f.creations[1].session);
+  await retry;
+  assert.equal(f.relay.sessions.get(turn), f.creations[1].session);
+});
+
+test("closing a pending turn closes its late session without replacing a reopened turn", async (t) => {
+  const f = pendingOpens(t);
+  const turn = randomUUID();
+  const stale = f.open(turn);
+  await f.relay.handle(f.socket, {
+    id: randomUUID(),
+    method: "close",
+    turnID: turn,
+    deadline: Math.floor(Date.now() / 1000) + 60,
+  });
+  const current = f.open(turn);
+  f.release();
+  await Promise.all([stale, current]);
+  assert.equal(f.creations.length, 2);
+  assert.equal(f.creations[0].session.closed, true);
+  assert.equal(f.relay.sessions.get(turn), f.creations[1].session);
+  assert.equal(f.responses.filter((response) => response.error).length, 1);
+});
+
+test("cancelled startups retain capacity until their helper creation settles", async (t) => {
+  const f = pendingOpens(t);
+  const turns = Array.from({ length: 4 }, () => randomUUID());
+  const opens = turns.map((turn) => f.open(turn));
+  await f.relay.handle(f.socket, {
+    id: randomUUID(),
+    method: "close",
+    turnID: turns[0],
+    deadline: Math.floor(Date.now() / 1000) + 60,
+  });
+  const overflow = f.open();
+  assert.equal(f.creations.length, 4);
+  await overflow;
+  f.creations[0].ready.resolve(f.creations[0].session);
+  await opens[0];
+  assert.equal(f.creations[0].session.closed, true);
+  const replacement = f.open();
+  assert.equal(f.creations.length, 5);
+  f.release();
+  await Promise.all([...opens, replacement]);
+  assert.equal(f.relay.sessions.size, 4);
+});
