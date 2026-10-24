@@ -18,6 +18,7 @@ files:
   - node_modules/**/*
 asarUnpack:
   - native/*.node
+  - node_modules/@lydell/**/prebuilds/**
 extraResources:
   - from: resources/icon.png
     to: dock-icon.png
@@ -31,3 +32,5 @@ mac:
   identity: null
   hardenedRuntime: false
   gatekeeperAssess: false
+  extendInfo:
+    NSMicrophoneUsageDescription: Ditto Live listens to your voice while Live mode is on.

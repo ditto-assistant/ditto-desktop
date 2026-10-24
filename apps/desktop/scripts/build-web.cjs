@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { copyCodeTerminalAssets } = require("./code-terminal-assets.cjs");
 
 const root = path.resolve(__dirname, "..");
 const web = path.join(root, "web", "ditto-app");
@@ -17,6 +18,16 @@ const {
   codeSurfaceOverlay,
 } = require("./desktop-code-bridge.cjs");
 const chatOverlays = require("./desktop-chat-bridge.cjs");
+const computerOverlays = require("./desktop-computer-bridge.cjs");
+const { liveModeOverlay } = require("./desktop-live-bridge.cjs");
+const liveModeSource = path.join(web, "src", "contexts", "LiveModeContext.tsx");
+const computerSources = new Map(
+  [
+    ["FullApp.tsx", computerOverlays.appOverlay],
+    ["components/SendMessage.tsx", computerOverlays.composerOverlay],
+    ["api/LLM.ts", computerOverlays.promptOverlay],
+  ].map(([file, transform]) => [path.join(web, "src", file), transform]),
+);
 const chatSources = new Map(
   [
     ["components/v2/V2StudioSidebar.tsx", chatOverlays.sidebarOverlay],
@@ -52,9 +63,15 @@ for (const key of [
 }
 const previousProductionEnv = fs.existsSync(productionEnv) ? fs.readFileSync(productionEnv) : null;
 const originals = new Map(
-  [appSource, codeComposerSource, codeModeSource, codeSurfaceSource, ...chatSources.keys()].map(
-    (file) => [file, fs.readFileSync(file, "utf8")],
-  ),
+  [
+    appSource,
+    codeComposerSource,
+    codeModeSource,
+    codeSurfaceSource,
+    ...chatSources.keys(),
+    ...computerSources.keys(),
+    ...(fs.existsSync(liveModeSource) ? [liveModeSource] : []),
+  ].map((file) => [file, fs.readFileSync(file, "utf8")]),
 );
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -86,10 +103,15 @@ try {
   fs.cpSync(path.join(root, "renderer"), desktopRenderer, { recursive: true });
   for (const [file, transform] of chatSources)
     fs.writeFileSync(file, transform(originals.get(file)));
+  for (const [file, transform] of computerSources)
+    fs.writeFileSync(file, transform(originals.get(file)));
+  if (originals.has(liveModeSource))
+    fs.writeFileSync(liveModeSource, liveModeOverlay(originals.get(liveModeSource)));
   if (!fs.existsSync(path.join(web, "node_modules"))) run("bun", ["install", "--frozen-lockfile"]);
   run("bun", ["run", "build"]);
   fs.rmSync(output, { recursive: true, force: true });
   fs.cpSync(path.join(web, "build"), output, { recursive: true });
+  copyCodeTerminalAssets(output);
   fs.copyFileSync(
     path.join(root, "src", "desktop-shell.css"),
     path.join(output, "desktop-shell.css"),
@@ -101,8 +123,14 @@ try {
   const index = path.join(output, "index.html");
   let html = fs.readFileSync(index, "utf8");
   html = html
-    .replace("</head>", '<link rel="stylesheet" href="/desktop-shell.css"></head>')
-    .replace("</body>", '<script defer src="/desktop-shell.js"></script></body>')
+    .replace(
+      "</head>",
+      '<link rel="stylesheet" href="/terminal/xterm.css"><link rel="stylesheet" href="/desktop-shell.css"></head>',
+    )
+    .replace(
+      "</body>",
+      '<script defer src="/terminal/xterm.js"></script><script defer src="/terminal/addon-fit.js"></script><script defer src="/desktop-shell.js"></script></body>',
+    )
     .replace(/<title>[^<]*<\/title>/, "<title>Ditto Desktop</title>");
   fs.writeFileSync(index, html);
   console.log(`Built Ditto Desktop renderer from ${web}`);

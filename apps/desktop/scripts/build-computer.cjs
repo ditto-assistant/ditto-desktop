@@ -10,3 +10,4 @@ const output = path.join(root, "native", "bin", "ditto-computer-use");
 fs.mkdirSync(path.dirname(output), { recursive: true });
 execFileSync("/usr/bin/swiftc", ["-O", source, "-o", output], { stdio: "inherit" });
 console.log(`Ditto computer helper built at ${output}`);
+require("./build-computer-sidecar.cjs");

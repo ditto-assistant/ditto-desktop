@@ -75,6 +75,9 @@ function fixture(t, options = {}) {
           },
         };
       }
+      if (name === "./computer-service.cjs" || name === "./computer-relay.cjs")
+        return sourceRequire(name);
+      if (name === "./computer-setup.cjs") return { createComputerSetup: () => ({ show() {} }) };
       if (name.startsWith("./")) return {};
       return sourceRequire(name);
     },

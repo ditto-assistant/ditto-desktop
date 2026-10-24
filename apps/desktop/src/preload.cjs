@@ -1,6 +1,24 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+let computerLease = "";
+ipcRenderer.on("ditto:computer-cloud", (_event, status) => {
+  computerLease = status.leaseID || "";
+});
+// Token requests can arrive before the signed-in app mounts its responder.
+const liveTokenRequests = [];
+let liveTokenResponder = null;
+ipcRenderer.on("ditto:live-token-request", (_event, id) => {
+  if (liveTokenResponder) liveTokenResponder(id);
+  else liveTokenRequests.push(id);
+});
 contextBridge.exposeInMainWorld("ditto", {
+  computerLease: () => computerLease,
+  onComputerCloud: (listener) => {
+    const handler = (_event, status) => listener(status);
+    ipcRenderer.on("ditto:computer-cloud", handler);
+    return () => ipcRenderer.removeListener("ditto:computer-cloud", handler);
+  },
+  computerCloudLink: (token) => ipcRenderer.invoke("ditto:computer-cloud-link", token),
   status: () => ipcRenderer.invoke("ditto:status"),
   scan: () => ipcRenderer.invoke("ditto:scan"),
   search: (query) => ipcRenderer.invoke("ditto:search", query),
@@ -20,6 +38,18 @@ contextBridge.exposeInMainWorld("ditto", {
   providerLogin: (provider) => ipcRenderer.invoke("ditto:provider-login", provider),
   runProvider: (provider, question) => ipcRenderer.invoke("ditto:run-provider", provider, question),
   recentRuns: () => ipcRenderer.invoke("ditto:recent-runs"),
+  codeThreads: () => ipcRenderer.invoke("ditto:code-threads"),
+  updateCodeThread: (id, patch) => ipcRenderer.invoke("ditto:code-thread-update", id, patch),
+  openCodeThread: (id) => ipcRenderer.invoke("ditto:code-thread-open", id),
+  terminalOpen: (key, cols, rows) => ipcRenderer.invoke("ditto:terminal-open", key, cols, rows),
+  terminalWrite: (key, data) => ipcRenderer.invoke("ditto:terminal-write", key, data),
+  terminalResize: (key, cols, rows) => ipcRenderer.invoke("ditto:terminal-resize", key, cols, rows),
+  terminalClose: (key) => ipcRenderer.invoke("ditto:terminal-close", key),
+  onTerminalEvent: (listener) => {
+    const handler = (_event, event) => listener(event);
+    ipcRenderer.on("ditto:terminal-event", handler);
+    return () => ipcRenderer.removeListener("ditto:terminal-event", handler);
+  },
   remoteStatus: () => ipcRenderer.invoke("ditto:remote-status"),
   remoteStart: (provider, endpoint) => ipcRenderer.invoke("ditto:remote-start", provider, endpoint),
   remoteStop: () => ipcRenderer.invoke("ditto:remote-stop"),
@@ -107,6 +137,31 @@ contextBridge.exposeInMainWorld("ditto", {
   computerSettings: () => ipcRenderer.invoke("ditto:computer-settings"),
   computerEnable: (enabled) => ipcRenderer.invoke("ditto:computer-enable", enabled),
   onComputerEnabled: (listener) => {
-    ipcRenderer.on("ditto:computer-enabled", (_event, enabled) => listener(enabled));
+    const handler = (_event, enabled) => listener(enabled);
+    ipcRenderer.on("ditto:computer-enabled", handler);
+    return () => ipcRenderer.removeListener("ditto:computer-enabled", handler);
   },
+  liveToggle: () => ipcRenderer.invoke("ditto:live-toggle"),
+  liveStatus: () => ipcRenderer.invoke("ditto:live-status"),
+  liveStop: () => ipcRenderer.invoke("ditto:live-stop"),
+  // The Ditto window's live shim pushes ditto-app's client_context messages to the aura.
+  liveClientContext: (message) => ipcRenderer.send("ditto-live:client-context", message),
+  onLiveActive: (listener) => {
+    const handler = (_event, active) => listener(active);
+    ipcRenderer.on("ditto:live-active", handler);
+    return () => ipcRenderer.removeListener("ditto:live-active", handler);
+  },
+  onLiveTokenRequest: (listener) => {
+    const responder = (id) => listener(id);
+    liveTokenResponder = responder;
+    for (const id of liveTokenRequests.splice(0)) responder(id);
+    return () => {
+      if (liveTokenResponder === responder) liveTokenResponder = null;
+    };
+  },
+  liveTokenReply: (id, reply) =>
+    ipcRenderer.invoke("ditto:live-token", id, {
+      token: typeof reply?.token === "string" ? reply.token : undefined,
+      error: typeof reply?.error === "string" ? reply.error : undefined,
+    }),
 });

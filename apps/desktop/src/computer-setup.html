@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:"
+    />
+    <title>Computer Use · Ditto</title>
+    <link rel="stylesheet" href="computer-setup.css" />
+  </head>
+  <body>
+    <main>
+      <span class="eyebrow">DITTO DESKTOP</span>
+      <h1>Use your Mac with Ditto</h1>
+      <p>
+        Ask any Ditto agent to work in your apps. You stay in control and can stop it at any time.
+      </p>
+      <section>
+        <h2>Allow two permissions</h2>
+        <div class="permission">
+          <div><strong>Accessibility</strong><span id="accessibility">Not checked</span></div>
+          <button data-permission="accessibility">Open settings</button>
+        </div>
+        <div class="permission">
+          <div><strong>Screen Recording</strong><span id="screenRecording">Not checked</span></div>
+          <button data-permission="screenRecording">Open settings</button>
+        </div>
+        <button
+          id="app-tile"
+          draggable="true"
+          aria-label="Drag Ditto Computer Use into the macOS permission list"
+        >
+          <img id="app-icon" class="app-icon" alt="" width="38" height="38" /><strong
+            >Ditto Computer Use</strong
+          ><span>Drag into the permission list ↗</span>
+        </button>
+        <p class="hint">
+          Turn on <strong>Ditto Computer Use</strong> in each list. After granting access, restart
+          the helper below. Ditto Desktop stays open.
+        </p>
+      </section>
+      <div class="row">
+        <button id="restart">Restart helper</button><button id="check">Check access</button>
+      </div>
+      <p id="status" role="status" aria-live="polite">Preparing Computer Use…</p>
+      <div class="row">
+        <button id="enable" class="primary">Enable computer use</button
+        ><button id="stop" class="danger">Stop</button>
+      </div>
+      <p class="hint">
+        The Ditto cursor shows where the agent acts. Only enable access for tasks you want it to
+        perform. Close this window to return to Ditto.
+      </p>
+    </main>
+    <script src="computer-setup.js"></script>
+  </body>
+</html>
