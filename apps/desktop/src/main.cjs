@@ -34,7 +34,11 @@ const { createComputerSetup } = require("./computer-setup.cjs");
 const { EngineMaintenance } = require("./maintenance.cjs");
 const { DesktopDevices } = require("./devices.cjs");
 const { createAuraWindow } = require("./live/aura-window.cjs");
-const { createLiveController, createTokenRequester } = require("./live/aura-controller.cjs");
+const {
+  createLiveController,
+  createTokenRequester,
+  liveStopNotice,
+} = require("./live/aura-controller.cjs");
 const { registerLiveBridge } = require("./live/live-bridge.cjs");
 
 const API_BASE = "https://api.heyditto.ai";
@@ -156,7 +160,12 @@ function setupLive() {
       });
       // The controller is already idle when close() disposes the bridge, so the
       // onStop that dispose fires is a no-op rather than a second stop.
-      liveBridge.onStop(() => void live.stop("aura"));
+      liveBridge.onStop((reason) => {
+        void live.stop("aura");
+        const notice = liveStopNotice(reason);
+        if (notice)
+          void dialog.showMessageBox({ type: "warning", message: "Live stopped", detail: notice });
+      });
       await aura.open();
       liveBridge.startSession();
     },
