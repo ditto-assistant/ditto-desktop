@@ -368,6 +368,7 @@ export function createLiveSession({
     start,
     stop: (reason = "user") => teardown(reason),
     contextChanged: () => actions.contextChanged(),
+    relayContext: (message) => actions.relayContext(message),
     setMuted(value) {
       muted = value;
       audio.setMuted(value);

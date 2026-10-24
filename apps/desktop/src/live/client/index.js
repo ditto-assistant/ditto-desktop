@@ -59,6 +59,9 @@ export function mountAura({
       case "context_changed":
         session.contextChanged();
         break;
+      case "client_context":
+        session.relayContext(command.message);
+        break;
     }
   });
 

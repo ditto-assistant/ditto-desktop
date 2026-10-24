@@ -12,9 +12,10 @@ const { execFile } = require("node:child_process");
 // The aura preload uses ipcRenderer.invoke for session/capture/frontmost/tool
 // and may use send or invoke for state/interactive/stop. Only the aura's
 // webContents is accepted. Disabling Computer Use stops Live by itself.
-// `ditto_client_action` and `ditto_client_context` (Contract 3) run in the
-// main Ditto window through renderer/desktopLive.ts's `window.__dittoDesktopLive`,
-// which wraps ditto-app's LiveActionDriver when the bundled app has one.
+// `ditto_client_action`, `ditto_client_context` and `ditto_client_session`
+// (Contract 3) run in the main Ditto window through renderer/desktopLiveActions.ts's
+// `window.__dittoDesktopLive`, which wraps ditto-app's createLiveClientActions
+// when the bundled app has it.
 const INVOKE = ["session", "capture", "frontmost", "tool"];
 const SEND = ["state", "interactive", "stop"];
 const STATES = new Set([
@@ -38,11 +39,6 @@ const MODIFIERS = {
 };
 const ROUTES = { home: "/", chat: "/", chats: "/", code: "/code" };
 const FRONTMOST_TTL = 250;
-const NO_DRIVER = {
-  ok: false,
-  error: "unsupported",
-  summary: "This version of Ditto can't do that yet. Use ditto_app or the screen instead.",
-};
 const TITLE_TTL = 1000;
 
 class LiveToolError extends Error {}
@@ -168,14 +164,21 @@ function askCodeScript(prompt) {
   })()`;
 }
 
-function clientActionScript(action) {
+function clientActionScript(frame) {
   return `(async () => {
     const live = window.__dittoDesktopLive;
-    return live ? await live.run(${JSON.stringify(action)}) : null;
+    return live ? await live.handle(${JSON.stringify(frame)}) : null;
   })()`;
 }
 
-const CLIENT_CONTEXT_SCRIPT = `(() => window.__dittoDesktopLive?.snapshot() ?? null)()`;
+function clientSessionScript(ready) {
+  return `(async () => {
+    const live = window.__dittoDesktopLive;
+    return live ? await live.setReady(${ready === true}) : false;
+  })()`;
+}
+
+const CLIENT_CONTEXT_SCRIPT = `(() => window.__dittoDesktopLive?.context() ?? null)()`;
 
 function urlRoute(url) {
   try {
@@ -491,39 +494,62 @@ function registerLiveBridge({
     }
   }
 
-  // Main never interprets an action beyond set_live_view: the Ditto window's
-  // own executor owns the contract's outcomes and error codes.
-  async function clientAction(action) {
-    if (!action || typeof action !== "object" || typeof action.kind !== "string") return NO_DRIVER;
-    if (action.kind === "set_live_view") {
-      if (action.view !== "expanded") return { ok: true, summary: "Live stays in the aura." };
-      await dittoApp({ action: "show" });
-      return { ok: true, summary: "Ditto is in front." };
+  // Main only answers set_live_view itself. Everything else is the frame
+  // handed whole to ditto-app's createLiveClientActions in the Ditto window,
+  // which owns the ledger, outcomes and error codes. `result: null` means the
+  // bundled ditto-app has no driver; the aura answers `unsupported`.
+  async function clientAction(frame) {
+    const action = frame?.action;
+    if (action?.kind === "set_live_view" && typeof frame.id === "string") {
+      const expanded = action.view === "expanded";
+      if (expanded) await dittoApp({ action: "show" });
+      return {
+        result: {
+          type: "client_action_result",
+          id: frame.id,
+          ok: true,
+          summary: expanded ? "Ditto is in front." : "Live stays in the aura.",
+          error: null,
+          reply: null,
+        },
+        context: await clientContext(),
+      };
     }
     const window = usable(getMainWindow?.());
     if (!window) throw new LiveToolError("The Ditto window is not open.");
-    const outcome = await window.webContents.executeJavaScript(clientActionScript(action), true);
-    return outcome && typeof outcome === "object" && typeof outcome.ok === "boolean"
-      ? outcome
-      : NO_DRIVER;
+    const answer = await window.webContents.executeJavaScript(clientActionScript(frame), true);
+    return answer?.result && typeof answer.result === "object"
+      ? { result: answer.result, context: answer.context ?? null }
+      : { result: null, context: null };
   }
 
   // Without a driver the server still learns where the Ditto window is.
   async function clientContext() {
     const window = usable(getMainWindow?.());
     if (!window) throw new LiveToolError("The Ditto window is not open.");
-    const snapshot = await window.webContents
+    const context = await window.webContents
       .executeJavaScript(CLIENT_CONTEXT_SCRIPT, true)
       .catch(() => null);
-    if (snapshot && typeof snapshot === "object" && typeof snapshot.route === "string")
-      return snapshot;
+    if (context && typeof context === "object" && typeof context.route === "string") return context;
     return {
+      type: "client_context",
       route: urlRoute(window.webContents.getURL()),
       surface: "",
       activeAgentId: null,
       activeThreadId: null,
       destinations: [],
     };
+  }
+
+  // Tells the shim whether the aura's socket has a session; answers whether
+  // this Ditto window has one at all.
+  async function clientSession(args) {
+    const window = usable(getMainWindow?.());
+    if (!window) return { shim: false };
+    const shim = await window.webContents
+      .executeJavaScript(clientSessionScript(args?.ready), true)
+      .catch(() => false);
+    return { shim: shim === true };
   }
 
   async function runTool(name, args) {
@@ -615,7 +641,11 @@ function registerLiveBridge({
   function tool(name, args) {
     // Ditto-window work never touches the shared mouse and keyboard, and a
     // prompt_agent may wait 75 s on a reply, so it skips the computer queue.
-    const direct = { ditto_client_action: clientAction, ditto_client_context: clientContext }[name];
+    const direct = {
+      ditto_client_action: clientAction,
+      ditto_client_context: clientContext,
+      ditto_client_session: clientSession,
+    }[name];
     if (direct)
       return direct(args).then(
         (result) => ({ ok: true, result }),
@@ -635,8 +665,9 @@ function registerLiveBridge({
     return running;
   }
 
-  // Route changes in the Ditto window, and agent changes its shim reports,
-  // tell the aura to resend client_context (it debounces).
+  // Route changes in the Ditto window tell the aura to refresh client_context
+  // (it debounces and deduplicates). The shim pushes ditto-app's own
+  // debounced contexts, which the aura relays as they are.
   let watched = null;
   const contextChanged = () => {
     if (active) send({ type: "context_changed" });
@@ -656,10 +687,12 @@ function registerLiveBridge({
     }
     watched = null;
   }
-  const onContextChanged = (event) => {
-    if (event?.sender === usable(getMainWindow?.())?.webContents) contextChanged();
+  const onClientContext = (event, message) => {
+    if (!active || event?.sender !== usable(getMainWindow?.())?.webContents) return;
+    if (message && typeof message === "object" && typeof message.route === "string")
+      send({ type: "client_context", message });
   };
-  ipcMain.on("ditto-live:context-changed", onContextChanged);
+  ipcMain.on("ditto-live:client-context", onClientContext);
 
   function startSession() {
     if (disposed) throw new Error("Live mode was shut down.");
@@ -747,7 +780,7 @@ function registerLiveBridge({
       for (const key of [...INVOKE, ...SEND]) ipcMain.removeHandler(`ditto-live:${key}`);
       for (const [key, listener] of listeners)
         ipcMain.removeListener(`ditto-live:${key}`, listener);
-      ipcMain.removeListener("ditto-live:context-changed", onContextChanged);
+      ipcMain.removeListener("ditto-live:client-context", onClientContext);
       if (computer.onChange === onChange) computer.onChange = previousOnChange;
       stopListeners.clear();
     },

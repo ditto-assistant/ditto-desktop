@@ -1,9 +1,10 @@
 // Web live orchestrator actions (docs/ditto/live-mode.md, Contract 3). The
-// server sends `client_action`; main runs it in the Ditto window through
-// ditto-app's own LiveActionDriver and this module answers it exactly once with
-// `client_action_result`, after a fresh `client_context`. The wire shapes are
-// the web orchestrator's, unchanged; parsing mirrors ditto-app's
-// src/lib/liveClientActions.ts so both clients accept the same frames.
+// aura relays: each `client_action` frame goes to main, which hands it to
+// ditto-app's own createLiveClientActions in the Ditto window (ledger,
+// history steps, agent refetch, context-before-result). The aura only puts
+// the returned `client_context` and `client_action_result` on the socket that
+// delivered the action, and answers `unsupported` itself when the bundled
+// ditto-app has no driver, so the model falls back to `ditto_app` or computer use.
 
 export const ERROR_CODES = new Set([
   "unknown_destination",
@@ -17,78 +18,24 @@ export const ERROR_CODES = new Set([
 export const MAX_SUMMARY_CHARS = 500;
 export const MAX_REPLY_CHARS = 4000;
 export const CONTEXT_DEBOUNCE_MS = 250;
-// Under the server's 10 s and 90 s waits. The Ditto window caps a prompt's
-// reply wait at 75 s itself and answers with the partial reply, so this outer
-// guard only fires when the window stops answering.
+// Under the server's 10 s and 90 s waits. ditto-app caps a prompt's reply wait
+// at 75 s itself and answers with the partial reply, so these only fire when
+// the Ditto window stops answering.
 export const ACTION_TIMEOUT_MS = 8000;
 export const PROMPT_TIMEOUT_MS = 85_000;
 const CONTEXT_TIMEOUT_MS = 1000;
-const MAX_PROMPT_CHARS = 8000;
 const MAX_LEDGER_ENTRIES = 256;
 const MAX_DESTINATIONS = 200;
 
 const isRecord = (value) => !!value && typeof value === "object" && !Array.isArray(value);
-const optionalId = (value) =>
-  value === null || value === undefined
-    ? null
-    : typeof value === "string" && value.trim() !== ""
-      ? value
-      : undefined;
-
-// `null` when the frame has no usable id: it cannot be answered.
-export function parseClientAction(data) {
-  if (!isRecord(data)) return null;
-  const { id, action } = data;
-  if (typeof id !== "string" || id.trim() === "" || id.length > 200) return null;
-  const unsupported = (summary) => ({ ok: false, id, error: "unsupported", summary });
-  if (!isRecord(action)) return unsupported("That action was malformed.");
-  switch (action.kind) {
-    case "navigate":
-      return typeof action.destination === "string"
-        ? { ok: true, id, action: { kind: "navigate", destination: action.destination } }
-        : unsupported("That navigation had no destination.");
-    case "open_agent": {
-      const agentId = optionalId(action.agentId);
-      return agentId
-        ? {
-            ok: true,
-            id,
-            action: { kind: "open_agent", agentId, newChat: action.newChat === true },
-          }
-        : unsupported("That request named no agent.");
-    }
-    case "new_chat": {
-      const agentId = optionalId(action.agentId);
-      return agentId === undefined
-        ? unsupported("That request named an invalid agent.")
-        : { ok: true, id, action: { kind: "new_chat", agentId } };
-    }
-    case "prompt_agent": {
-      const agentId = optionalId(action.agentId);
-      const text = typeof action.text === "string" ? action.text.trim() : "";
-      if (agentId === undefined) return unsupported("That request named an invalid agent.");
-      if (!text || text.length > MAX_PROMPT_CHARS)
-        return unsupported("That message was empty or too long.");
-      return {
-        ok: true,
-        id,
-        action: { kind: "prompt_agent", agentId, text, awaitReply: action.awaitReply !== false },
-      };
-    }
-    case "set_live_view":
-      return action.view === "orb" || action.view === "expanded"
-        ? { ok: true, id, action: { kind: "set_live_view", view: action.view } }
-        : unsupported("That view is not one Live Mode has.");
-    default:
-      return unsupported("Live Mode can't do that in this version of Ditto Desktop.");
-  }
-}
 
 function clip(value, max) {
   const text = String(value).trim();
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
+// ditto-app already clips and codes its results; this keeps a malformed one
+// from reaching the server.
 export function actionResult(id, outcome) {
   const ok = outcome.ok === true;
   return {
@@ -101,26 +48,18 @@ export function actionResult(id, outcome) {
   };
 }
 
-// The bridge answers `{ok, result}` like every live tool; the action's own
-// outcome is `result`. A bridge-level failure (no Ditto window, no driver) is
-// `unsupported` so the model falls back to `ditto_app` or computer use.
-function actionOutcome(answer) {
-  if (!isRecord(answer))
-    return { ok: false, error: "send_failed", summary: "Ditto didn't answer." };
-  if (answer.ok !== true)
-    return { ok: false, error: "unsupported", summary: answer.error || "Ditto can't do that yet." };
-  const result = answer.result;
-  if (!isRecord(result) || typeof result.ok !== "boolean")
-    return { ok: false, error: "send_failed", summary: "Ditto gave an unreadable answer." };
-  return result;
-}
+const UNSUPPORTED = {
+  ok: false,
+  error: "unsupported",
+  summary: "This version of Ditto can't do that yet. Use ditto_app or the screen instead.",
+};
 
 const nullableId = (value) => (typeof value === "string" && value ? value : null);
 const text = (value, max) => (typeof value === "string" ? value.slice(0, max) : "");
 
-export function contextMessage(result) {
-  const source = isRecord(result) ? result : {};
-  const destinations = (Array.isArray(source.destinations) ? source.destinations : [])
+export function contextMessage(source) {
+  const value = isRecord(source) ? source : {};
+  const destinations = (Array.isArray(value.destinations) ? value.destinations : [])
     .filter((item) => isRecord(item) && typeof item.key === "string" && item.key)
     .slice(0, MAX_DESTINATIONS)
     .map((item) => ({
@@ -133,10 +72,10 @@ export function contextMessage(result) {
     }));
   return {
     type: "client_context",
-    route: text(source.route, 2000) || "/",
-    surface: text(source.surface, 200),
-    activeAgentId: nullableId(source.activeAgentId),
-    activeThreadId: nullableId(source.activeThreadId),
+    route: text(value.route, 2000) || "/",
+    surface: text(value.surface, 200),
+    activeAgentId: nullableId(value.activeAgentId),
+    activeThreadId: nullableId(value.activeThreadId),
     destinations,
   };
 }
@@ -152,8 +91,9 @@ export function createClientActions({
   setTimeout: startTimer = globalThis.setTimeout,
   clearTimeout: stopTimer = globalThis.clearTimeout,
 }) {
-  // id -> { result, reply }. `result` is null while the action runs; `reply`
-  // is bound to the socket that last asked, since results only travel there.
+  // id -> { result, reply }. ditto-app keeps the real ledger; this one keeps a
+  // resent id from being forwarded twice and binds the answer to the socket
+  // that last asked, including ids this aura timed out or answered itself.
   const ledger = new Map();
   let contextTimer = null;
   let lastSent = "";
@@ -169,23 +109,33 @@ export function createClientActions({
     ]).finally(() => stopTimer(timer));
   }
 
-  async function flushContext(force) {
-    if (contextTimer) stopTimer(contextTimer);
-    contextTimer = null;
-    if (!ready) return;
-    const answer = await withTimeout(
+  const call = (name, args, ms, fallback) =>
+    withTimeout(
       Promise.resolve()
-        .then(() => tool("ditto_client_context", {}))
-        .catch(() => null),
-      CONTEXT_TIMEOUT_MS,
-      null,
+        .then(() => tool(name, args))
+        .catch((error) => {
+          log(`${name} failed`, error);
+          return null;
+        }),
+      ms,
+      fallback,
     );
-    if (!ready || !answer || answer.ok !== true) return;
-    const message = contextMessage(answer.result);
+
+  function sendIfNew(message, force) {
+    if (!ready) return;
     const serialized = JSON.stringify(message);
     if (!force && serialized === lastSent) return;
     lastSent = serialized;
     sendContext(message);
+  }
+
+  // The driverless context (route only), or the shim's current one.
+  async function refreshContext(force) {
+    if (contextTimer) stopTimer(contextTimer);
+    contextTimer = null;
+    if (!ready) return;
+    const answer = await call("ditto_client_context", {}, CONTEXT_TIMEOUT_MS, null);
+    if (answer?.ok === true) sendIfNew(contextMessage(answer.result), force);
   }
 
   function remember(id, entry) {
@@ -194,53 +144,55 @@ export function createClientActions({
     while (ledger.size > MAX_LEDGER_ENTRIES) ledger.delete(ledger.keys().next().value);
   }
 
-  // A fresh, undebounced context goes out right before every result so the
-  // location the server attaches to the tool result is where the action left
-  // the user.
+  async function run(frame) {
+    const prompt = frame.action?.kind === "prompt_agent";
+    const answer = await call(
+      "ditto_client_action",
+      { id: frame.id, action: frame.action },
+      prompt ? promptTimeoutMs : actionTimeoutMs,
+      "timeout",
+    );
+    if (answer === "timeout")
+      return {
+        result: actionResult(frame.id, {
+          ok: false,
+          error: "timeout",
+          summary: prompt ? "The agent didn't answer in time." : "Ditto took too long to do that.",
+        }),
+        context: null,
+      };
+    // The bridge answers `{ok, result: {result, context}}` like every live tool.
+    const relayed = answer?.ok === true && isRecord(answer.result) ? answer.result : null;
+    if (!relayed) log("client action failed", answer?.error);
+    if (!isRecord(relayed?.result)) return { result: actionResult(frame.id, UNSUPPORTED) };
+    return {
+      result: actionResult(frame.id, relayed.result),
+      context: isRecord(relayed.context) ? contextMessage(relayed.context) : null,
+    };
+  }
+
+  // The context ditto-app sent right before its result goes out first; when it
+  // sent none (no driver, timeout), the aura reads one itself.
   async function answer(entry) {
-    await flushContext(true);
+    if (entry.context) sendIfNew(entry.context, true);
+    else await refreshContext(true);
     entry.reply(entry.result);
   }
 
-  async function run(action) {
-    const prompt = action.kind === "prompt_agent";
-    const timedOut = {
-      ok: false,
-      error: "timeout",
-      summary: prompt ? "The agent didn't answer in time." : "Ditto took too long to do that.",
-    };
-    return withTimeout(
-      Promise.resolve()
-        .then(() => tool("ditto_client_action", action))
-        .then(actionOutcome, (error) => {
-          log("client action failed", error);
-          return { ok: false, error: "send_failed", summary: "Something went wrong doing that." };
-        }),
-      prompt ? promptTimeoutMs : actionTimeoutMs,
-      timedOut,
-    );
-  }
-
-  function handle(data, reply) {
-    const parsed = parseClientAction(data);
-    if (!parsed) return;
-    const known = ledger.get(parsed.id);
+  function handle(frame, reply) {
+    if (!isRecord(frame) || typeof frame.id !== "string" || !frame.id.trim()) return;
+    if (frame.id.length > 200) return;
+    const known = ledger.get(frame.id);
     if (known) {
-      // Never run an action twice. A finished one is answered again from the
-      // ledger; a running one answers the latest asker when it finishes.
       known.reply = reply;
       if (known.result) void answer(known);
       return;
     }
-    const entry = { result: null, reply };
-    remember(parsed.id, entry);
-    if (!parsed.ok) {
-      entry.result = actionResult(parsed.id, parsed);
-      void answer(entry);
-      return;
-    }
-    void run(parsed.action).then((outcome) => {
-      entry.result = actionResult(parsed.id, outcome);
+    const entry = { result: null, context: null, reply };
+    remember(frame.id, entry);
+    void run(frame).then((outcome) => {
+      entry.result = outcome.result;
+      entry.context = outcome.context ?? null;
       return answer(entry);
     });
   }
@@ -248,22 +200,30 @@ export function createClientActions({
   return {
     handle,
     // Every `session_started`, resumed or not; the server holds no context yet.
-    sessionStarted() {
+    async sessionStarted() {
       ready = true;
       lastSent = "";
-      void flushContext(true);
+      const answer = await call("ditto_client_session", { ready: true }, CONTEXT_TIMEOUT_MS, null);
+      // With a shim, ditto-app sends its own session-start context.
+      if (answer?.result?.shim !== true) await refreshContext(true);
     },
-    // Route or agent changed in the Ditto window.
+    // A context ditto-app sent (debounced navigation or agent change).
+    relayContext(message) {
+      if (isRecord(message)) sendIfNew(contextMessage(message), false);
+    },
+    // The Ditto window navigated; covers ditto-apps without a shim.
     contextChanged() {
       if (!ready) return;
       if (contextTimer) stopTimer(contextTimer);
-      contextTimer = startTimer(() => void flushContext(false), debounceMs);
+      contextTimer = startTimer(() => void refreshContext(false), debounceMs);
     },
     // Socket gone. The ledger stays so a resent id is never executed again.
     pause() {
+      if (!ready) return;
       ready = false;
       if (contextTimer) stopTimer(contextTimer);
       contextTimer = null;
+      void call("ditto_client_session", { ready: false }, CONTEXT_TIMEOUT_MS, null);
     },
   };
 }

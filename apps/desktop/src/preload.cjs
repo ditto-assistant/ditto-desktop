@@ -143,8 +143,8 @@ contextBridge.exposeInMainWorld("ditto", {
   },
   liveToggle: () => ipcRenderer.invoke("ditto:live-toggle"),
   liveStatus: () => ipcRenderer.invoke("ditto:live-status"),
-  // The Ditto window's live shim reports route and agent changes for client_context.
-  liveContextChanged: () => ipcRenderer.send("ditto-live:context-changed"),
+  // The Ditto window's live shim pushes ditto-app's client_context messages to the aura.
+  liveClientContext: (message) => ipcRenderer.send("ditto-live:client-context", message),
   onLiveActive: (listener) => {
     const handler = (_event, active) => listener(active);
     ipcRenderer.on("ditto:live-active", handler);

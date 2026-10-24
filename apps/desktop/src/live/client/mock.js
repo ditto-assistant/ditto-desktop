@@ -55,8 +55,15 @@ export function createMockLive({ log = () => {}, toolDelayMs = 400 } = {}) {
       // Main's answer when the bundled ditto-app has a LiveActionDriver.
       if (name === "ditto_client_context")
         return { ok: true, result: { route: "/", surface: "home", destinations: [] } };
+      if (name === "ditto_client_session") return { ok: true, result: { shim: false } };
       if (name === "ditto_client_action")
-        return { ok: true, result: { ok: true, summary: `Did ${args.kind}.` } };
+        return {
+          ok: true,
+          result: {
+            result: { ok: true, summary: `Did ${args.action?.kind}.`, error: null, reply: null },
+            context: null,
+          },
+        };
       return { ok: true, result: { done: name } };
     },
     setState(state) {
