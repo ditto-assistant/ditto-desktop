@@ -52,6 +52,18 @@ export function createMockLive({ log = () => {}, toolDelayMs = 400 } = {}) {
       log("tool", name, args);
       await new Promise((resolve) => setTimeout(resolve, toolDelayMs));
       if (name === "computer_fail") return { ok: false, error: "Mock failure" };
+      // Main's answer when the bundled ditto-app has a LiveActionDriver.
+      if (name === "ditto_client_context")
+        return { ok: true, result: { route: "/", surface: "home", destinations: [] } };
+      if (name === "ditto_client_session") return { ok: true, result: { shim: false } };
+      if (name === "ditto_client_action")
+        return {
+          ok: true,
+          result: {
+            result: { ok: true, summary: `Did ${args.action?.kind}.`, error: null, reply: null },
+            context: null,
+          },
+        };
       return { ok: true, result: { done: name } };
     },
     setState(state) {
@@ -129,6 +141,10 @@ export class MockRealtimeSocket {
 
   toolCall(name = "computer_click", args = { x: 500, y: 500 }) {
     this.serve({ type: "client_tool_call", id: `call-${Date.now()}`, name, args });
+  }
+
+  clientAction(action = { kind: "set_live_view", view: "expanded" }) {
+    this.serve({ type: "client_action", id: `action-${Date.now()}`, action });
   }
 }
 

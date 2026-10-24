@@ -160,3 +160,25 @@ Live reuses it for everything **inside** Ditto and keeps computer use for everyt
   session, so there is never a second live socket.
 - Difference from web: the desktop session also sees the screen and can act on other apps; when the user is not in
   Ditto, prefer computer use; when the request is about Ditto itself, prefer the orchestrator tools.
+
+Desktop implementation notes
+
+- The Ditto window runs ditto-app's own `createLiveClientActions` (ledger, history steps, agent refetch,
+  context-before-result), exactly as its `LiveModeContext` does. The shim is `renderer/desktopLiveActions.ts`,
+  mounted by `DesktopComputerController`, and uses only the exported `createLiveClientActions`, `liveActionDriver`
+  and `buildClientContext`. It finds `src/lib/liveClientActions.ts` with `import.meta.glob`, which is empty (and still
+  builds) on a ditto-app without it. It exposes `window.__dittoDesktopLive = { setReady, handle(frame), context }`.
+- The aura (`src/live/client/actions.js`) relays. Each `client_action` frame goes to main as
+  `dittoLive.tool("ditto_client_action", frame)`, which returns ditto-app's result plus the context it sent right
+  before it. The aura puts both on the socket that delivered the action. ditto-app's other contexts (session start,
+  debounced navigation) reach the aura as the `ditto-live:command` `{type:"client_context", message}` via the preload's
+  `ditto.liveClientContext`. `ditto_client_session {ready}` tells the shim when the aura's socket has a session.
+- The aura keeps a small per-id ledger so a resent id is never forwarded twice. It also answers `unsupported`, after
+  a route-only context, when the shim or driver is missing, and answers `timeout` from guards under the server's
+  waits (8 s, 85 s for `prompt_agent`; ditto-app caps the reply wait at 75 s itself).
+- Main handles only `set_live_view` (`expanded` shows the Ditto window; `orb` is a no-op that answers ok). Client
+  action tools skip the computer-tool queue.
+- One entry point: `scripts/desktop-live-bridge.cjs` patches ditto-app's `startLiveMode` in
+  `src/contexts/LiveModeContext.tsx` at build time to call `window.ditto.liveToggle()` (only when Live is not
+  already running) under `import.meta.env.VITE_DITTO_DESKTOP`. Meeting mode keeps the in-app session. When that
+  function is missing or changed, the patch is skipped.

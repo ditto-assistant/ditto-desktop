@@ -2,6 +2,7 @@
 // screen frames, frontmost context and client tool calls. DOM-free; the audio
 // engine, WebSocket and timers are injected so node tests drive it directly.
 
+import { createClientActions } from "./actions.js";
 import { createFrontmostWatcher } from "./context.js";
 import { createFrameScheduler } from "./frames.js";
 import {
@@ -132,6 +133,22 @@ export function createLiveSession({
     clearTimeout: (id) => timers.clearTimeout(id),
   });
 
+  const actions = createClientActions({
+    tool: (name, args) => live.tool(name, args),
+    sendContext: (message) => send(message),
+    log,
+    setTimeout: (fn, ms) => timers.setTimeout(fn, ms),
+    clearTimeout: (id) => timers.clearTimeout(id),
+  });
+
+  // Results only travel on the socket that delivered the action; after a
+  // reconnect the server has already resolved it as a timeout.
+  function replyOn(socket) {
+    return (result) => {
+      if (ws !== socket || !isOpen() || !send(result)) log("action result dropped", result.id);
+    };
+  }
+
   function scheduleSpeakingEnd() {
     if (speakingTimer) timers.clearTimeout(speakingTimer);
     speakingTimer = timers.setTimeout(() => {
@@ -164,6 +181,7 @@ export function createLiveSession({
         }
         frames.start();
         void watcher.start();
+        actions.sessionStarted();
         settle();
         break;
       case "session_resumption_ready":
@@ -186,6 +204,10 @@ export function createLiveSession({
       case "client_tool_call":
         frames.noteActivity();
         runner.handle(message);
+        break;
+      case "client_action":
+        frames.noteActivity();
+        actions.handle(message.frame, replyOn(ws));
         break;
       case "interrupt":
         audio.flush();
@@ -232,6 +254,7 @@ export function createLiveSession({
       if (ws !== socket) return;
       ws = null;
       established = false;
+      actions.pause();
       if (!active || stopping) return;
       log("socket closed", event && event.code);
       if (reconnectUsed) {
@@ -296,6 +319,7 @@ export function createLiveSession({
     speakingTimer = reconnectTimer = errorTimer = thinkingTimer = null;
     // Answer queued tool calls while the socket can still carry the results.
     runner.close();
+    actions.pause();
     frames.stop();
     watcher.stop();
     audio.stop();
@@ -343,6 +367,8 @@ export function createLiveSession({
   return {
     start,
     stop: (reason = "user") => teardown(reason),
+    contextChanged: () => actions.contextChanged(),
+    relayContext: (message) => actions.relayContext(message),
     setMuted(value) {
       muted = value;
       audio.setMuted(value);

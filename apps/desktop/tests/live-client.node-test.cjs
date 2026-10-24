@@ -10,6 +10,7 @@ const modules = {
   tools: () => import("../src/live/client/tools.js"),
   session: () => import("../src/live/client/session.js"),
   mock: () => import("../src/live/client/mock.js"),
+  actions: () => import("../src/live/client/actions.js"),
 };
 const client = (name) => modules[name]();
 // Lets awaited promise chains settle between fake-timer ticks.
@@ -482,7 +483,7 @@ test("session connects as the desktop client and streams once started", async (t
 test("client tool calls act, send a fresh frame, then answer", async (t) => {
   const { session, live, socket } = await startSession(t);
   socket.serve({ type: "session_started" });
-  await settle();
+  await drive(t);
   socket.sent.length = 0;
   socket.serve({
     type: "client_tool_call",
@@ -493,7 +494,7 @@ test("client tool calls act, send a fresh frame, then answer", async (t) => {
   assert.equal(session.state, "acting");
   await drive(t);
   assert.deepEqual(
-    live.calls.find((c) => c[0] === "tool"),
+    live.calls.find((c) => c[0] === "tool" && c[1] === "computer_click"),
     ["tool", "computer_click", { x: 10, y: 20 }],
   );
   assert.deepEqual(socket.types(), ["image", "client_tool_result"]);
@@ -646,4 +647,209 @@ test("a microphone failure ends the session as an error", async (t) => {
   assert.equal(session.active, false);
   assert.equal(live.state, "error");
   assert.deepEqual(live.calls.at(-1), ["stop", "error: Permission denied"]);
+});
+
+// A fake `dittoLive.tool` for client actions: each action parks until the
+// test resolves it, so ordering and idempotency are explicit. `shim` says
+// whether the Ditto window has ditto-app's createLiveClientActions.
+function fakeActionTool({ shim = true } = {}) {
+  const calls = [];
+  let contexts = 0;
+  const tool = (name, args) => {
+    const call = { name, args };
+    call.promise = new Promise((resolve) => (call.resolve = resolve));
+    calls.push(call);
+    if (name === "ditto_client_session") call.resolve({ ok: true, result: { shim } });
+    if (name === "ditto_client_context")
+      call.resolve({ ok: true, result: { route: `/route${++contexts}`, surface: "" } });
+    return call.promise;
+  };
+  return { calls, tool, actions: () => calls.filter((c) => c.name === "ditto_client_action") };
+}
+
+// What the bridge returns for a relayed action.
+const relayed = (result, context = null) => ({
+  ok: true,
+  result: { result: { type: "client_action_result", ...result }, context },
+});
+
+async function clientActions(t, options) {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { createClientActions } = await client("actions");
+  const fake = fakeActionTool(options);
+  const sent = [];
+  const actions = createClientActions({
+    tool: fake.tool,
+    sendContext: (message) => sent.push(message),
+  });
+  const reply = (result) => sent.push(result);
+  return { actions, fake, sent, reply };
+}
+
+test("client actions are relayed whole and never forwarded twice per id", async (t) => {
+  const { actions, fake, sent, reply } = await clientActions(t);
+  await actions.sessionStarted();
+  assert.deepEqual(sent, [], "with a shim, ditto-app sends the session-start context");
+  const frame = { id: "a1", action: { kind: "prompt_agent", agentId: null, text: "hi" } };
+  actions.handle(frame, reply);
+  actions.handle(frame, reply); // resent while running
+  await settle();
+  assert.equal(fake.actions().length, 1);
+  assert.deepEqual(fake.actions()[0].args, frame);
+  fake
+    .actions()[0]
+    .resolve(
+      relayed(
+        { id: "a1", ok: true, summary: "Main replied.", error: null, reply: "x".repeat(5000) },
+        { type: "client_context", route: "/agents/main", surface: "agent", destinations: [] },
+      ),
+    );
+  await settle();
+  assert.deepEqual(
+    sent.map((m) => m.type),
+    ["client_context", "client_action_result"],
+    "ditto-app's pre-result context goes out first",
+  );
+  assert.equal(sent[0].route, "/agents/main");
+  assert.equal(sent[1].reply.length, 4000);
+
+  // After a reconnect the server may resend the id: answer from the ledger.
+  actions.pause();
+  await actions.sessionStarted();
+  actions.handle(frame, reply);
+  await settle();
+  assert.equal(fake.actions().length, 1, "a prompt is never replayed");
+  assert.deepEqual(sent.at(-1), sent[1]);
+  assert.deepEqual(
+    fake.calls.filter((c) => c.name === "ditto_client_session").map((c) => c.args.ready),
+    [true, false, true],
+  );
+});
+
+test("without the driver, actions answer unsupported after a route-only context", async (t) => {
+  const { actions, fake, sent, reply } = await clientActions(t, { shim: false });
+  await actions.sessionStarted();
+  assert.deepEqual(sent, [
+    {
+      type: "client_context",
+      route: "/route1",
+      surface: "",
+      activeAgentId: null,
+      activeThreadId: null,
+      destinations: [],
+    },
+  ]);
+  actions.handle({ id: "n1", action: { kind: "navigate", destination: "history.back" } }, reply);
+  await settle();
+  fake.actions()[0].resolve({ ok: true, result: { result: null, context: null } });
+  await settle();
+  assert.deepEqual(
+    sent.slice(1).map((m) => [m.type, m.route ?? m.error]),
+    [
+      ["client_context", "/route2"],
+      ["client_action_result", "unsupported"],
+    ],
+  );
+  // No Ditto window at all reads the same.
+  actions.handle({ id: "n2", action: { kind: "new_chat", agentId: null } }, reply);
+  await settle();
+  fake.actions()[1].resolve({ ok: false, error: "The Ditto window is not open." });
+  await settle();
+  assert.equal(sent.at(-1).error, "unsupported");
+  assert.equal(sent.at(-2).type, "client_context");
+});
+
+test("relayed and navigation contexts are deduplicated; pre-result ones are not", async (t) => {
+  const { actions, fake, sent, reply } = await clientActions(t, { shim: false });
+  const context = { type: "client_context", route: "/x", surface: "home", destinations: [] };
+  actions.relayContext(context);
+  assert.equal(sent.length, 0, "nothing before session_started");
+  await actions.sessionStarted();
+  actions.relayContext(context);
+  actions.relayContext(context);
+  assert.deepEqual(
+    sent.map((m) => m.route),
+    ["/route1", "/x"],
+  );
+  actions.contextChanged();
+  actions.contextChanged();
+  t.mock.timers.tick(249);
+  await settle();
+  assert.equal(sent.length, 2);
+  t.mock.timers.tick(1);
+  await settle();
+  assert.equal(sent.at(-1).route, "/route2", "one read per burst");
+  actions.handle({ id: "o1", action: { kind: "open_agent", agentId: "new-agent" } }, reply);
+  await settle();
+  fake.actions()[0].resolve(relayed({ id: "o1", ok: true, summary: "Opened Scout." }, context));
+  await settle();
+  assert.deepEqual(
+    sent.slice(-2).map((m) => m.route ?? m.summary),
+    ["/x", "Opened Scout."],
+    "the pre-result context is sent even when unchanged",
+  );
+});
+
+test("relayed results are sanitized and timed out under the server's waits", async (t) => {
+  const { actions, fake, sent, reply } = await clientActions(t);
+  await actions.sessionStarted();
+  const results = () => sent.filter((m) => m.type === "client_action_result");
+  actions.handle({ action: { kind: "navigate" } }, reply); // no id: unanswerable
+  actions.handle({ id: "odd", action: { kind: "navigate", destination: "x" } }, reply);
+  await settle();
+  fake
+    .actions()[0]
+    .resolve(relayed({ id: "spoofed", ok: false, error: "exploded", summary: "x".repeat(900) }));
+  await settle();
+  assert.equal(results()[0].id, "odd", "the answer keeps the action's id");
+  assert.equal(results()[0].error, "send_failed");
+  assert.equal(results()[0].summary.length, 500);
+
+  actions.handle({ id: "nav", action: { kind: "navigate", destination: "home" } }, reply);
+  actions.handle({ id: "ask", action: { kind: "prompt_agent", text: "hi" } }, reply);
+  await settle();
+  t.mock.timers.tick(8000);
+  await settle();
+  assert.deepEqual(
+    results().map((r) => [r.id, r.error]),
+    [
+      ["odd", "send_failed"],
+      ["nav", "timeout"],
+    ],
+  );
+  t.mock.timers.tick(77_000);
+  await settle();
+  assert.deepEqual([results().at(-1).id, results().at(-1).error], ["ask", "timeout"]);
+  fake.actions()[2].resolve(relayed({ id: "ask", ok: true, summary: "late" }));
+  await settle();
+  assert.equal(results().length, 3, "a late answer is ignored");
+});
+
+test("the session answers client actions on the socket that delivered them", async (t) => {
+  const { session, live, socket } = await startSession(t);
+  socket.serve({ type: "session_started" });
+  await drive(t);
+  assert.equal(socket.sent.filter((m) => m.type === "client_context").length, 1);
+  socket.serve({ type: "client_action", id: "v1", action: { kind: "set_live_view", view: "orb" } });
+  await drive(t);
+  assert.deepEqual(
+    live.calls.find((c) => c[1] === "ditto_client_action"),
+    ["tool", "ditto_client_action", { id: "v1", action: { kind: "set_live_view", view: "orb" } }],
+  );
+  const tail = socket.sent.slice(-2);
+  assert.deepEqual(
+    tail.map((m) => m.type),
+    ["client_context", "client_action_result"],
+  );
+  assert.deepEqual(tail[1], {
+    type: "client_action_result",
+    id: "v1",
+    ok: true,
+    summary: "Did set_live_view.",
+    error: null,
+    reply: null,
+  });
+  session.relayContext({ type: "client_context", route: "/memory", surface: "memory" });
+  assert.equal(socket.sent.at(-1).route, "/memory");
+  await session.stop();
 });

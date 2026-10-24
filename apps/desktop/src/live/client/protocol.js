@@ -74,6 +74,9 @@ export function parseServerMessage(raw) {
         name: str(data.name),
         args: data.args && typeof data.args === "object" ? data.args : {},
       };
+    case "client_action":
+      // Validated by actions.js, which answers malformed actions that have an id.
+      return { type: "client_action", frame: data };
     case "interrupt":
       return { type: "interrupt" };
     case "session_ended":
