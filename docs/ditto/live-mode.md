@@ -134,3 +134,29 @@ Each PR: focused unit tests (`node --test tests/*.node-test.cjs` style for deskt
 backend), lint, and a short runtime transcript. Do not touch `~/Applications/Ditto Desktop.app` or the
 `ditto-desktop-local` checkout (an hourly Codex QA agent owns them). End-to-end QA happens after
 integration on `feat/live-mode`.
+
+## Contract 3: fold in the web live orchestrator (DITTO-1356)
+
+The web "live mode orchestrator" (backend PR #3758, flag `live_orchestrator`; ditto-app PRs #3429 orb UI,
+#3431 action executor, #3432 combined preview; contract in the heyditto-stack task workspace
+`live-mode-orb-*/CONTRACT.md`) makes Live Mode drive the Ditto app by voice: `navigate_app`, `open_agent`,
+`new_chat`, `prompt_agent`, `create_agent`, `set_live_view`, with targets resolved server-side by Jev. Desktop
+Live reuses it for everything **inside** Ditto and keeps computer use for everything **outside** Ditto.
+
+- Backend: a `client=ditto-desktop` socket with both `desktop_live_mode` and `live_orchestrator` gets the
+  orchestrator tools too. `ditto_app` then shrinks to `show`/`hide` (the orchestrator owns navigation, chats and
+  agent prompts). Follow-up PR once #3758 and #3795 are both on main.
+- Wire: the aura speaks the web contract unchanged: it sends `client_context` (route, surface, activeAgentId,
+  activeThreadId, destinations; again right before every `client_action_result`) and answers each
+  `client_action` exactly once with `client_action_result` (idempotent per action id, never replaying a
+  `prompt_agent`).
+- Execution: the aura forwards actions to main (`dittoLive.tool("ditto_client_action", action)` and
+  `dittoLive.tool("ditto_client_context", {})`), and main runs them in the Ditto window through ditto-app's own
+  `LiveActionDriver` (registered by `LiveActionBridge`), exposed to main by a desktop-only renderer shim. When the
+  bundled ditto-app does not have the driver yet, actions answer `unsupported` and context carries only the route,
+  so the model falls back to `ditto_app`/computer use.
+- `set_live_view`: `expanded` brings the Ditto window forward; `orb` leaves the aura as is.
+- One entry point: on desktop, the ditto-app live button starts the desktop aura session instead of an in-app
+  session, so there is never a second live socket.
+- Difference from web: the desktop session also sees the screen and can act on other apps; when the user is not in
+  Ditto, prefer computer use; when the request is about Ditto itself, prefer the orchestrator tools.
