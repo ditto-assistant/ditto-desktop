@@ -31,6 +31,58 @@
       computerStopButton.disabled = false;
     }
   });
+  const liveButton = element("button", "v2-studio-rail-button ditto-live-button");
+  liveButton.type = "button";
+  liveButton.dataset.dittoLive = "true";
+  liveButton.append(
+    railIcon([
+      ["circle", { cx: "12", cy: "12", r: "3.2" }],
+      ["path", { d: "M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9" }],
+      ["path", { d: "M4.6 4.6a10.4 10.4 0 0 0 0 14.8M19.4 4.6a10.4 10.4 0 0 1 0 14.8" }],
+    ]),
+  );
+  function updateLiveButton(active) {
+    const label = active ? "Stop Live" : "Start Live (⌘⇧L)";
+    liveButton.dataset.active = String(active);
+    liveButton.title = label;
+    liveButton.setAttribute("aria-label", label);
+    liveButton.setAttribute("aria-pressed", String(active));
+  }
+  updateLiveButton(false);
+  liveButton.addEventListener("click", async () => {
+    liveButton.disabled = true;
+    try {
+      updateLiveButton(await window.ditto.liveToggle());
+    } finally {
+      liveButton.disabled = false;
+    }
+  });
+  window.ditto.onLiveActive?.(updateLiveButton);
+  void window.ditto
+    .liveStatus?.()
+    .then((status) => updateLiveButton(status.active))
+    .catch(() => {});
+  function railIcon(shapes) {
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const [name, value] of Object.entries({
+      width: "24",
+      height: "24",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": "1.6",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "aria-hidden": "true",
+    }))
+      icon.setAttribute(name, value);
+    for (const [tag, attributes] of shapes) {
+      const shape = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, value);
+      icon.append(shape);
+    }
+    return icon;
+  }
   function updateComputerControls(enabled) {
     computerEnabled = enabled;
     computerStopButton.hidden = !enabled;
@@ -213,36 +265,16 @@
       control.dataset.dittoComputer = "true";
       control.setAttribute("aria-label", "Computer Use setup");
       control.title = "Computer Use setup";
-      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      for (const [name, value] of Object.entries({
-        width: "24",
-        height: "24",
-        viewBox: "0 0 24 24",
-        fill: "none",
-        stroke: "currentColor",
-        "stroke-width": "1.6",
-        "stroke-linecap": "round",
-        "stroke-linejoin": "round",
-        "aria-hidden": "true",
-      }))
-        icon.setAttribute(name, value);
-      const screen = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      for (const [name, value] of Object.entries({
-        x: "3",
-        y: "3",
-        width: "18",
-        height: "14",
-        rx: "2",
-      }))
-        screen.setAttribute(name, value);
-      const stand = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      stand.setAttribute("d", "M12 17v4M8 21h8");
-      icon.append(screen, stand);
-      control.append(icon);
+      control.append(
+        railIcon([
+          ["rect", { x: "3", y: "3", width: "18", height: "14", rx: "2" }],
+          ["path", { d: "M12 17v4M8 21h8" }],
+        ]),
+      );
       control.addEventListener("click", () => {
         void window.ditto.computerSettings();
       });
-      computerControls.replaceChildren(control, computerStatus, computerStopButton);
+      computerControls.replaceChildren(control, liveButton, computerStatus, computerStopButton);
       rail.insertBefore(computerControls, rail.querySelector(".v2-studio-rail-spacer"));
       updateComputerControls(computerEnabled);
     }

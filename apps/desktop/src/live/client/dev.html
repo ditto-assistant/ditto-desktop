@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ditto Live Aura (dev)</title>
+    <link rel="stylesheet" href="./aura.css" />
+    <style>
+      /* Dev only: a desktop-ish backdrop so the transparent aura is visible. */
+      html,
+      body {
+        overflow: auto;
+        min-height: 100%;
+        background: linear-gradient(135deg, #20344f, #4d6b8c 55%, #c7d4e2);
+        color: #f2f6fb;
+        font:
+          13px/1.4 system-ui,
+          sans-serif;
+      }
+      main {
+        display: grid;
+        gap: 16px;
+        padding: 16px;
+      }
+      #stage {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .dev-frame {
+        position: relative;
+        width: 180px;
+        height: 180px;
+      }
+      .dev-host {
+        position: absolute;
+        inset: 34px;
+        border-radius: 50%;
+      }
+      .cell {
+        display: grid;
+        justify-items: center;
+        gap: 4px;
+      }
+      #panel {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      #panel button {
+        font: inherit;
+        padding: 4px 10px;
+        border-radius: 6px;
+        border: 1px solid #ffffff55;
+        background: #0b1a2e99;
+        color: inherit;
+      }
+      #log:empty {
+        display: none;
+      }
+      #log {
+        max-height: 220px;
+        overflow: auto;
+        margin: 0;
+        padding: 8px;
+        background: #0b1a2ecc;
+        border-radius: 8px;
+        font:
+          11px/1.4 ui-monospace,
+          monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div id="stage"></div>
+      <div id="panel"></div>
+      <pre id="log"></pre>
+    </main>
+    <script type="module">
+      // ?gallery renders every state side by side for screenshots; otherwise
+      // the real client runs against the mock bridge, socket and audio.
+      globalThis.dittoLiveDev = true;
+      const { mountAura } = await import("./index.js");
+      const { createOrbView } = await import("./orb.js");
+      const { createMockAudio, createMockLive, MockRealtimeSocket } = await import("./mock.js");
+
+      const stage = document.getElementById("stage");
+      const panel = document.getElementById("panel");
+      const logEl = document.getElementById("log");
+      const log = (...parts) => {
+        logEl.textContent =
+          `${parts.map((p) => (typeof p === "string" ? p : JSON.stringify(p))).join(" ")}\n${logEl.textContent}`.slice(
+            0,
+            8000,
+          );
+      };
+
+      if (new URLSearchParams(location.search).has("gallery")) {
+        for (const state of [
+          "idle",
+          "connecting",
+          "listening",
+          "thinking",
+          "speaking",
+          "acting",
+          "error",
+        ]) {
+          const cell = document.createElement("div");
+          cell.className = "cell";
+          stage.append(cell);
+          const view = createOrbView({
+            root: cell,
+            levels: { input: () => 0.35, output: () => 0.7 },
+            onMute() {},
+            onStop() {},
+            onInteractive() {},
+          });
+          view.setState(state);
+          cell.append(state);
+        }
+      } else {
+        const live = createMockLive({ log, toolDelayMs: 1200 });
+        const wrapped = {
+          ...live,
+          setState: (s) => (live.setState(s), log("state", s)),
+          stop: (r) => live.stop(r),
+        };
+        class LoggingSocket extends MockRealtimeSocket {
+          send(raw) {
+            const message = JSON.parse(raw);
+            if (message.type !== "audio")
+              log("→", message.type === "image" ? { type: "image" } : message);
+            super.send(raw);
+          }
+        }
+        // Same geometry as aura.html: a 180px window with the orb host inset 34px.
+        const frame = document.createElement("div");
+        frame.className = "dev-frame";
+        const host = document.createElement("div");
+        host.className = "dev-host";
+        frame.append(host);
+        stage.append(frame);
+        mountAura({
+          live: wrapped,
+          host,
+          audio: createMockAudio(),
+          WebSocket: LoggingSocket,
+        });
+        const socket = () => MockRealtimeSocket.last;
+        const actions = {
+          Start: () => live.command("start"),
+          Stop: () => live.command("stop"),
+          Mute: () => live.command("mute"),
+          Unmute: () => live.command("unmute"),
+          "User spoke": () =>
+            socket()?.serve({ type: "transcript", role: "user", text: "open notes" }),
+          Speak: () => socket()?.speak(),
+          "Tool call": () => socket()?.toolCall(),
+          "Failing tool": () => socket()?.toolCall("computer_fail", {}),
+          "Client action": () => socket()?.clientAction(),
+          Interrupt: () => socket()?.serve({ type: "interrupt" }),
+          "Server error": () => socket()?.serve({ type: "error", message: "Model hiccup" }),
+          "Switch app": () => live.switchApp(),
+          "Drop socket": () => socket()?.close(),
+          "Server ends": () => socket()?.serve({ type: "session_ended" }),
+        };
+        for (const [label, run] of Object.entries(actions)) {
+          const button = document.createElement("button");
+          button.textContent = label;
+          button.onclick = run;
+          panel.append(button);
+        }
+      }
+    </script>
+  </body>
+</html>

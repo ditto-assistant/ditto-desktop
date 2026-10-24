@@ -2,8 +2,11 @@ const {
   app,
   BrowserWindow,
   dialog,
+  globalShortcut,
   ipcMain,
   Menu,
+  powerMonitor,
+  Notification,
   safeStorage,
   session,
   shell,
@@ -32,10 +35,20 @@ const { ComputerRelay } = require("./computer-relay.cjs");
 const { createComputerSetup } = require("./computer-setup.cjs");
 const { EngineMaintenance } = require("./maintenance.cjs");
 const { DesktopDevices } = require("./devices.cjs");
+const { createAuraWindow } = require("./live/aura-window.cjs");
+const {
+  createLiveController,
+  createTokenRequester,
+  liveStopNotice,
+} = require("./live/aura-controller.cjs");
+const { registerLiveBridge } = require("./live/live-bridge.cjs");
 
 const API_BASE = "https://api.heyditto.ai";
 const WEB_ORIGIN = "https://assistant.heyditto.ai";
 const WEB_PARTITION = "persist:ditto-connections";
+const LIVE_WS_URL = "wss://api.heyditto.ai/api/v2/realtime/ws";
+const LIVE_SHORTCUT = "CommandOrControl+Shift+L";
+const LIVE_CHAT_SESSION = "main";
 const PI_SCRIPT = path.join(
   __dirname,
   "..",
@@ -68,9 +81,16 @@ let quittingLocalTask = null;
 let remoteHost;
 let desktopBrowser;
 let desktopTerminal;
+let aura;
+let liveBridge = null;
+let liveTokens;
+let live;
 const computer = new ComputerService({
   onChange: (status) => {
-    if (!status.enabled) computerRelay?.stop();
+    if (!status.enabled) {
+      computerRelay?.stop();
+      void live?.stop("computer-disabled");
+    }
     emit("ditto:computer-enabled", status.enabled);
   },
 });
@@ -100,6 +120,102 @@ function emit(channel, value) {
 }
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function setupLive() {
+  aura = createAuraWindow({
+    getSetting: (key, fallback) => store.getSetting(key, fallback),
+    setSetting: (key, value) => store.setSetting(key, value),
+    // Crash, reload or an outside close leaves no client to stop the session.
+    onGone: (reason) => {
+      if (live?.state === "idle") return;
+      void live.stop(reason);
+      showLiveNotice("Live stopped", "The Live window closed unexpectedly. Start it again.");
+    },
+  });
+  // Live borrows the signed-in renderer's Firebase token; it is never stored.
+  liveTokens = createTokenRequester({
+    send: (id) => {
+      if (!win || win.isDestroyed()) createWindow();
+      const target = win.webContents;
+      // A message sent before the preload runs is dropped, so wait for the load.
+      if (target.isLoading())
+        target.once("did-finish-load", () => target.send("ditto:live-token-request", id));
+      else target.send("ditto:live-token-request", id);
+      return true;
+    },
+  });
+  live = createLiveController({
+    isComputerEnabled: () => computer.enabled,
+    openComputerSetup: () => computerSetup.show(),
+    // Fail before the aura appears when nobody is signed in.
+    prepare: () => liveTokens.request(),
+    open: async () => {
+      liveBridge = registerLiveBridge({
+        ipcMain,
+        computer,
+        getMainWindow: () => win,
+        getAuraWindow: () => aura.window,
+        getSession: async () => ({
+          token: await liveTokens.request(),
+          apiBase: API_BASE,
+          wsUrl: LIVE_WS_URL,
+          // The realtime endpoint accepts "main" or an existing thread id; any
+          // other id is refused with 409 before the socket opens.
+          sessionId: LIVE_CHAT_SESSION,
+        }),
+        emit,
+      });
+      // The controller is already idle when close() disposes the bridge, so the
+      // onStop that dispose fires is a no-op rather than a second stop.
+      liveBridge.onStop((reason) => {
+        void live.stop("aura");
+        const notice = liveStopNotice(reason);
+        if (notice) showLiveNotice("Live stopped", notice);
+      });
+      await aura.open();
+      liveBridge.startSession();
+    },
+    // Disposing first lets the bridge send `stop` to the aura and end its
+    // Computer Use session, which removes the cursor, before the window goes.
+    close: () => {
+      const bridge = liveBridge;
+      liveBridge = null;
+      bridge?.dispose();
+      aura.close();
+    },
+    onActive: (active) => emit("ditto:live-active", active),
+  });
+  if (!globalShortcut.register(LIVE_SHORTCUT, () => void toggleLive()))
+    console.warn(`Ditto Live shortcut ${LIVE_SHORTCUT} is in use by another app.`);
+  // Nobody is at the screen to watch or stop the agent.
+  powerMonitor.on("suspend", () => void live.stop("suspend"));
+  powerMonitor.on("lock-screen", () => void live.stop("lock-screen"));
+}
+
+// A message box without a parent runs a modal loop that stalls the main
+// process, and during Live it opens behind whatever app the user is in. Use a
+// sheet when Ditto is in front and a system notification otherwise; if
+// notifications are off for Ditto, bring Ditto forward with the sheet.
+function showLiveNotice(message, detail) {
+  const sheet = () => {
+    if (!win || win.isDestroyed()) return;
+    win.show();
+    void dialog.showMessageBox(win, { type: "warning", message, detail });
+  };
+  if (win && !win.isDestroyed() && win.isFocused()) return sheet();
+  const notification = new Notification({ title: message, body: detail });
+  notification.once("failed", sheet);
+  notification.show();
+}
+
+async function toggleLive() {
+  try {
+    await live.toggle();
+  } catch (error) {
+    showLiveNotice("Live could not start", errorMessage(error));
+  }
+  return live.state !== "idle";
 }
 
 function prepareLocalPi(run) {
@@ -442,6 +558,21 @@ function registerIpc() {
   ipcMain.handle("ditto:computer-enable", async (_event, enabled) =>
     enabled === true ? computer.enable() : computer.stop(),
   );
+  const fromMainWindow = (event) =>
+    win && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame;
+  ipcMain.handle("ditto:live-toggle", (event) => {
+    if (!fromMainWindow(event)) throw new Error("Only Ditto Desktop can start Live.");
+    return toggleLive();
+  });
+  ipcMain.handle("ditto:live-status", () => ({ active: live.state !== "idle" }));
+  // The Ditto window signed out of Firebase; Live must not keep acting for it.
+  ipcMain.handle("ditto:live-stop", (event) => {
+    if (fromMainWindow(event)) return live.stop("signed-out");
+    return false;
+  });
+  ipcMain.handle("ditto:live-token", (event, id, reply) => {
+    if (fromMainWindow(event) && typeof id === "string") liveTokens.resolve(id, reply);
+  });
   const linkedKey = () => {
     const account = loadAccount();
     if (!account?.key)
@@ -756,6 +887,7 @@ function registerIpc() {
 
   ipcMain.handle("ditto:sign-out", async () => {
     pendingLink = null;
+    void live?.stop("sign-out");
     devices.stop();
     remoteHost.stop();
     store.setSetting("deviceNetworkEnabled", false);
@@ -1046,6 +1178,14 @@ app
             submenu: [
               { role: "about", label: "About Ditto Desktop" },
               { type: "separator" },
+              {
+                label: "Toggle Live",
+                accelerator: LIVE_SHORTCUT,
+                // The global shortcut below owns the key; the menu only shows it.
+                registerAccelerator: false,
+                click: () => void toggleLive(),
+              },
+              { type: "separator" },
               { role: "services" },
               { type: "separator" },
               { role: "hide", label: "Hide Ditto Desktop" },
@@ -1103,6 +1243,7 @@ app
       onStatus: (status) => emit("ditto:devices-status", status),
     });
     await registerWebRenderer();
+    setupLive();
     registerIpc();
     createWindow();
     if (store.getSetting("deviceNetworkEnabled", false) && loadAccount()) devices.start();
@@ -1125,6 +1266,7 @@ app
     app.quit();
   });
 
+app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("window-all-closed", () => {
   if (os.platform() !== "darwin") app.quit();
 });
@@ -1164,6 +1306,7 @@ app.on("before-quit", (event) => {
     }
     return;
   }
+  void live?.stop("quit");
   void computer.stop();
   desktopTerminal?.closeAll();
   devices?.stop();

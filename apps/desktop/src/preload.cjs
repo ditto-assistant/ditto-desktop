@@ -4,6 +4,13 @@ let computerLease = "";
 ipcRenderer.on("ditto:computer-cloud", (_event, status) => {
   computerLease = status.leaseID || "";
 });
+// Token requests can arrive before the signed-in app mounts its responder.
+const liveTokenRequests = [];
+let liveTokenResponder = null;
+ipcRenderer.on("ditto:live-token-request", (_event, id) => {
+  if (liveTokenResponder) liveTokenResponder(id);
+  else liveTokenRequests.push(id);
+});
 contextBridge.exposeInMainWorld("ditto", {
   computerLease: () => computerLease,
   onComputerCloud: (listener) => {
@@ -134,4 +141,27 @@ contextBridge.exposeInMainWorld("ditto", {
     ipcRenderer.on("ditto:computer-enabled", handler);
     return () => ipcRenderer.removeListener("ditto:computer-enabled", handler);
   },
+  liveToggle: () => ipcRenderer.invoke("ditto:live-toggle"),
+  liveStatus: () => ipcRenderer.invoke("ditto:live-status"),
+  liveStop: () => ipcRenderer.invoke("ditto:live-stop"),
+  // The Ditto window's live shim pushes ditto-app's client_context messages to the aura.
+  liveClientContext: (message) => ipcRenderer.send("ditto-live:client-context", message),
+  onLiveActive: (listener) => {
+    const handler = (_event, active) => listener(active);
+    ipcRenderer.on("ditto:live-active", handler);
+    return () => ipcRenderer.removeListener("ditto:live-active", handler);
+  },
+  onLiveTokenRequest: (listener) => {
+    const responder = (id) => listener(id);
+    liveTokenResponder = responder;
+    for (const id of liveTokenRequests.splice(0)) responder(id);
+    return () => {
+      if (liveTokenResponder === responder) liveTokenResponder = null;
+    };
+  },
+  liveTokenReply: (id, reply) =>
+    ipcRenderer.invoke("ditto:live-token", id, {
+      token: typeof reply?.token === "string" ? reply.token : undefined,
+      error: typeof reply?.error === "string" ? reply.error : undefined,
+    }),
 });
