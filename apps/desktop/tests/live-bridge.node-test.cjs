@@ -623,6 +623,18 @@ test("client action frames reach ditto-app's live actions in the Ditto window", 
   assert.deepEqual(shim.ready, [true, false]);
 });
 
+test("stopping Live tells ditto-app's live actions the session is over", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  const shim = fakeShim(async () => null);
+  live.main.page = shim.page;
+  await live.tool("ditto_client_session", { ready: true });
+  // The aura cannot do this itself once main has disposed the bridge.
+  live.bridge.stopSession("user");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(shim.ready, [true, false]);
+});
+
 test("without the driver, actions relay no result and context is the route alone", async () => {
   const live = fixture();
   live.bridge.startSession();

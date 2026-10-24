@@ -726,6 +726,8 @@ function registerLiveBridge({
     display = null;
     unwatchMainWindow();
     closeSession();
+    // The aura's own goodbye arrives after main has disposed this bridge.
+    void clientSession({ ready: false });
     send({ type: "stop" });
     for (const listener of stopListeners) {
       try {
