@@ -613,22 +613,31 @@ class MemoryStore {
         if (this.fileIsFresh(source, file, stat)) continue;
         const stream = fs.createReadStream(file, { encoding: "utf8" });
         const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
-        for await (const line of lines) {
-          const item = parseTrajectoryLine(source, line);
-          if (!item) continue;
-          if (
-            this.addDoc(
-              source,
-              file,
-              part,
-              item.role,
-              `${source} · ${path.basename(file)} · ${item.role}`,
-              item.text,
-              item.timestamp || stat.mtime.toISOString(),
+        try {
+          for await (const line of lines) {
+            const item = parseTrajectoryLine(source, line);
+            if (!item) continue;
+            if (
+              this.addDoc(
+                source,
+                file,
+                part,
+                item.role,
+                `${source} · ${path.basename(file)} · ${item.role}`,
+                item.text,
+                item.timestamp || stat.mtime.toISOString(),
+              )
             )
-          )
-            counts[source]++;
-          part++;
+              counts[source]++;
+            part++;
+          }
+        } catch (error) {
+          if (error !== stream.errored) throw error;
+          counts.skipped++;
+          continue;
+        } finally {
+          lines.close();
+          stream.destroy();
         }
         this.db
           .prepare("DELETE FROM docs WHERE source=? AND path=? AND part>=?")

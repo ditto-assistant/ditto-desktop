@@ -5,6 +5,7 @@ const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { Readable } = require("node:stream");
 const { MemoryStore, parseTrajectoryLine, redact } = require("../src/memory.cjs");
 
 test("extracts user and assistant text without collecting system or tool content", () => {
@@ -135,6 +136,54 @@ test("ranks memory content above a distractor path match", async (t) => {
   );
   const result = store.search("What does the local Ditto desktop remember?", 2);
   assert.equal(result[0].path, "/real/README.md");
+});
+
+test("an unreadable trajectory does not block healthy sources or prevent a later retry", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ditto-trajectory-read-error-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const codex = path.join(root, "codex");
+  const cursor = path.join(root, "cursor", "agent-transcripts");
+  await fsp.mkdir(codex);
+  await fsp.mkdir(cursor, { recursive: true });
+  const blocked = path.join(codex, "blocked.jsonl");
+  await fsp.writeFile(
+    blocked,
+    JSON.stringify({
+      type: "response_item",
+      payload: { type: "message", role: "user", content: "Recovered Codex trajectory" },
+    }) + "\n",
+  );
+  await fsp.writeFile(
+    path.join(cursor, "healthy.jsonl"),
+    JSON.stringify({ role: "user", message: { content: "Healthy Cursor trajectory" } }) + "\n",
+  );
+  const read = fs.createReadStream;
+  const denied = t.mock.method(fs, "createReadStream", (file, ...args) => {
+    if (file !== blocked) return read(file, ...args);
+    return new Readable({
+      read() {
+        this.destroy(Object.assign(new Error("Fixture permission denied"), { code: "EACCES" }));
+      },
+    });
+  });
+  const store = new MemoryStore(path.join(root, "data"));
+  t.after(() => store.close());
+  const options = {
+    roots: [],
+    trajectoryRoots: [
+      ["codex", codex],
+      ["cursor", path.dirname(cursor)],
+    ],
+  };
+  const first = await store.scan(options);
+  assert.equal(first.skipped, 1);
+  assert.equal(first.cursor, 1);
+  assert.equal(store.search("Healthy Cursor trajectory")[0].source, "cursor");
+  denied.mock.restore();
+  const retry = await store.scan(options);
+  assert.equal(retry.codex, 1, "failed reads must not mark the transcript as scanned");
+  assert.equal(retry.cursor, 0);
+  assert.equal(store.search("Recovered Codex trajectory")[0].source, "codex");
 });
 
 test("indexes Git code and both trajectory formats, then exports Ditto import ZIPs", async (t) => {
