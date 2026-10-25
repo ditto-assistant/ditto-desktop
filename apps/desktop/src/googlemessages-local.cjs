@@ -167,16 +167,18 @@ class GoogleMessagesLocal {
       this.flow = null;
     } else if (result.challenge) {
       const challenge = result.challenge;
+      const qrDataUrl =
+        challenge.kind === "qr"
+          ? await QRCode.toDataURL(challenge.prompt, { width: 220, margin: 1 })
+          : "";
+      if (generation !== this.pairGeneration) return;
       this.flow = {
         ...challenge,
         detail:
           challenge.kind === "emoji"
             ? `Confirm ${challenge.prompt} in Google Messages on your Android phone.`
             : "Google Messages → profile → Device pairing → Scan QR code",
-        qrDataUrl:
-          challenge.kind === "qr"
-            ? await QRCode.toDataURL(challenge.prompt, { width: 220, margin: 1 })
-            : "",
+        qrDataUrl,
       };
     } else throw new Error("Google Messages returned an incomplete pairing response.");
   }
