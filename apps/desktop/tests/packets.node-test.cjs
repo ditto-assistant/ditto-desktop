@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const os = require("node:os");
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const crypto = require("node:crypto");
 const { createKnowledgePacket } = require("../src/packets.cjs");
 
 for (const service of ["discord", "telegram", "imessage", "googlemessages"])
@@ -88,6 +89,72 @@ test("concurrent requests for the same chat share a complete packet without stag
     assert.equal(
       JSON.parse(await fs.readFile(path.join(packet.folder, "manifest.json"), "utf8")).messageCount,
       1,
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("long local conversations retain every message reported by the packet", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ditto-packet-long-"));
+  const messages = Array.from({ length: 80 }, (_, index) => ({
+    id: String(index),
+    author: { displayName: "Synthetic author" },
+    content: `${"x".repeat(9000)} END_OF_MESSAGE_${index}`,
+    attachments: [],
+  }));
+  try {
+    const packet = await createKnowledgePacket(
+      dir,
+      {
+        conversations: async () => [{ id: "123", title: "Long local conversation" }],
+        messages: async () => messages,
+      },
+      "imessage",
+      "123",
+    );
+    const transcript = await fs.readFile(path.join(packet.folder, "transcript.md"), "utf8");
+    const manifest = JSON.parse(
+      await fs.readFile(path.join(packet.folder, "manifest.json"), "utf8"),
+    );
+    assert.equal(manifest.messageCount, messages.length);
+    for (const message of messages) assert.ok(transcript.includes(message.content), message.id);
+    assert.equal((transcript.match(/^## /gm) || []).length, manifest.messageCount);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("packets cached before the complete-transcript format are preserved but not reused", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ditto-packet-legacy-"));
+  const messages = [{ id: "m1", content: "Complete message", attachments: [] }];
+  // Version 1 keyed the cache without a format version and could truncate transcripts.
+  const legacyDigest = crypto
+    .createHash("sha256")
+    .update(JSON.stringify({ service: "imessage", conversationId: "123", messages }))
+    .digest("hex")
+    .slice(0, 16);
+  const legacy = path.join(dir, "knowledge-packets", `imessage-Legacy-chat-${legacyDigest}`);
+  try {
+    await fs.mkdir(legacy, { recursive: true });
+    await fs.writeFile(path.join(legacy, "INDEX.md"), "Legacy incomplete packet");
+    const packet = await createKnowledgePacket(
+      dir,
+      {
+        conversations: async () => [{ id: "123", title: "Legacy chat" }],
+        messages: async () => messages,
+      },
+      "imessage",
+      "123",
+    );
+    assert.notEqual(packet.folder, legacy);
+    assert.match(
+      await fs.readFile(path.join(packet.folder, "transcript.md"), "utf8"),
+      /Complete message/,
+    );
+    assert.equal(
+      await fs.readFile(path.join(legacy, "INDEX.md"), "utf8"),
+      "Legacy incomplete packet",
     );
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
