@@ -6,6 +6,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { createRequire } = require("node:module");
 const childProcess = require("node:child_process");
+const net = require("node:net");
 const { updatePlan, EngineMaintenance } = require("../src/maintenance.cjs");
 
 test("updates the actual npm owner and leaves vendor bundles and unknown installs alone", () => {
@@ -80,9 +81,9 @@ test("a timed out engine updater drains its owned descendants and releases maint
     `
     const { spawn } = require('node:child_process');
     const child = spawn(process.execPath, ['-e',
-      "process.on('SIGTERM', () => {}); process.send('ready'); setInterval(() => {}, 1000);"
+      "const net = require('node:net'); process.on('SIGTERM', () => {}); const server = net.createServer(); server.listen(0, '127.0.0.1', () => process.send(server.address().port));"
     ], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
-    child.once('message', () => console.log('UPDATER_READY:' + child.pid));
+    child.once('message', port => console.log('UPDATER_READY:' + child.pid + ':' + port));
     setInterval(() => {}, 1000);
   `,
   );
@@ -93,6 +94,7 @@ test("a timed out engine updater drains its owned descendants and releases maint
   const ready = Promise.withResolvers();
   let child;
   let descendant;
+  let port;
   let expire;
   const capture =
     (spawn) =>
@@ -101,9 +103,10 @@ test("a timed out engine updater drains its owned descendants and releases maint
       let output = "";
       child.stdout.on("data", (chunk) => {
         output += chunk;
-        const match = /UPDATER_READY:(\d+)/.exec(output);
+        const match = /UPDATER_READY:(\d+):(\d+)/.exec(output);
         if (match) {
           descendant = Number(match[1]);
+          port = Number(match[2]);
           ready.resolve();
         }
       });
@@ -169,7 +172,15 @@ test("a timed out engine updater drains its owned descendants and releases maint
   assert.equal(rescued, false, "Updater descendants required rescue instead of production cleanup");
   assert.match(result.error?.message || "", /timed out/);
   assert.equal(maintenance.active, null);
-  assert.throws(() => process.kill(descendant, 0), { code: "ESRCH" });
+  // Linux can retain a killed descendant as a zombie until its new parent reaps it.
+  // This fixture keeps listening until killed, so refusal verifies actual cleanup.
+  const socket = net.connect({ host: "127.0.0.1", port });
+  t.after(() => socket.destroy());
+  const outcome = await new Promise((resolve) => {
+    socket.once("connect", () => resolve("connected"));
+    socket.once("error", (error) => resolve(error.code));
+  });
+  assert.equal(outcome, "ECONNREFUSED");
   descendant = null;
   // Retry through the real updater and version-inspection paths after cleanup.
   fs.writeFileSync(npm, "#!/bin/sh\nprintf 'QA_UPDATE_FINISHED\\n'\n");
