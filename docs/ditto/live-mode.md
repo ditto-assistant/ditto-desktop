@@ -118,7 +118,7 @@ any action that changes focus. The aura window itself must be excluded from capt
 
 ## Flow
 
-1. User clicks **Live** in the Desktop rail (or presses Cmd+Shift+L). Main ensures Computer Use is
+1. User clicks **Live** in the Desktop rail or the composer's waveform launcher (or presses Cmd+Shift+L). Main ensures Computer Use is
    enabled (else opens the existing setup window), fetches a fresh Firebase token from the main renderer,
    opens the aura window, sends `start`.
 2. Aura client connects WS with `client=ditto-desktop`, streams mic PCM16 16 kHz, plays 24 kHz audio,
@@ -187,3 +187,8 @@ Desktop implementation notes
   `src/contexts/LiveModeContext.tsx` at build time to call `window.ditto.liveToggle()` (only when Live is not
   already running) under `import.meta.env.VITE_DITTO_DESKTOP`. Meeting mode keeps the in-app session. When that
   function is missing or changed, the patch is skipped.
+- Composer launcher: until the bundled ditto-app ships ditto-app#3432's own launcher,
+  `scripts/desktop-live-launcher-bridge.cjs` puts `renderer/DesktopLiveLauncher.tsx` beside Send (where Temporary
+  chat was) and moves Temporary chat to the header, as #3432 does. Its pressed state follows `ditto:live-active`,
+  which main sends on every transition, so it agrees with the rail and the shortcut. The composer and header
+  patches apply together or not at all, and both are skipped once ditto-app renders `live-mode-launcher` itself.
