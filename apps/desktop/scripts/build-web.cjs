@@ -20,6 +20,7 @@ const {
 const chatOverlays = require("./desktop-chat-bridge.cjs");
 const computerOverlays = require("./desktop-computer-bridge.cjs");
 const { liveModeOverlay } = require("./desktop-live-bridge.cjs");
+const { liveLauncherOverlay } = require("./desktop-live-launcher-bridge.cjs");
 const liveModeSource = path.join(web, "src", "contexts", "LiveModeContext.tsx");
 const computerSources = new Map(
   [
@@ -107,6 +108,15 @@ try {
     fs.writeFileSync(file, transform(originals.get(file)));
   if (originals.has(liveModeSource))
     fs.writeFileSync(liveModeSource, liveModeOverlay(originals.get(liveModeSource)));
+  // Applied over the chat and computer overlays, which edit the same files.
+  const composerSource = path.join(web, "src", "components", "SendMessage.tsx");
+  const shellSource = path.join(web, "src", "components", "v2", "V2Shell.tsx");
+  const launcher = liveLauncherOverlay({
+    composer: fs.readFileSync(composerSource, "utf8"),
+    shell: fs.readFileSync(shellSource, "utf8"),
+  });
+  fs.writeFileSync(composerSource, launcher.composer);
+  fs.writeFileSync(shellSource, launcher.shell);
   if (!fs.existsSync(path.join(web, "node_modules"))) run("bun", ["install", "--frozen-lockfile"]);
   run("bun", ["run", "build"]);
   fs.rmSync(output, { recursive: true, force: true });
