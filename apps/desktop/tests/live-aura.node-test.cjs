@@ -101,6 +101,59 @@ test("a stop while the aura opens tears down the late window", async () => {
   ]);
 });
 
+test("a stopped opening session drains before another Live session can start", async () => {
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  let opens = 0;
+  const { controller } = fixture({
+    open: async () => {
+      if (++opens === 1) {
+        entered.resolve();
+        await release.promise;
+      }
+    },
+  });
+  const first = controller.start();
+  await entered.promise;
+  await controller.stop("lock-screen");
+  assert.deepEqual(await controller.start(), { started: false, reason: "running" });
+  release.resolve();
+  assert.deepEqual(await first, { started: false, reason: "stopped" });
+  assert.deepEqual(await controller.start(), { started: true, sessionId: "session-2" });
+  assert.equal(controller.state, "active");
+  assert.equal(opens, 2);
+  await controller.stop();
+});
+
+test("an opening failure after Stop still closes resources created after the first cleanup", async () => {
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  let visible = false;
+  const closed = [];
+  const controller = createLiveController({
+    isComputerEnabled: () => true,
+    openComputerSetup() {},
+    open: async () => {
+      entered.resolve();
+      await release.promise;
+      visible = true;
+      throw new Error("The stopped bridge is no longer available.");
+    },
+    close: (reason) => {
+      closed.push(reason);
+      visible = false;
+    },
+  });
+  const first = controller.start();
+  await entered.promise;
+  await controller.stop("suspend");
+  release.resolve();
+  assert.deepEqual(await first, { started: false, reason: "stopped" });
+  assert.equal(visible, false);
+  assert.equal(controller.state, "idle");
+  assert.deepEqual(closed, ["suspend", "stopped"]);
+});
+
 test("a failed sign-in check closes nothing open and reports the error", async () => {
   const { controller, events } = fixture({
     prepare: async () => {

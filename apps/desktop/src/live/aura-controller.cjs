@@ -48,6 +48,7 @@ function createLiveController({
   let state = "idle";
   let generation = 0;
   let sessionId = null;
+  let starting = false;
 
   const setState = (next) => {
     const wasActive = state !== "idle";
@@ -56,31 +57,41 @@ function createLiveController({
   };
 
   const start = async () => {
-    if (state !== "idle") return { started: false, reason: "running" };
+    if (state !== "idle" || starting) return { started: false, reason: "running" };
     if (!(await isComputerEnabled())) {
       openComputerSetup();
       return { started: false, reason: "computer-disabled" };
     }
-    if (state !== "idle") return { started: false, reason: "running" };
+    if (state !== "idle" || starting) return { started: false, reason: "running" };
     const owner = ++generation;
     sessionId = newSessionId();
+    // Stop hides immediately, but the old open must drain before shared aura/bridge
+    // resources can belong to a new start. Its late cleanup would close the new one.
+    starting = true;
     setState("starting");
     try {
-      await prepare(sessionId);
-      if (owner !== generation) return { started: false, reason: "stopped" };
-      await open(sessionId);
-    } catch (error) {
-      if (owner !== generation) return { started: false, reason: "stopped" };
-      await stop("start-failed");
-      throw error;
+      try {
+        await prepare(sessionId);
+        if (owner !== generation) return { started: false, reason: "stopped" };
+        await open(sessionId);
+      } catch (error) {
+        if (owner !== generation) {
+          await close("stopped");
+          return { started: false, reason: "stopped" };
+        }
+        await stop("start-failed");
+        throw error;
+      }
+      if (owner !== generation) {
+        // Stop already ran while the aura was opening; tear down what the open created.
+        await close("stopped");
+        return { started: false, reason: "stopped" };
+      }
+      setState("active");
+      return { started: true, sessionId };
+    } finally {
+      starting = false;
     }
-    if (owner !== generation) {
-      // Stop already ran while the aura was opening; tear down what the open created.
-      await close("stopped");
-      return { started: false, reason: "stopped" };
-    }
-    setState("active");
-    return { started: true, sessionId };
   };
 
   const stop = async (reason = "user") => {
