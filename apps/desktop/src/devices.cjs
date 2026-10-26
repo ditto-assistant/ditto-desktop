@@ -327,7 +327,13 @@ class DesktopDevices {
   async unpair(peer) {
     this.requireOnline();
     if (!UUID.test(peer) || !this.paired.has(peer)) throw new Error("Choose a paired device.");
-    return this.api(`/api/v5/hosts/${this.hostId}/pairings/${peer}`, "DELETE");
+    const hostId = this.hostId;
+    const socket = this.socket;
+    const result = await this.api(`/api/v5/hosts/${hostId}/pairings/${peer}`, "DELETE");
+    // The acknowledgement can precede the pairing event, or outlive this connection.
+    if (this.hostId === hostId && this.socket === socket)
+      this.setPaired([...this.paired].filter((id) => id !== peer));
+    return result;
   }
   async request(peer, method, params) {
     this.requireOnline();
