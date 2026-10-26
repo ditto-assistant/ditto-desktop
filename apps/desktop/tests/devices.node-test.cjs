@@ -242,6 +242,60 @@ test("a late unpair acknowledgement does not revoke a replacement connection's p
   assert.equal(desktop.paired.has(peerId), true);
 });
 
+for (const repaired of [false, true])
+  test(`a delayed unpair acknowledgement ${repaired ? "preserves a newer pairing" : "revokes unchanged pairing snapshots"} on the same connection`, async (t) => {
+    const hostId = randomUUID();
+    const peerId = randomUUID();
+    const siblingId = randomUUID();
+    const oldTunnel = randomUUID();
+    const newTunnel = randomUUID();
+    let acknowledge;
+    let received;
+    const pending = new Promise((resolve) => {
+      received = resolve;
+    });
+    const server = http.createServer((request, response) => {
+      assert.equal(request.method, "DELETE");
+      assert.equal(request.url, `/api/v5/hosts/${hostId}/pairings/${peerId}`);
+      acknowledge = () => {
+        response.writeHead(204);
+        response.end();
+      };
+      received();
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const desktop = new DesktopDevices({
+      apiBase: `http://127.0.0.1:${server.address().port}`,
+      getKey: () => "test-key",
+      version: "test",
+    });
+    t.after(async () => {
+      desktop.stop();
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    });
+    desktop.hostId = hostId;
+    desktop.state.online = true;
+    desktop.setPaired([peerId, siblingId]);
+    desktop.openTunnel({ tunnelId: oldTunnel, peerHostId: peerId, path: RPC_PATH });
+    const completion = desktop.unpair(peerId);
+    await pending;
+    // Pairing events can arrive before the DELETE acknowledgement on the same socket.
+    if (repaired) {
+      desktop.setPaired([siblingId]);
+      assert.equal(desktop.tunnels.has(oldTunnel), false);
+    }
+    desktop.setPaired([peerId, siblingId]);
+    if (repaired) desktop.openTunnel({ tunnelId: newTunnel, peerHostId: peerId, path: RPC_PATH });
+    acknowledge();
+    assert.equal(await completion, null);
+    assert.equal(desktop.paired.has(peerId), repaired);
+    assert.equal(desktop.paired.has(siblingId), true);
+    assert.equal(desktop.tunnels.has(newTunnel), repaired);
+    assert.equal(desktop.tunnels.has(oldTunnel), false);
+  });
+
 test("outgoing paired RPC uses the authenticated backend environment proxy", async () => {
   const server = new WebSocket.WebSocketServer({ port: 0, host: "127.0.0.1" });
   await once(server, "listening");
