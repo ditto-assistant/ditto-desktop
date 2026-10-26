@@ -1146,9 +1146,15 @@ function registerIpc() {
     if (piProcess || piStartup) throw new Error("Wait for the current task to finish.");
     const runs = store.codeThreadRuns(id);
     if (!runs.length) throw new Error("Code conversation not found.");
-    const folder = runs.at(-1).workspace;
-    if (!fs.statSync(folder).isDirectory()) throw new Error("The working folder is unavailable.");
-    store.setSetting("workspace", folder);
+    const latest = runs.at(-1);
+    let workspaceAvailable = false;
+    try {
+      workspaceAvailable = fs.statSync(latest.workspace).isDirectory();
+    } catch {
+      // Saved history remains readable after a project is moved or unmounted.
+    }
+    latest.workspaceAvailable = workspaceAvailable;
+    if (workspaceAvailable) store.setSetting("workspace", latest.workspace);
     return runs;
   });
   const terminal = () => {

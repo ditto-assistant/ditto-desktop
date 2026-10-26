@@ -3,8 +3,83 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const vm = require("node:vm");
+const { createRequire } = require("node:module");
+const { EventEmitter } = require("node:events");
 const { MemoryStore } = require("../src/memory.cjs");
 const { DesktopTerminal } = require("../src/terminal.cjs");
+
+test("saved Code history remains readable when its project disappears without selecting another workspace", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ditto-code-missing-workspace-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const project = path.join(root, "project");
+  const moved = path.join(root, "moved");
+  const other = path.join(root, "other");
+  await fs.mkdir(project);
+  await fs.mkdir(other);
+  const store = new MemoryStore(path.join(root, "state"));
+  t.after(() => store.close());
+  for (let i = 0; i < 30; i++) {
+    const run = store.startPiRun(project, `Question ${i}`, "pi", "missing-project");
+    store.finishPiRun(run, "done", `Answer ${i}`);
+  }
+  const id = "session:missing-project";
+  const before = JSON.stringify(store.codeThreadRuns(id));
+  const app = new EventEmitter();
+  app.isPackaged = true;
+  app.getPath = () => root;
+  app.setName = app.setPath = () => {};
+  app.whenReady = () => new Promise(() => {});
+  const webContents = { mainFrame: {} };
+  const handlers = new Map();
+  const sourcePath = path.join(__dirname, "../src/main.cjs");
+  const sourceRequire = createRequire(sourcePath);
+  vm.runInNewContext(
+    (await fs.readFile(sourcePath, "utf8")) +
+      "\nstore = fixtureStore; win = fixtureWindow; registerIpc();",
+    {
+      __dirname: path.dirname(sourcePath),
+      process,
+      Buffer,
+      setTimeout,
+      clearTimeout,
+      setInterval,
+      clearInterval,
+      setImmediate,
+      fixtureStore: store,
+      fixtureWindow: { webContents },
+      require(name) {
+        if (name === "electron")
+          return { app, ipcMain: { handle: (name, handler) => handlers.set(name, handler) } };
+        if (name === "./computer-service.cjs") return { ComputerService: Object };
+        if (name === "./computer-relay.cjs") return { ComputerRelay: Object };
+        if (name === "./computer-setup.cjs") return { createComputerSetup: () => ({}) };
+        if (name.startsWith("./") && name !== "./memory.cjs") return {};
+        return sourceRequire(name);
+      },
+    },
+    { filename: sourcePath },
+  );
+  const event = { sender: webContents, senderFrame: webContents.mainFrame };
+  const open = () => handlers.get("ditto:code-thread-open")(event, id);
+  assert.equal(open().length, 30);
+  await fs.rename(project, moved);
+  store.setSetting("workspace", other);
+  const history = open();
+  assert.equal(history.length, 30);
+  assert.equal(history[0].response, "Answer 0");
+  assert.equal(history.at(-1).workspaceAvailable, false);
+  assert.equal(store.getSetting("workspace"), other);
+  assert.equal(JSON.stringify(store.codeThreadRuns(id)), before);
+  await fs.writeFile(project, "not a directory");
+  assert.equal(open().at(-1).workspaceAvailable, false);
+  assert.equal(store.getSetting("workspace"), other);
+  await fs.unlink(project);
+  await fs.rename(moved, project);
+  assert.equal(open().at(-1).workspaceAvailable, true);
+  assert.equal(store.getSetting("workspace"), project);
+  assert.equal(JSON.stringify(store.codeThreadRuns(id)), before);
+});
 
 test("Code pinning and archiving persist for a whole conversation without losing turns", async (t) => {
   const folder = await fs.mkdtemp(path.join(os.tmpdir(), "ditto-code-threads-"));

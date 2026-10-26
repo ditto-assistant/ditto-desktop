@@ -583,6 +583,9 @@
 
   let running = false;
   let workspaceReady = false;
+  let codeWorkspaceUnavailable = false;
+  const unavailableCodeWorkspaceMessage =
+    "Saved chat · Working folder unavailable. Choose a folder or start a new chat to run tasks.";
   let localSessionId = crypto.randomUUID();
   let localTurns = [];
   let activeCodeThread = null;
@@ -692,9 +695,10 @@
       home.addEventListener("click", async () => {
         if (running) return;
         try {
-          localWorkspace = await window.ditto.defaultWorkspace();
-          workspaceReady = true;
+          const folder = await window.ditto.defaultWorkspace();
           newLocalTask();
+          localWorkspace = folder;
+          workspaceReady = true;
           openPanel("Local");
           void refresh();
         } catch {
@@ -709,7 +713,10 @@
     const status = localChat.querySelector("#dl-chat-status");
     const home = $("#dl-default-workspace");
     if (home) {
-      home.hidden = Boolean(localWorkspace) && localWorkspace === defaultLocalWorkspace;
+      home.hidden =
+        !codeWorkspaceUnavailable &&
+        Boolean(localWorkspace) &&
+        localWorkspace === defaultLocalWorkspace;
       home.disabled = running;
     }
     if (status.textContent !== $("#dl-context").textContent)
@@ -1011,6 +1018,11 @@
     });
   }
   async function showCodeTerminal() {
+    for (const session of terminals.values()) session.host.hidden = true;
+    if (codeWorkspaceUnavailable) {
+      terminalLocation.textContent = "Choose a working folder before opening this chat's terminal.";
+      return;
+    }
     if (typeof window.Terminal !== "function" || !window.FitAddon) {
       terminalLocation.textContent = "Restart Ditto Desktop to load the terminal.";
       return;
@@ -1035,7 +1047,7 @@
       current = { term, fit, host, opening: true, closed: false };
       terminals.set(key, current);
       term.onData((data) => {
-        if (!current.closed)
+        if (!current.closed && !codeWorkspaceUnavailable)
           void window.ditto.terminalWrite(key, data).catch(() => {
             terminalLocation.textContent = "Terminal disconnected. Restart to reconnect.";
           });
@@ -1052,7 +1064,7 @@
         current.opening = false;
       }
     }
-    if (key !== codeTerminalKey() || codeTool !== "terminal") return;
+    if (key !== codeTerminalKey() || codeTool !== "terminal" || codeWorkspaceUnavailable) return;
     current.host.hidden = false;
     terminalLocation.textContent = current.closed
       ? "Terminal stopped · Restart to reopen"
@@ -1114,7 +1126,8 @@
       const latest = turns.at(-1);
       activeCodeThread = thread;
       localWorkspace = latest.workspace;
-      workspaceReady = true;
+      codeWorkspaceUnavailable = latest.workspaceAvailable === false;
+      workspaceReady = !codeWorkspaceUnavailable;
       localSessionId = latest.session_id || crypto.randomUUID();
       localTurns = turns.map((turn) => ({ prompt: turn.prompt, provider: turn.provider }));
       $("#dl-provider").value = latest.provider || "pi";
@@ -1138,9 +1151,11 @@
       if (codeTool === "terminal") void showCodeTerminal();
       show(
         "#dl-context",
-        latest.provider === "pi" && latest.session_id
-          ? "Continue this conversation"
-          : "Saved execution · Your next message starts a new task",
+        codeWorkspaceUnavailable
+          ? unavailableCodeWorkspaceMessage
+          : latest.provider === "pi" && latest.session_id
+            ? "Continue this conversation"
+            : "Saved execution · Your next message starts a new task",
       );
     } catch {
       show(
@@ -1245,6 +1260,12 @@
   });
 
   function newLocalTask() {
+    if (codeWorkspaceUnavailable) {
+      workspaceReady = false;
+      localWorkspace = "";
+      void refresh();
+    }
+    codeWorkspaceUnavailable = false;
     if (activeCodeThread || localTurns.length) localSessionId = crypto.randomUUID();
     activeCodeThread = null;
     localTurns = [];
@@ -1274,7 +1295,13 @@
     localTurns.push({ prompt, provider });
     scrollLocalCode(true);
   }
+  function codeWorkspaceBlocked() {
+    if (!codeWorkspaceUnavailable) return false;
+    show("#dl-context", unavailableCodeWorkspaceMessage);
+    return true;
+  }
   async function runLocalTask(prompt) {
+    if (codeWorkspaceBlocked()) return;
     const provider = $("#dl-provider").value;
     if (!activeCodeThread)
       activeCodeThread = { threadId: `session:${localSessionId}`, title: prompt };
@@ -1304,6 +1331,8 @@
   }
   window.dittoDesktopStartCode = async (input) => {
     if (activePanel !== "Local") return null;
+    if (codeWorkspaceBlocked())
+      return { status: "blocked", reason: unavailableCodeWorkspaceMessage };
     if (running)
       return {
         status: "blocked",
@@ -1311,6 +1340,8 @@
       };
     if (!workspaceReady) {
       const folder = await window.ditto.workspace();
+      if (codeWorkspaceBlocked())
+        return { status: "blocked", reason: unavailableCodeWorkspaceMessage };
       workspaceReady = true;
       localWorkspace = folder;
       show("#dl-workspace", folder);
@@ -1374,22 +1405,24 @@
         const remoteOption = $("#dl-remote-provider").querySelector(`[value="${provider.id}"]`);
         if (remoteOption) remoteOption.disabled = !provider.available;
       }
-      workspaceReady = Boolean(status.workspace);
-      localWorkspace = status.workspace || "";
+      if (!codeWorkspaceUnavailable) {
+        workspaceReady = Boolean(status.workspace);
+        localWorkspace = status.workspace || "";
+      }
       defaultLocalWorkspace = status.defaultWorkspace;
-      show("#dl-workspace", status.workspace || "Choose a project folder");
+      show("#dl-workspace", localWorkspace || "Choose a project folder");
       const home = $("#dl-default-workspace");
       if (home) {
-        home.hidden = status.workspace === status.defaultWorkspace;
+        home.hidden = !codeWorkspaceUnavailable && status.workspace === status.defaultWorkspace;
         home.disabled = running;
       }
       for (const button of document.querySelectorAll(
         ".ditto-desktop-workspace:not(#dl-default-workspace)",
       ))
         button.textContent =
-          status.workspace === status.defaultWorkspace
+          localWorkspace === status.defaultWorkspace
             ? "Ditto workspace"
-            : status.workspace?.split("/").at(-1) || "Ditto workspace";
+            : localWorkspace?.split("/").at(-1) || "Ditto workspace";
       roots(status.roots);
       const list = $("#dl-runs");
       list.replaceChildren();
@@ -1492,8 +1525,8 @@
     try {
       const folder = await window.ditto.chooseWorkspace();
       if (folder) {
+        if (codeWorkspaceUnavailable || localWorkspace !== folder) newLocalTask();
         workspaceReady = true;
-        if (localWorkspace !== folder) newLocalTask();
         localWorkspace = folder;
         show("#dl-workspace", folder);
         void refresh();
@@ -1543,6 +1576,7 @@
   $("#dl-chat-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (running) return;
+    if (codeWorkspaceBlocked()) return;
     const prompt = $("#dl-prompt").value.trim();
     if (!prompt) return;
     if (!workspaceReady) {
@@ -1555,6 +1589,7 @@
         return;
       }
     }
+    if (codeWorkspaceBlocked()) return;
     running = true;
     $("#dl-run").disabled = true;
     $("#dl-cancel").hidden = false;
