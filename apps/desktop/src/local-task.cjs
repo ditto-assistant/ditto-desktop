@@ -12,7 +12,14 @@ function spawnLocalTask(command, args, { cancelSignal = "SIGTERM", ...options })
   tasks.set(child, state);
   child.once("exit", () => {
     clearTimeout(state.timer);
-    if (state.cancelled) signalTask(child, "SIGKILL");
+    if (state.cancelled) {
+      try {
+        signalTask(child, "SIGKILL");
+      } catch (error) {
+        // Exit callbacks cannot throw safely; task consumers already handle child errors.
+        child.emit("error", error);
+      }
+    }
   });
   child.once("error", () => clearTimeout(state.timer));
   return child;

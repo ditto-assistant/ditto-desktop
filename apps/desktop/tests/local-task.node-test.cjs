@@ -2,6 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { once } = require("node:events");
 const net = require("node:net");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const { EventEmitter } = require("node:events");
 const os = require("node:os");
 const { spawnLocalTask, cancelLocalTask, wasLocalTaskCancelled } = require("../src/local-task.cjs");
 
@@ -122,4 +126,42 @@ test("an ordinary nonzero exit is not cancellation, and a completed task is not 
   assert.equal(wasLocalTaskCancelled(child), false);
   assert.equal(cancelLocalTask(child), false);
   assert.equal(wasLocalTaskCancelled(child), false);
+});
+
+test("post-exit cleanup denial reports a task error instead of escaping the exit handler", () => {
+  const child = new EventEmitter();
+  Object.assign(child, { pid: 12345, exitCode: null, signalCode: null });
+  const denied = Object.assign(new Error("Fixture signal denied"), { code: "EPERM" });
+  const signals = [];
+  const target = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../src/local-task.cjs"), "utf8"), {
+    module: target,
+    require: (name) => {
+      if (name === "node:child_process") return { spawn: () => child };
+      if (name === "node:os") return { platform: () => "darwin" };
+      throw new Error(`Unexpected fixture import: ${name}`);
+    },
+    process: {
+      kill: (pid, signal) => {
+        signals.push([pid, signal]);
+        if (signal === "SIGKILL") throw denied;
+      },
+    },
+    setTimeout,
+    clearTimeout,
+  });
+  const tasks = target.exports;
+  tasks.spawnLocalTask("fixture", [], {});
+  let reported;
+  child.once("error", (error) => {
+    reported = error;
+  });
+  assert.equal(tasks.cancelLocalTask(child), true);
+  child.exitCode = 143;
+  assert.doesNotThrow(() => child.emit("exit", 143));
+  assert.equal(reported, denied, "retain the OS error for the task's existing error handler");
+  assert.deepEqual(signals, [
+    [-child.pid, "SIGTERM"],
+    [-child.pid, "SIGKILL"],
+  ]);
 });
