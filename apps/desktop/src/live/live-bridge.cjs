@@ -46,6 +46,24 @@ const MAX_FRAME_BASE64 = 900_000;
 const FALLBACK_QUALITIES = [0.45, 0.3];
 // Channels that hand out the token, the screen, or input; refused once stopped.
 const LIVE_ONLY = new Set(["session", "capture", "frontmost", "tool"]);
+const DIAGNOSTIC_TOOLS = new Set([
+  "computer_get_desktop_state",
+  "computer_list_windows",
+  "computer_double_click",
+  "computer_click",
+  "computer_type_text",
+  "computer_press_key",
+  "computer_scroll",
+  "computer_drag",
+  "computer_launch_app",
+  "computer_bring_to_front",
+  "computer_open_app",
+  "computer_get_state",
+  "ditto_app",
+  "ditto_client_action",
+  "ditto_client_context",
+  "ditto_client_session",
+]);
 
 class LiveToolError extends Error {}
 
@@ -222,6 +240,7 @@ function registerLiveBridge({
   getAuraWindow,
   getSession,
   emit,
+  recordDiagnostic = () => {},
   // Test seams; Electron and macOS by default.
   electron = require("electron"),
   run = execText,
@@ -245,6 +264,21 @@ function registerLiveBridge({
   // explicit app switch has not established its requested target.
   let keyboardAppPid;
   let titles = { at: 0, byPid: new Map(), refreshing: false };
+
+  function diagnoseTool(event, name, outcome, result) {
+    if (!DIAGNOSTIC_TOOLS.has(name)) return;
+    const verified = result?.structuredContent?.verified;
+    try {
+      recordDiagnostic({
+        event,
+        tool: name,
+        outcome,
+        ...(typeof verified === "boolean" ? { verified } : {}),
+      });
+    } catch {
+      // Diagnostics must not change input delivery or its reported outcome.
+    }
+  }
 
   // Accepted tools belong to one Live session, including across async app lookups.
   const checkOwner = (owner) => {
@@ -430,12 +464,15 @@ function registerLiveBridge({
     checkOwner(owner);
     const open = await openSession();
     checkOwner(owner);
+    let result;
     try {
-      const result = await open.call(name, args);
+      result = await open.call(name, args);
       checkOwner(owner);
       if (result?.isError) throw new LiveToolError(resultText(result) || "Computer Use failed.");
+      diagnoseTool("native_tool", name, "ok", result);
       return result;
     } catch (error) {
+      diagnoseTool("native_tool", name, "error", result);
       if (owner === generation && /session has ended/.test(error.message)) {
         if (session) closeSession();
         if (!computer.enabled) stopSession("computer-use-disabled");
@@ -766,16 +803,24 @@ function registerLiveBridge({
     }[name];
     if (direct)
       return direct(args).then(
-        (result) => ({ ok: true, result }),
-        (error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }),
+        (result) => {
+          diagnoseTool("tool", name, "ok");
+          return { ok: true, result };
+        },
+        (error) => {
+          diagnoseTool("tool", name, "error");
+          return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        },
       );
     pending += 1;
     const running = toolTail.then(async () => {
       try {
         const result = await runTool(name, args, owner);
         checkOwner(owner);
+        diagnoseTool("tool", name, "ok");
         return { ok: true, result };
       } catch (error) {
+        diagnoseTool("tool", name, "error");
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
       } finally {
         pending -= 1;

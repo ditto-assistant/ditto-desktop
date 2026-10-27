@@ -78,6 +78,7 @@ function fixture({
   windows = [],
   enabled = true,
   run: runOverride,
+  recordDiagnostic: recordOverride,
 } = {}) {
   const main = fakeWindow({ id: 1 });
   main.webContents.owner = main;
@@ -90,6 +91,7 @@ function fixture({
   const calls = [];
   const closed = [];
   const commands = [];
+  const diagnostics = [];
   const handlers = new Map();
   const listeners = new Map();
   let focused = null;
@@ -101,6 +103,7 @@ function fixture({
     desktop: { screenshot_width: 3024, screen_width: 1512 },
     launchedPid: 88,
     activate: true,
+    verified: undefined,
   };
   // Mirrors ComputerService's barrier: an unverifiable action blocks input
   // until a desktop screenshot is observed.
@@ -139,7 +142,7 @@ function fixture({
       unverified = true;
       return {
         content: [{ type: "text", text: `${name} done` }],
-        structuredContent: { effect: "unverifiable" },
+        structuredContent: { effect: "unverifiable", verified: state.verified },
       };
     },
   };
@@ -196,6 +199,7 @@ function fixture({
     getAuraWindow: () => aura,
     getSession: async () => ({ token: "t", sessionId: "s" }),
     emit: (channel, value) => commands.push([channel, value]),
+    recordDiagnostic: recordOverride ?? ((event) => diagnostics.push(event)),
     electron,
     platform: "darwin",
     pid: 4242,
@@ -216,6 +220,7 @@ function fixture({
     calls,
     closed,
     commands,
+    diagnostics,
     handlers,
     listeners,
     computer,
@@ -439,6 +444,46 @@ test("keyboard input goes to the frontmost app and validates its arguments", asy
   assert.deepEqual(bad, { ok: false, error: "Use modifiers cmd, shift, option, ctrl or fn." });
   assert.equal((await live.tool("computer_type_text", { text: "" })).ok, false);
   assert.equal((await live.tool("nope", {})).ok, false);
+});
+
+test("Live tool diagnostics keep fixed metadata and only native boolean verification", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  live.state.verified = false;
+  await live.tool("computer_type_text", { text: "private-payload-never-record" });
+  assert.deepEqual(live.diagnostics, [
+    { event: "native_tool", tool: "computer_get_desktop_state", outcome: "ok" },
+    { event: "native_tool", tool: "computer_type_text", outcome: "ok", verified: false },
+    { event: "tool", tool: "computer_type_text", outcome: "ok" },
+  ]);
+  live.diagnostics.length = 0;
+  live.state.errorNext = "private-native-error-never-record";
+  await live.tool("computer_type_text", { text: "private-payload-never-record" });
+  assert.deepEqual(live.diagnostics, [
+    { event: "native_tool", tool: "computer_get_desktop_state", outcome: "error" },
+    { event: "tool", tool: "computer_type_text", outcome: "error" },
+  ]);
+  live.diagnostics.length = 0;
+  await live.tool("private-unknown-tool-never-record", {});
+  assert.deepEqual(live.diagnostics, []);
+});
+
+test("diagnostics do not infer verification or interfere with native actions", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  live.state.verified = "private-nonboolean-never-record";
+  await live.tool("computer_press_key", { key: "return" });
+  assert.equal(
+    live.diagnostics.some((event) => "verified" in event),
+    false,
+  );
+  const brokenSink = fixture({
+    recordDiagnostic: () => {
+      throw new Error("sink unavailable");
+    },
+  });
+  brokenSink.bridge.startSession();
+  assert.equal((await brokenSink.tool("computer_press_key", { key: "return" })).ok, true);
 });
 
 test("opening an app activates the launched process before the next keyboard action", async () => {
