@@ -36,6 +36,42 @@ test("redacts credentials before local persistence", () => {
   assert.equal(redact("api_key=abcdefghijklmnopq"), "api_key=[credential removed]");
 });
 
+for (const source of ["codex", "cursor"])
+  test(`${source} trajectory scans skip non-object records and retain subsequent messages`, async (t) => {
+    const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ditto-memory-records-"));
+    t.after(() => fsp.rm(root, { recursive: true, force: true }));
+    const logs = path.join(root, "agent-transcripts");
+    await fsp.mkdir(logs);
+    const messages = [
+      ["user", "Inspect the synthetic café fixture."],
+      ["assistant", "The synthetic fixture is unchanged. ✓"],
+    ];
+    const records = messages.map(([role, text]) =>
+      source === "codex"
+        ? { type: "response_item", payload: { type: "message", role, content: text } }
+        : { role, message: { content: text } },
+    );
+    await fsp.writeFile(
+      path.join(logs, "fixture.jsonl"),
+      ["{invalid", "null", "true", "42", "[]", '"diagnostic"', ...records.map(JSON.stringify)].join(
+        "\n",
+      ),
+    );
+    const store = new MemoryStore(path.join(root, "data"));
+    t.after(() => store.close());
+    const options = { roots: [], trajectoryRoots: [[source, logs]] };
+    assert.equal((await store.scan(options))[source], 2);
+    assert.deepEqual(
+      store.db
+        .prepare("SELECT role, body FROM docs ORDER BY part")
+        .all()
+        .map(({ role, body }) => [role, body]),
+      messages,
+    );
+    assert.equal(store.search("synthetic fixture").length, 2);
+    assert.equal((await store.scan(options))[source], 0);
+  });
+
 test("scans CommonJS source into searchable, exportable local memory", async (t) => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "ditto-commonjs-memory-"));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));

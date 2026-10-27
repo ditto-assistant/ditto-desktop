@@ -98,6 +98,7 @@ function parseTrajectoryLine(source, line) {
   } catch {
     return null;
   }
+  if (!record || typeof record !== "object" || Array.isArray(record)) return null;
   if (source === "codex") {
     if (record.type !== "response_item" || record.payload?.type !== "message") return null;
     const role = record.payload.role;
