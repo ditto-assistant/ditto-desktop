@@ -1170,6 +1170,7 @@ body.ditto-code-tools-open .v2-main-content {
   padding: 16px;
 }
 .ditto-code-activity-panel h2 {
+  font-family: var(--font-brand);
   font-size: 13px;
   font-weight: 550;
   margin: 0 0 16px;
