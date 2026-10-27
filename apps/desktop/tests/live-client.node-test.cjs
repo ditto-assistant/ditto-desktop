@@ -586,6 +586,43 @@ test("one bounded reconnect resumes, a second drop ends the session", async (t) 
   );
 });
 
+test("reconnect discards old queued input and keeps late results off the new socket", async (t) => {
+  const { session, live, socket: first } = await startSession(t);
+  first.serve({ type: "session_started", resumeToken: "r1" });
+  await settle();
+  const gate = deferred();
+  const started = [];
+  live.tool = (name) => {
+    if (name.startsWith("computer_")) {
+      started.push(name);
+      return name === "computer_click" ? gate.promise : Promise.resolve({ ok: true });
+    }
+    return Promise.resolve({ ok: true });
+  };
+  first.serve({ type: "client_tool_call", id: "old-click", name: "computer_click", args: {} });
+  first.serve({ type: "client_tool_call", id: "old-type", name: "computer_type_text", args: {} });
+  await settle();
+  first.close();
+  t.mock.timers.tick(750);
+  await settle();
+  const second = FakeSocket.all[1];
+  second.serve({ type: "session_started", resumed: true });
+  await settle();
+  second.serve({ type: "client_tool_call", id: "new-key", name: "computer_press_key", args: {} });
+  await settle();
+  gate.resolve({ ok: true, result: "old click completed" });
+  await settle();
+  assert.deepEqual(started, ["computer_click", "computer_press_key"]);
+  assert.deepEqual(
+    second.sent
+      .filter((message) => message.type === "client_tool_result")
+      .map((message) => message.id),
+    ["new-key"],
+  );
+  assert.equal(session.state, "thinking");
+  await session.stop();
+});
+
 test("stop sends stop_session, releases everything, and answers parked calls", async (t) => {
   const { session, live, audio } = await startSession(t, {});
   const socket = FakeSocket.all[0];

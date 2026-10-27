@@ -57,6 +57,7 @@ export function createLiveSession({
   // Context notes are the only thing worth replaying after a reconnect; stale
   // audio and frames are not, and tool results belong to the old connection.
   let pendingContext = null;
+  let runner = null;
 
   function setState(next) {
     if (errorTimer && next !== "error") {
@@ -82,7 +83,7 @@ export function createLiveSession({
   // After an action or server work the model is busy until it speaks again.
   function settle() {
     if (!active || stopping) return;
-    if (runner.isBusy()) setState("acting");
+    if (runner?.isBusy()) setState("acting");
     else if (audio.playbackRemainingMs() > 0) setState("speaking");
     else setState("listening");
   }
@@ -117,27 +118,31 @@ export function createLiveSession({
     clearInterval: (id) => timers.clearInterval(id),
   });
 
-  const runner = createToolRunner({
-    tool: (name, args) => live.tool(name, args),
-    respond: (id, outcome) => {
-      if (!send(clientToolResultMessage(id, outcome))) log("tool result dropped", id);
-    },
-    afterAction: () =>
-      new Promise((resolve) => {
-        const timer = timers.setTimeout(resolve, POST_ACTION_FRAME_MS);
-        void frames.captureNow().then(() => {
-          timers.clearTimeout(timer);
-          resolve();
+  function createRunner(socket) {
+    const nextRunner = createToolRunner({
+      tool: (name, args) => live.tool(name, args),
+      respond: (id, outcome) => replyOn(socket)(clientToolResultMessage(id, outcome)),
+      afterAction: () => {
+        if (ws !== socket || !isOpen()) return;
+        return new Promise((resolve) => {
+          const timer = timers.setTimeout(resolve, POST_ACTION_FRAME_MS);
+          void frames.captureNow().then(() => {
+            timers.clearTimeout(timer);
+            resolve();
+          });
         });
-      }),
-    onBusyChange: (busy) => {
-      frames.noteActivity();
-      if (busy) setState("acting");
-      else if (active && !stopping) setState("thinking");
-    },
-    setTimeout: (fn, ms) => timers.setTimeout(fn, ms),
-    clearTimeout: (id) => timers.clearTimeout(id),
-  });
+      },
+      onBusyChange: (busy) => {
+        if (runner !== nextRunner) return;
+        frames.noteActivity();
+        if (busy) setState("acting");
+        else if (active && !stopping) setState("thinking");
+      },
+      setTimeout: (fn, ms) => timers.setTimeout(fn, ms),
+      clearTimeout: (id) => timers.clearTimeout(id),
+    });
+    return nextRunner;
+  }
 
   const actions = createClientActions({
     tool: (name, args) => live.tool(name, args),
@@ -253,6 +258,7 @@ export function createLiveSession({
       }),
     );
     ws = socket;
+    runner = createRunner(socket);
     established = false;
     socket.onmessage = (event) => {
       if (ws !== socket) return;
@@ -266,6 +272,10 @@ export function createLiveSession({
       if (ws !== socket) return;
       ws = null;
       established = false;
+      // The server resolves calls from a lost connection. Discard its queued
+      // input, and keep its in-flight completion bound to the old socket.
+      runner.close();
+      runner = null;
       actions.pause();
       if (!active || stopping) return;
       log("socket closed", event && event.code);
@@ -302,7 +312,6 @@ export function createLiveSession({
     stopping = false;
     reconnectUsed = false;
     resumeToken = "";
-    runner.open();
     setState("connecting");
     try {
       config = await live.session();
@@ -330,7 +339,7 @@ export function createLiveSession({
     }
     speakingTimer = reconnectTimer = errorTimer = thinkingTimer = null;
     // Answer queued tool calls while the socket can still carry the results.
-    runner.close();
+    runner?.close();
     actions.pause();
     frames.stop();
     watcher.stop();
