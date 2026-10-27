@@ -192,6 +192,7 @@ export function createLiveSession({
   function handle(message) {
     switch (message.type) {
       case "session_started":
+        record({ event: "capability", ...message.desktopComputer });
         established = true;
         reconnectUsed = false;
         if (message.resumeToken) resumeToken = message.resumeToken;

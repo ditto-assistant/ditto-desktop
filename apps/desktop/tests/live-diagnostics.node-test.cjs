@@ -33,6 +33,7 @@ test("diagnostics retain only fixed metadata and exclude private payload fields"
   );
   const examples = [
     { event: "state", state: "acting", generation: 2 },
+    { event: "capability", status: "available", count: 2, generation: 2 },
     { event: "socket_close", code: 1006, generation: 2 },
     { event: "error", errorClass: "server", generation: 2 },
     { event: "stop", source: "session_ended", generation: 2 },
@@ -60,6 +61,39 @@ test("diagnostics retain only fixed metadata and exclude private payload fields"
     assert.equal(sanitizeLiveDiagnostic(entry), null);
   assert.equal(liveDiagnosticStopSource(`error: ${privatePayload}`), "error");
   assert.equal(liveDiagnosticStopSource(privatePayload), "other");
+});
+
+test("capability metadata cannot retain raw lists or inconsistent counts", () => {
+  const entry = { event: "capability", status: "available", count: 1, generation: 2 };
+  assert.deepEqual(
+    sanitizeLiveDiagnostic({
+      ...entry,
+      tools: ["private-tool-name"],
+      config: "private",
+      flags: "private",
+    }),
+    entry,
+  );
+  for (const invalid of [
+    { ...entry, count: -1 },
+    { ...entry, count: 9 },
+    { ...entry, count: "1" },
+    { ...entry, count: 0 },
+    { ...entry, status: "unknown" },
+    { ...entry, status: "unavailable" },
+    { ...entry, status: "private" },
+  ])
+    assert.equal(sanitizeLiveDiagnostic(invalid), null);
+  assert.deepEqual(sanitizeLiveDiagnostic({ ...entry, status: "unknown", count: 0 }), {
+    ...entry,
+    status: "unknown",
+    count: 0,
+  });
+  assert.deepEqual(sanitizeLiveDiagnostic({ ...entry, status: "unavailable", count: 0 }), {
+    ...entry,
+    status: "unavailable",
+    count: 0,
+  });
 });
 
 test("the local diagnostic file is owner-only and retains a bounded sanitized tail", (t) => {

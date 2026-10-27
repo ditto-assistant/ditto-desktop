@@ -55,6 +55,7 @@ test("protocol parses server frames and drops malformed or unanswerable ones", a
     type: "session_started",
     resumed: false,
     resumeToken: "r",
+    desktopComputer: { status: "unknown", count: 0 },
   });
   assert.deepEqual(
     parseServerMessage(
@@ -100,6 +101,51 @@ test("protocol parses server frames and drops malformed or unanswerable ones", a
   });
   assert.equal(isFatalServerError("Your balance is depleted"), true);
   assert.equal(isFatalServerError("Model hiccup"), false);
+});
+
+test("desktop capability attestation strictly distinguishes unknown, unavailable and partial", async () => {
+  const { parseServerMessage } = await client("protocol");
+  const capability = (desktopComputer) =>
+    parseServerMessage({ type: "session_started", desktopComputer }).desktopComputer;
+  assert.deepEqual(capability({ version: 1, tools: [] }), { status: "unavailable", count: 0 });
+  assert.deepEqual(
+    capability({
+      version: 1,
+      tools: ["computer_open_app", "computer_get_state", "computer_open_app"],
+      token: "private",
+    }),
+    { status: "available", count: 2 },
+  );
+  assert.deepEqual(
+    capability({
+      version: 1,
+      tools: [
+        "computer_click",
+        "computer_type_text",
+        "computer_press_key",
+        "computer_scroll",
+        "computer_drag",
+        "computer_open_app",
+        "computer_get_state",
+        "ditto_app",
+      ],
+    }),
+    { status: "available", count: 8 },
+  );
+  for (const invalid of [
+    undefined,
+    null,
+    [],
+    {},
+    { version: "1", tools: [] },
+    { version: 2, tools: [] },
+    { version: 1, tools: "private" },
+    { version: 1, tools: ["private-unknown-tool"] },
+    { version: 1, tools: ["computer_click", 7] },
+    { version: 1, tools: Array(9).fill("computer_click") },
+  ]) {
+    assert.deepEqual(capability(invalid), { status: "unknown", count: 0 });
+  }
 });
 
 test("pcm converts, clips and round-trips through base64", async () => {

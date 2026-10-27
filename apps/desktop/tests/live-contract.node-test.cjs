@@ -313,11 +313,13 @@ class ContractSocket {
   }
 }
 
-async function connected(t) {
+async function connected(t, desktopComputer) {
   t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const { createLiveSession } = await modules.session();
   const fixture = bridgeFixture();
   fixture.bridge.startSession();
+  const diagnostics = [];
+  fixture.live.diagnostic = (entry) => diagnostics.push(entry);
   const audio = {
     async start() {},
     stop() {
@@ -331,9 +333,11 @@ async function connected(t) {
   const session = createLiveSession({ live: fixture.live, audio, WebSocket: ContractSocket });
   await session.start();
   const socket = ContractSocket.current;
-  socket.serve(serverFrame({ type: "session_started", sessionId: "rt-1", resumeToken: "" }));
+  socket.serve(
+    serverFrame({ type: "session_started", sessionId: "rt-1", resumeToken: "", desktopComputer }),
+  );
   await settle();
-  return { ...fixture, session, socket, audio };
+  return { ...fixture, session, socket, audio, diagnostics };
 }
 
 // One desktop tool call exactly as relayGeminiBrowser + parkRealtimeClientTool
@@ -541,4 +545,20 @@ test("every frame the client sends decodes as a Go clientMessage", async (t) => 
   const types = new Set(socket.raw.map((raw) => goDecodeClientMessage(raw).type));
   for (const type of ["image", "client_tool_result", "stop_session"])
     assert.ok(types.has(type), `sent ${type}`);
+});
+
+test("an explicit unavailable handshake is recorded without changing action dispatch", async (t) => {
+  const { diagnostics, session, socket } = await connected(t, { version: 1, tools: [] });
+  assert.ok(
+    diagnostics.some(
+      (entry) =>
+        entry.event === "capability" &&
+        entry.status === "unavailable" &&
+        entry.count === 0 &&
+        entry.generation === 1,
+    ),
+  );
+  const result = await roundTrip(socket, "computer_get_state", {});
+  assert.equal(result.outcome.OK, true);
+  await session.stop();
 });

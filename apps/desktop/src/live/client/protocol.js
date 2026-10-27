@@ -38,6 +38,34 @@ export function clientToolResultMessage(id, outcome) {
 
 const str = (value) => (typeof value === "string" ? value : "");
 
+const DESKTOP_COMPUTER_TOOLS = new Set([
+  "computer_click",
+  "computer_type_text",
+  "computer_press_key",
+  "computer_scroll",
+  "computer_drag",
+  "computer_open_app",
+  "computer_get_state",
+  "ditto_app",
+]);
+
+function desktopComputerCapability(value) {
+  const unknown = { status: "unknown", count: 0 };
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    value.version !== 1 ||
+    !Array.isArray(value.tools) ||
+    value.tools.length > DESKTOP_COMPUTER_TOOLS.size
+  )
+    return unknown;
+  const tools = new Set(value.tools);
+  if ([...tools].some((tool) => !DESKTOP_COMPUTER_TOOLS.has(tool))) return unknown;
+  const count = tools.size;
+  return { status: count > 0 ? "available" : "unavailable", count };
+}
+
 // Normalizes one server frame into a small tagged object, or null for frames
 // that are malformed or that this client does not act on.
 export function parseServerMessage(raw) {
@@ -54,6 +82,7 @@ export function parseServerMessage(raw) {
         type: "session_started",
         resumed: data.resumed === true,
         resumeToken: str(data.resumeToken),
+        desktopComputer: desktopComputerCapability(data.desktopComputer),
       };
     case "session_resumption_ready":
       return str(data.resumeToken)

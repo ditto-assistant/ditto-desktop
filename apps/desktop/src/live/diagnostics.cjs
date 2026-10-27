@@ -86,6 +86,17 @@ function sanitizeLiveDiagnostic(input) {
     return null;
   let entry;
   switch (input.event) {
+    case "capability":
+      if (
+        !["available", "unavailable", "unknown"].includes(input.status) ||
+        !Number.isInteger(input.count) ||
+        input.count < 0 ||
+        input.count > 8 ||
+        (input.status === "available" ? input.count === 0 : input.count !== 0)
+      )
+        return null;
+      entry = { event: "capability", status: input.status, count: input.count };
+      break;
     case "state":
       if (!STATES.has(input.state)) return null;
       entry = { event: "state", state: input.state };
