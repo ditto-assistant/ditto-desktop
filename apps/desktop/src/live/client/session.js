@@ -58,6 +58,15 @@ export function createLiveSession({
   // audio and frames are not, and tool results belong to the old connection.
   let pendingContext = null;
   let runner = null;
+  let connectionGeneration = 0;
+
+  function record(entry) {
+    try {
+      live.diagnostic?.({ ...entry, generation: connectionGeneration });
+    } catch {
+      // Diagnostics cannot prevent normal call handling.
+    }
+  }
 
   function setState(next) {
     if (errorTimer && next !== "error") {
@@ -76,6 +85,7 @@ export function createLiveSession({
       }, THINKING_MAX_MS);
     }
     state = next;
+    record({ event: "state", state: next });
     onState(next);
     live.setState(next);
   }
@@ -237,6 +247,7 @@ export function createLiveSession({
         void teardown("resume_unavailable", true);
         break;
       case "error":
+        record({ event: "error", errorClass: "server" });
         log("server error", message.message);
         if (!established || isFatalServerError(message.message)) {
           void teardown(`error: ${message.message}`, true);
@@ -248,6 +259,8 @@ export function createLiveSession({
   }
 
   function connect() {
+    connectionGeneration++;
+    record({ event: "state", state: "connecting" });
     const socket = new Socket(
       buildWsUrl({
         wsUrl: config.wsUrl,
@@ -270,6 +283,7 @@ export function createLiveSession({
     };
     socket.onclose = (event) => {
       if (ws !== socket) return;
+      record({ event: "socket_close", code: event?.code });
       ws = null;
       established = false;
       // The server resolves calls from a lost connection. Discard its queued
@@ -301,6 +315,7 @@ export function createLiveSession({
       config = { ...fresh, sessionId: config.sessionId };
       connect();
     } catch (error) {
+      record({ event: "error", errorClass: "reconnect" });
       log("reconnect failed", error);
       void teardown("disconnected", true);
     }
@@ -326,6 +341,7 @@ export function createLiveSession({
       }
       connect();
     } catch (error) {
+      record({ event: "error", errorClass: "start" });
       log("start failed", error);
       await teardown(`error: ${error && error.message ? error.message : "start failed"}`, true);
     }
@@ -334,6 +350,20 @@ export function createLiveSession({
   async function teardown(reason, failed = false) {
     if (!active || stopping) return;
     stopping = true;
+    const source = [
+      "user",
+      "command",
+      "window_closed",
+      "destroyed",
+      "session_ended",
+      "resume_unavailable",
+      "disconnected",
+    ].includes(reason)
+      ? reason
+      : typeof reason === "string" && reason.startsWith("error:")
+        ? "error"
+        : "other";
+    record({ event: "stop", source });
     for (const timer of [speakingTimer, reconnectTimer, errorTimer, thinkingTimer]) {
       if (timer) timers.clearTimeout(timer);
     }
@@ -376,6 +406,7 @@ export function createLiveSession({
     established = false;
     if (failed) {
       state = "error";
+      record({ event: "state", state: "error" });
       onState("error");
       live.setState("error");
     }

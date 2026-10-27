@@ -19,6 +19,7 @@ ipcRenderer.on("ditto-live:command", (_event, command) => {
 
 // Contract 2 in docs/ditto/live-mode.md.
 contextBridge.exposeInMainWorld("dittoLive", {
+  diagnostic: (entry) => ipcRenderer.send("ditto-live:diagnostic", entry),
   session: () => ipcRenderer.invoke("ditto-live:session"),
   captureScreen: (opts) => ipcRenderer.invoke("ditto-live:capture", opts),
   frontmost: () => ipcRenderer.invoke("ditto-live:frontmost"),

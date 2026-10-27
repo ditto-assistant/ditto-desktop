@@ -683,6 +683,40 @@ test("server session_ended and fatal errors tear down; others only flash", async
   assert.equal(live.calls.findLast((c) => c[0] === "stop")[1], "error: Your balance is depleted");
 });
 
+test("lifecycle diagnostics identify socket generation and stop class without server text", async (t) => {
+  const { session, live, socket: first } = await startSession(t);
+  const entries = [];
+  live.diagnostic = (entry) => entries.push(entry);
+  first.serve({ type: "session_started", resumeToken: "private-resume-token" });
+  first.serve({ type: "error", message: "private-server-payload" });
+  first.close();
+  t.mock.timers.tick(750);
+  await settle();
+  const second = FakeSocket.all[1];
+  second.serve({ type: "session_started", resumed: true });
+  second.serve({ type: "session_ended", reason: "private-stop-reason" });
+  await settle();
+  assert.ok(
+    entries.some(
+      (entry) => entry.event === "socket_close" && entry.code === 1006 && entry.generation === 1,
+    ),
+  );
+  assert.ok(
+    entries.some(
+      (entry) => entry.event === "state" && entry.state === "connecting" && entry.generation === 2,
+    ),
+  );
+  assert.ok(entries.some((entry) => entry.event === "error" && entry.errorClass === "server"));
+  assert.ok(
+    entries.some(
+      (entry) =>
+        entry.event === "stop" && entry.source === "session_ended" && entry.generation === 2,
+    ),
+  );
+  assert.equal(JSON.stringify(entries).includes("private"), false);
+  assert.equal(session.active, false);
+});
+
 test("mute stops sending mic audio and feeds the idle frame pause", async (t) => {
   const { session, audio, socket } = await startSession(t);
   socket.serve({ type: "session_started" });

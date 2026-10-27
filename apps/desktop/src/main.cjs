@@ -37,6 +37,11 @@ const { EngineMaintenance } = require("./maintenance.cjs");
 const { DesktopDevices } = require("./devices.cjs");
 const { createAuraWindow } = require("./live/aura-window.cjs");
 const {
+  createLiveDiagnostics,
+  registerLiveDiagnosticIPC,
+  liveDiagnosticStopSource,
+} = require("./live/diagnostics.cjs");
+const {
   createLiveController,
   createTokenRequester,
   liveStopNotice,
@@ -123,6 +128,14 @@ function errorMessage(error) {
 }
 
 function setupLive() {
+  const diagnostics = createLiveDiagnostics(
+    path.join(app.getPath("logs"), "live-diagnostics.json"),
+  );
+  registerLiveDiagnosticIPC({
+    ipcMain,
+    getAuraWindow: () => aura?.window,
+    record: diagnostics.record,
+  });
   aura = createAuraWindow({
     getSetting: (key, fallback) => store.getSetting(key, fallback),
     setSetting: (key, value) => store.setSetting(key, value),
@@ -165,10 +178,12 @@ function setupLive() {
           sessionId: LIVE_CHAT_SESSION,
         }),
         emit,
+        recordDiagnostic: diagnostics.record,
       });
       // The controller is already idle when close() disposes the bridge, so the
       // onStop that dispose fires is a no-op rather than a second stop.
       liveBridge.onStop((reason) => {
+        diagnostics.record({ event: "stop", source: liveDiagnosticStopSource(reason) });
         void live.stop("aura");
         const notice = liveStopNotice(reason);
         if (notice) showLiveNotice("Live stopped", notice);
@@ -178,7 +193,8 @@ function setupLive() {
     },
     // Disposing first lets the bridge send `stop` to the aura and end its
     // Computer Use session, which removes the cursor, before the window goes.
-    close: () => {
+    close: (reason) => {
+      diagnostics.record({ event: "stop", source: liveDiagnosticStopSource(reason) });
       const bridge = liveBridge;
       liveBridge = null;
       bridge?.dispose();
