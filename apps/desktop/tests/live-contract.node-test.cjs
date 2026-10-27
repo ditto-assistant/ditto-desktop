@@ -141,6 +141,10 @@ const CMUX = {
   },
   computer_launch_app(args) {
     assert.equal(typeof args.name, "string");
+    assert.match(args.display, /^id:\d+$/);
+  },
+  computer_bring_to_front(args) {
+    assert.ok(isInt(args.pid) && args.pid > 0);
   },
 };
 
@@ -202,6 +206,8 @@ function bridgeFixture() {
         };
       if (name === "computer_list_windows")
         return { structuredContent: { windows: [{ ...window, title: "Notes" }] } };
+      if (name === "computer_launch_app")
+        return { structuredContent: { pid: 77 }, content: [{ type: "text", text: "Launched." }] };
       return { content: [{ type: "text", text: `${name} done` }] };
     },
   };

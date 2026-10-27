@@ -241,6 +241,9 @@ function registerLiveBridge({
   let liveState = "idle";
   let display = null;
   let frontCache = null;
+  // Undefined follows ordinary foreground input; null blocks input while an
+  // explicit app switch has not established its requested target.
+  let keyboardAppPid;
   let titles = { at: 0, byPid: new Map(), refreshing: false };
 
   // Accepted tools belong to one Live session, including across async app lookups.
@@ -444,13 +447,20 @@ function registerLiveBridge({
   // ComputerService refuses input after an action with an unverifiable outcome
   // (every desktop-scope click) until a desktop screenshot is observed. Observe
   // lazily before the next action, never by retrying the action itself.
-  async function act(name, args, owner) {
+  async function performAction(name, args, owner) {
     if (needsObserve) {
       observation = (await call("computer_get_desktop_state", {}, owner)).structuredContent;
       needsObserve = false;
     }
     needsObserve = true;
-    return resultText(await call(name, typeof args === "function" ? args() : args, owner));
+    const result = await call(name, typeof args === "function" ? await args() : args, owner);
+    checkOwner(owner);
+    if (name === "computer_click" || name === "computer_double_click") keyboardAppPid = undefined;
+    return result;
+  }
+
+  async function act(name, args, owner) {
+    return resultText(await performAction(name, args, owner));
   }
 
   function screenPoint(x, y) {
@@ -486,8 +496,17 @@ function registerLiveBridge({
   }
 
   async function frontPid() {
+    if (keyboardAppPid === null)
+      throw new LiveToolError("The requested app is not in front. Open it again before typing.");
+    // Polling may reuse a short-lived cache; input must resolve its target
+    // after observation, since a click or user app switch may have changed it.
+    frontCache = null;
     const front = await frontApp();
     if (front.pid === undefined) throw new LiveToolError("No app is in front to receive input.");
+    if (keyboardAppPid !== undefined && front.pid !== keyboardAppPid)
+      throw new LiveToolError(
+        "The requested app is no longer in front. Open it again before typing.",
+      );
     return front.pid;
   }
 
@@ -504,11 +523,13 @@ function registerLiveBridge({
         app.focus?.({ steal: true });
         needsObserve = true;
         frontCache = null;
+        keyboardAppPid = undefined;
         return "Ditto is in front.";
       case "hide":
         window.hide();
         needsObserve = true;
         frontCache = null;
+        keyboardAppPid = undefined;
         return "Ditto is hidden.";
       case "navigate": {
         const route = routeFor(target);
@@ -631,7 +652,11 @@ function registerLiveBridge({
       case "computer_type_text":
         if (typeof input.text !== "string" || !input.text || input.text.length > 10000)
           throw new LiveToolError("Type text under 10,000 characters.");
-        return act("computer_type_text", { pid: await frontPid(), text: input.text }, owner);
+        return act(
+          "computer_type_text",
+          async () => ({ pid: await frontPid(), text: input.text }),
+          owner,
+        );
       case "computer_press_key": {
         if (typeof input.key !== "string" || !/^[\w+\-=[\];',./`\\ ]{1,24}$/.test(input.key))
           throw new LiveToolError("Use a key name such as return, tab, escape or a.");
@@ -642,11 +667,11 @@ function registerLiveBridge({
         });
         return act(
           "computer_press_key",
-          {
+          async () => ({
             pid: await frontPid(),
             key: input.key.toLowerCase(),
             ...(modifiers.length ? { modifiers } : {}),
-          },
+          }),
           owner,
         );
       }
@@ -689,11 +714,31 @@ function registerLiveBridge({
           owner,
         );
       }
-      case "computer_open_app":
+      case "computer_open_app": {
         if (typeof input.name !== "string" || !/^[\p{L}\p{N}_ .&'()+-]{1,80}$/u.test(input.name))
           throw new LiveToolError("Name the app to open.");
+        keyboardAppPid = null;
+        // The helper deliberately launches in the background and defaults new
+        // windows to a secondary display. Live promises a visible app switch.
+        const launched = await performAction(
+          "computer_launch_app",
+          { name: input.name, display: `id:${currentDisplay().id}` },
+          owner,
+        );
+        const targetPid = launched.structuredContent?.pid;
+        if (!Number.isInteger(targetPid) || targetPid <= 0)
+          throw new LiveToolError("The opened app did not return a valid process to activate.");
+        const result = await act("computer_bring_to_front", { pid: targetPid }, owner);
         frontCache = null;
-        return act("computer_launch_app", { name: input.name }, owner);
+        const front = await frontApp();
+        checkOwner(owner);
+        if (front.pid !== targetPid)
+          throw new LiveToolError(
+            "The requested app did not come to the front. Open it again before typing.",
+          );
+        keyboardAppPid = targetPid;
+        return result;
+      }
       case "computer_get_state": {
         const target = currentDisplay();
         return {
@@ -775,6 +820,7 @@ function registerLiveBridge({
     generation += 1;
     active = true;
     frontCache = null;
+    keyboardAppPid = undefined;
     watchMainWindow();
     setState("connecting");
     display = null;

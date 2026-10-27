@@ -99,6 +99,8 @@ function fixture({
     errorNext: null,
     frontPid: 77,
     desktop: { screenshot_width: 3024, screen_width: 1512 },
+    launchedPid: 88,
+    activate: true,
   };
   // Mirrors ComputerService's barrier: an unverifiable action blocks input
   // until a desktop screenshot is observed.
@@ -128,6 +130,12 @@ function fixture({
       }
       if (name === "computer_list_windows") return { structuredContent: { windows } };
       if (unverified) return { isError: true, content: [{ type: "text", text: "barrier" }] };
+      if (name === "computer_launch_app")
+        return {
+          content: [{ type: "text", text: "Launched app in background." }],
+          structuredContent: { pid: state.launchedPid },
+        };
+      if (name === "computer_bring_to_front" && state.activate) state.frontPid = args.pid;
       unverified = true;
       return {
         content: [{ type: "text", text: `${name} done` }],
@@ -291,7 +299,10 @@ test("an in-flight app lookup cannot type into a later Live session", async (t) 
   live.bridge.startSession();
   release.resolve();
   assert.equal((await typing).ok, false);
-  assert.equal(live.calls.length, 0);
+  assert.deepEqual(
+    live.calls.map(([name]) => name),
+    ["computer_get_desktop_state"],
+  );
   assert.equal(
     (await live.tool("computer_type_text", { text: "Synthetic current input" })).ok,
     true,
@@ -428,6 +439,70 @@ test("keyboard input goes to the frontmost app and validates its arguments", asy
   assert.deepEqual(bad, { ok: false, error: "Use modifiers cmd, shift, option, ctrl or fn." });
   assert.equal((await live.tool("computer_type_text", { text: "" })).ok, false);
   assert.equal((await live.tool("nope", {})).ok, false);
+});
+
+test("opening an app activates the launched process before the next keyboard action", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  await live.invoke("capture");
+  await live.invoke("frontmost");
+  const opened = await live.tool("computer_open_app", { name: "Google Chrome" });
+  assert.equal(opened.ok, true);
+  assert.deepEqual(
+    live.calls.filter(([name]) => name !== "computer_get_desktop_state"),
+    [
+      ["computer_launch_app", { name: "Google Chrome", display: "id:1" }],
+      ["computer_bring_to_front", { pid: 88 }],
+    ],
+  );
+  await live.tool("computer_press_key", { key: "l", modifiers: ["cmd"] });
+  assert.equal(live.calls.at(-1)[1].pid, 88);
+});
+
+test("opening an app without a valid launched PID cannot report foreground success", async () => {
+  const live = fixture();
+  live.state.launchedPid = undefined;
+  live.bridge.startSession();
+  const opened = await live.tool("computer_open_app", { name: "Google Chrome" });
+  assert.equal(opened.ok, false);
+  assert.match(opened.error, /process/);
+  assert.equal(
+    live.calls.some(([name]) => name === "computer_bring_to_front"),
+    false,
+  );
+});
+
+test("an activation that leaves another app in front fails and prevents dependent typing", async () => {
+  const live = fixture();
+  live.state.activate = false;
+  live.bridge.startSession();
+  const opened = await live.tool("computer_open_app", { name: "Google Chrome" });
+  assert.equal(opened.ok, false);
+  assert.match(opened.error, /front/);
+  const typed = await live.tool("computer_type_text", { text: "YouTube.com" });
+  assert.equal(typed.ok, false);
+  assert.equal(
+    live.calls.some(([name]) => name === "computer_type_text"),
+    false,
+  );
+});
+
+test("keyboard input cannot use a cached app or type after the opened app loses focus", async () => {
+  const live = fixture();
+  live.bridge.startSession();
+  await live.invoke("frontmost");
+  live.state.frontPid = 89;
+  await live.tool("computer_type_text", { text: "hello" });
+  assert.equal(live.calls.at(-1)[1].pid, 89);
+  assert.equal((await live.tool("computer_open_app", { name: "Google Chrome" })).ok, true);
+  live.state.frontPid = 99;
+  const key = await live.tool("computer_press_key", { key: "l", modifiers: ["cmd"] });
+  assert.equal(key.ok, false);
+  assert.match(key.error, /front/);
+  assert.equal(
+    live.calls.some(([name]) => name === "computer_press_key"),
+    false,
+  );
 });
 
 test("one computer session per live session, closed on stop and on Computer Use disable", async () => {
