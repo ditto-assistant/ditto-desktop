@@ -530,7 +530,8 @@
       browserPage.querySelector("#db-address").value = state.url;
     browserPage.querySelector("#db-back").disabled = !state.canGoBack;
     browserPage.querySelector("#db-forward").disabled = !state.canGoForward;
-    if (state.url) browserPage.querySelector("#db-status").textContent = state.title || state.url;
+    if (state.url || state.error)
+      browserPage.querySelector("#db-status").textContent = state.error || state.title || state.url;
   }
   new ResizeObserver(() => {
     if (
