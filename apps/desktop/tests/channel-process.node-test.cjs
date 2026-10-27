@@ -6,6 +6,100 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 
+for (const service of ["discord", "telegram"])
+  test(`${service} ignores non-object component output and processes the next reply`, async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ditto-channel-protocol-"));
+    const script = path.join(root, "component.cjs");
+    fs.writeFileSync(
+      script,
+      `
+const input = require("node:readline").createInterface({ input: process.stdin });
+process.stdout.on("error", () => process.exit(0));
+input.on("line", line => {
+  const { id, method } = JSON.parse(line);
+  if (method === "status") {
+    for (const noise of ['{invalid', 'null', 'true', '42', '[]', '"diagnostic text"']) console.log(noise);
+    console.log(JSON.stringify({event: "connection.ready", data: {connected: true}}));
+    console.log(JSON.stringify({id, result: {configured: true, connected: true}}));
+  } else if (method === "conversations.list") {
+    console.log(JSON.stringify({id, result: [{id: "qa-room", title: "Synthetic café ✓"}]}));
+  }
+});
+input.on("close", () => process.exit(0));
+`,
+    );
+    fs.writeFileSync(
+      path.join(root, `ditto-${service}-sidecar`),
+      `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)}\n`,
+      { mode: 0o700 },
+    );
+    const worker = spawn(
+      process.execPath,
+      [
+        "-e",
+        `
+const assert = require("node:assert/strict");
+const {once} = require("node:events");
+const {LocalChannels} = require(process.argv[2]);
+const service = process.argv[3];
+const events = [];
+const channels = new LocalChannels(process.argv[1],process.argv[1], event => events.push(event));
+(async () => {
+  const child = channels.clients[service].ensureStarted();
+  process.send({type: "spawned", pid: child.pid});
+  const closed = once(child, "close").then(() => process.send({type: "reaped", pid: child.pid}));
+  try {
+    assert.equal((await channels.status(service)).connected, true);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].event, "connection.ready");
+    assert.deepEqual(await channels.conversations(service), [{id: "qa-room", title: "Synthetic café ✓"}]);
+    console.log("PROTOCOL_NOISE_RECOVERED");
+  } finally {
+    channels.close();
+    await closed;
+  }
+})().catch(error => { console.error(error); process.exitCode = 1; });
+`,
+        root,
+        path.resolve(__dirname, "../src/channels.cjs"),
+        service,
+      ],
+      {
+        env: { ...process.env, HOME: root, ELECTRON_RUN_AS_NODE: "1" },
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
+      },
+    );
+    const owned = new Set();
+    worker.on("message", ({ type, pid }) => {
+      if (type === "spawned") owned.add(pid);
+      if (type === "reaped") owned.delete(pid);
+    });
+    let output = "",
+      errors = "";
+    worker.stdout.on("data", (data) => {
+      output += data;
+    });
+    worker.stderr.on("data", (data) => {
+      errors += data;
+    });
+    t.after(async () => {
+      if (worker.exitCode === null && worker.signalCode === null) {
+        const closed = once(worker, "close");
+        worker.kill("SIGKILL");
+        await closed;
+      }
+      for (const pid of owned) {
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch {}
+      }
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    const [code] = await once(worker, "close");
+    assert.equal(code, 0, errors);
+    assert.match(output, /PROTOCOL_NOISE_RECOVERED/);
+  });
+
 for (const restart of [false, true])
   test(
     `a broken Discord component input pipe is recoverable (restart=${restart})`,

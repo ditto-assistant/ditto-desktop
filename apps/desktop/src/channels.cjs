@@ -39,6 +39,7 @@ class Sidecar {
       } catch {
         return;
       }
+      if (!message || typeof message !== "object" || Array.isArray(message)) return;
       if (!message.id) {
         if (typeof message.event === "string") this.onEvent(message);
         return;
