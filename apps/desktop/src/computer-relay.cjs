@@ -88,6 +88,8 @@ class ComputerRelay {
         let frame;
         try {
           frame = JSON.parse(data.toString());
+          if (!frame || typeof frame !== "object" || Array.isArray(frame))
+            throw new Error("Invalid cloud computer frame.");
         } catch {
           socket.terminate();
           return;

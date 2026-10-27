@@ -5,6 +5,79 @@ const { once } = require("node:events");
 const { randomUUID } = require("node:crypto");
 const { WebSocketServer } = require("ws");
 const { ComputerRelay } = require("../src/computer-relay.cjs");
+const { spawn } = require("node:child_process");
+const path = require("node:path");
+
+for (const ready of [false, true])
+  test(`non-object cloud frames disconnect safely (ready=${ready})`, async (t) => {
+    const worker = spawn(
+      process.execPath,
+      [
+        "-e",
+        `
+const assert=require("node:assert/strict");
+const {once}=require("node:events");
+const {randomUUID}=require("node:crypto");
+const {ComputerRelay}=require(process.argv[1]);
+const {WebSocketServer}=require(process.argv[2]);
+(async()=>{
+  for(const frame of [null,true,42,[],"diagnostic"]){
+    const server=new WebSocketServer({host:"127.0.0.1",port:0});
+    await once(server,"listening");
+    let created=0,closed=0,onDisconnected;
+    const relay=new ComputerRelay({apiBase:"http://127.0.0.1:"+server.address().port,onChange:status=>{if(!status.connected)onDisconnected?.();},service:{
+      enabled:true,createSession:async()=>{created++;return {tools:[],close:()=>closed++};}
+    }});
+    try{
+      const connected=relay.link("synthetic-cloud-fixture-token").then(value=>({value}),error=>({error}));
+      const [peer]=await once(server,"connection");
+      if(${ready}){
+        peer.send(JSON.stringify({type:"ready",leaseID:randomUUID()}));
+        assert.ok((await connected).value.connected);
+        const opened=once(peer,"message");
+        peer.send(JSON.stringify({id:randomUUID(),turnID:randomUUID(),method:"open",deadline:Math.floor(Date.now()/1000)+60}));
+        assert.ok(JSON.parse((await opened)[0]).result);
+      }
+      const disconnected=once(peer,"close");
+      const stopped=Promise.withResolvers();onDisconnected=stopped.resolve;
+      peer.send(JSON.stringify(frame));
+      await Promise.all([disconnected,stopped.promise]);
+      if(!${ready})assert.ok((await connected).error);
+      assert.equal(relay.status().connected,false);
+      assert.equal(relay.sessions.size,0);
+      assert.equal(created,${ready ? 1 : 0});assert.equal(closed,created);
+    }finally{
+      relay.stop();for(const peer of server.clients)peer.terminate();
+      await new Promise(resolve=>server.close(resolve));
+    }
+  }
+  console.log("NON_OBJECT_FRAMES_DISCONNECTED");
+})().catch(error=>{console.error(error);process.exitCode=1});
+`,
+        path.resolve(__dirname, "../src/computer-relay.cjs"),
+        require.resolve("ws"),
+      ],
+      { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let output = "",
+      errors = "";
+    worker.stdout.on("data", (data) => {
+      output += data;
+    });
+    worker.stderr.on("data", (data) => {
+      errors += data;
+    });
+    t.after(async () => {
+      if (worker.exitCode === null && worker.signalCode === null) {
+        const closed = once(worker, "close");
+        worker.kill("SIGKILL");
+        await closed;
+      }
+    });
+    const [code] = await once(worker, "close");
+    assert.equal(code, 0, errors);
+    assert.match(output, /NON_OBJECT_FRAMES_DISCONNECTED/);
+  });
 
 test("cloud relay binds tools to turns and closes capabilities on disconnect", async (t) => {
   const server = http.createServer();
