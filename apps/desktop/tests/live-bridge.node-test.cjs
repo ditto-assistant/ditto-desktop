@@ -73,7 +73,12 @@ function fakeWindow({ id, bounds = { x: 0, y: 0, width: 100, height: 100 }, prot
   };
 }
 
-function fixture({ cursor = { x: 10, y: 10 }, windows = [], enabled = true } = {}) {
+function fixture({
+  cursor = { x: 10, y: 10 },
+  windows = [],
+  enabled = true,
+  run: runOverride,
+} = {}) {
   const main = fakeWindow({ id: 1 });
   main.webContents.owner = main;
   const aura = fakeWindow({
@@ -188,6 +193,7 @@ function fixture({ cursor = { x: 10, y: 10 }, windows = [], enabled = true } = {
     pid: 4242,
     run: async (file, args) => {
       runs.push(args);
+      if (runOverride) return runOverride(file, args);
       if (args[0] === "front") return "ASN:0x0-0xf05f05:\n";
       return `"LSDisplayName"="Safari"\n"CFBundleIdentifier"="com.apple.Safari"\n"pid"=${state.frontPid}\n`;
     },
@@ -232,6 +238,65 @@ test("normalized coordinates map to global points on multi-display, retina setup
   assert.equal(desktopRatio(undefined, 2), 2);
   assert.throws(() => toScreenPoint(PRIMARY, 1001, 0), /0 to 1000/);
   assert.throws(() => toScreenPoint(PRIMARY, Number.NaN, 0), /0 to 1000/);
+});
+
+for (const restart of [false, true])
+  test(`Stop rejects an already queued Ditto action (restart=${restart})`, async (t) => {
+    const live = fixture();
+    t.after(() => live.bridge.dispose());
+    live.bridge.startSession();
+    const queued = live.tool("ditto_app", { action: "hide" });
+    live.bridge.stopSession("user");
+    if (restart) live.bridge.startSession();
+    assert.equal((await queued).ok, false);
+    assert.equal(live.main.hidden, false);
+    if (restart) {
+      assert.equal((await live.tool("ditto_app", { action: "hide" })).ok, true);
+      assert.equal(live.main.hidden, true);
+    }
+  });
+
+test("a queued computer action cannot acquire a restarted Live session", async (t) => {
+  const live = fixture();
+  t.after(() => live.bridge.dispose());
+  live.bridge.startSession();
+  const queued = live.tool("computer_click", { x: 1, y: 1 });
+  live.bridge.stopSession("user");
+  live.bridge.startSession();
+  assert.equal((await queued).ok, false);
+  assert.equal(live.calls.length, 0);
+  assert.equal((await live.tool("computer_click", { x: 1, y: 1 })).ok, true);
+});
+
+test("an in-flight app lookup cannot type into a later Live session", async (t) => {
+  const looking = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  let lookups = 0;
+  const live = fixture({
+    run: async (_file, args) => {
+      if (args[0] === "front") {
+        lookups += 1;
+        looking.resolve();
+        await release.promise;
+        return "ASN:0x0-0xf05f05:\n";
+      }
+      return `"LSDisplayName"="Fixture"\n"pid"=${lookups === 1 ? 77 : 99}\n`;
+    },
+  });
+  t.after(() => live.bridge.dispose());
+  live.bridge.startSession();
+  const typing = live.tool("computer_type_text", { text: "Synthetic stopped input" });
+  await looking.promise;
+  live.bridge.stopSession("user");
+  live.bridge.startSession();
+  release.resolve();
+  assert.equal((await typing).ok, false);
+  assert.equal(live.calls.length, 0);
+  assert.equal(
+    (await live.tool("computer_type_text", { text: "Synthetic current input" })).ok,
+    true,
+  );
+  assert.equal(live.calls.at(-1)[1].pid, 99);
 });
 
 test("clicks map onto the display of the latest frame and observe before acting", async () => {

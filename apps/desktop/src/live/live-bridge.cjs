@@ -231,6 +231,7 @@ function registerLiveBridge({
   const { BrowserWindow, desktopCapturer, screen, app } = electron;
   const stopListeners = new Set();
   let active = false;
+  let generation = 0;
   let disposed = false;
   let session = null;
   let needsObserve = true;
@@ -241,6 +242,11 @@ function registerLiveBridge({
   let display = null;
   let frontCache = null;
   let titles = { at: 0, byPid: new Map(), refreshing: false };
+
+  // Accepted tools belong to one Live session, including across async app lookups.
+  const checkOwner = (owner) => {
+    if (!active || owner !== generation) throw new LiveToolError("Live mode is not running.");
+  };
 
   const aura = () => usable(getAuraWindow?.());
   const send = (command) => aura()?.webContents.send("ditto-live:command", command);
@@ -342,13 +348,14 @@ function registerLiveBridge({
         ]),
       );
     })();
-    frontCache = { at: 0, loading };
+    const cache = { at: 0, loading };
+    frontCache = cache;
     try {
       const value = await loading;
-      frontCache = { at: Date.now(), value };
+      if (frontCache === cache) frontCache = { at: Date.now(), value };
       return value;
     } catch (error) {
-      frontCache = null;
+      if (frontCache === cache) frontCache = null;
       throw error;
     }
   }
@@ -416,14 +423,17 @@ function registerLiveBridge({
     closing?.then((open) => open.close()).catch(() => {});
   }
 
-  async function call(name, args) {
+  async function call(name, args, owner) {
+    checkOwner(owner);
     const open = await openSession();
+    checkOwner(owner);
     try {
       const result = await open.call(name, args);
+      checkOwner(owner);
       if (result?.isError) throw new LiveToolError(resultText(result) || "Computer Use failed.");
       return result;
     } catch (error) {
-      if (/session has ended/.test(error.message)) {
+      if (owner === generation && /session has ended/.test(error.message)) {
         if (session) closeSession();
         if (!computer.enabled) stopSession("computer-use-disabled");
       }
@@ -434,13 +444,13 @@ function registerLiveBridge({
   // ComputerService refuses input after an action with an unverifiable outcome
   // (every desktop-scope click) until a desktop screenshot is observed. Observe
   // lazily before the next action, never by retrying the action itself.
-  async function act(name, args) {
+  async function act(name, args, owner) {
     if (needsObserve) {
-      observation = (await call("computer_get_desktop_state", {})).structuredContent;
+      observation = (await call("computer_get_desktop_state", {}, owner)).structuredContent;
       needsObserve = false;
     }
     needsObserve = true;
-    return resultText(await call(name, typeof args === "function" ? args() : args));
+    return resultText(await call(name, typeof args === "function" ? args() : args, owner));
   }
 
   function screenPoint(x, y) {
@@ -453,8 +463,8 @@ function registerLiveBridge({
     return point;
   }
 
-  async function windowAt(point) {
-    const windows = (await call("computer_list_windows", { on_screen_only: true }))
+  async function windowAt(point, owner) {
+    const windows = (await call("computer_list_windows", { on_screen_only: true }, owner))
       .structuredContent?.windows;
     const auraBounds = aura()?.getBounds();
     const target = (windows ?? [])
@@ -585,34 +595,43 @@ function registerLiveBridge({
     return { shim: shim === true };
   }
 
-  async function runTool(name, args) {
+  async function runTool(name, args, owner) {
+    checkOwner(owner);
     const input = args && typeof args === "object" && !Array.isArray(args) ? args : {};
     switch (name) {
       case "computer_click": {
         const point = screenPoint(input.x, input.y);
         // Only single clicks can be screen-absolute; double_click is window-local.
         if (input.double === true && input.button !== "right") {
-          const { target, pixels } = await windowAt(point);
-          return act("computer_double_click", {
-            pid: target.pid,
-            window_id: target.window_id,
-            ...pixels(point),
-          });
+          const { target, pixels } = await windowAt(point, owner);
+          return act(
+            "computer_double_click",
+            {
+              pid: target.pid,
+              window_id: target.window_id,
+              ...pixels(point),
+            },
+            owner,
+          );
         }
         const button = input.button === "right" ? "right" : "left";
-        return act("computer_click", () => ({
-          ...toDesktopPixels(
-            desktopRatio(observation, screen.getPrimaryDisplay().scaleFactor),
-            point,
-          ),
-          scope: "desktop",
-          button,
-        }));
+        return act(
+          "computer_click",
+          () => ({
+            ...toDesktopPixels(
+              desktopRatio(observation, screen.getPrimaryDisplay().scaleFactor),
+              point,
+            ),
+            scope: "desktop",
+            button,
+          }),
+          owner,
+        );
       }
       case "computer_type_text":
         if (typeof input.text !== "string" || !input.text || input.text.length > 10000)
           throw new LiveToolError("Type text under 10,000 characters.");
-        return act("computer_type_text", { pid: await frontPid(), text: input.text });
+        return act("computer_type_text", { pid: await frontPid(), text: input.text }, owner);
       case "computer_press_key": {
         if (typeof input.key !== "string" || !/^[\w+\-=[\];',./`\\ ]{1,24}$/.test(input.key))
           throw new LiveToolError("Use a key name such as return, tab, escape or a.");
@@ -621,48 +640,60 @@ function registerLiveBridge({
           if (!modifier) throw new LiveToolError("Use modifiers cmd, shift, option, ctrl or fn.");
           return modifier;
         });
-        return act("computer_press_key", {
-          pid: await frontPid(),
-          key: input.key.toLowerCase(),
-          ...(modifiers.length ? { modifiers } : {}),
-        });
+        return act(
+          "computer_press_key",
+          {
+            pid: await frontPid(),
+            key: input.key.toLowerCase(),
+            ...(modifiers.length ? { modifiers } : {}),
+          },
+          owner,
+        );
       }
       case "computer_scroll": {
         if (!["up", "down", "left", "right"].includes(input.direction))
           throw new LiveToolError("Scroll up, down, left or right.");
         const point = screenPoint(input.x, input.y);
-        const { target, pixels } = await windowAt(point);
+        const { target, pixels } = await windowAt(point, owner);
         const amount = Number.isInteger(input.amount) ? Math.max(1, Math.min(input.amount, 20)) : 3;
-        return act("computer_scroll", {
-          pid: target.pid,
-          window_id: target.window_id,
-          direction: input.direction,
-          amount,
-          ...pixels(point),
-          delivery_mode: "foreground",
-        });
+        return act(
+          "computer_scroll",
+          {
+            pid: target.pid,
+            window_id: target.window_id,
+            direction: input.direction,
+            amount,
+            ...pixels(point),
+            delivery_mode: "foreground",
+          },
+          owner,
+        );
       }
       case "computer_drag": {
         const from = screenPoint(input.from_x, input.from_y);
         const to = screenPoint(input.to_x, input.to_y);
-        const { target, pixels } = await windowAt(from);
+        const { target, pixels } = await windowAt(from, owner);
         const start = pixels(from);
         const end = pixels(to);
-        return act("computer_drag", {
-          pid: target.pid,
-          window_id: target.window_id,
-          from_x: start.x,
-          from_y: start.y,
-          to_x: end.x,
-          to_y: end.y,
-          delivery_mode: "foreground",
-        });
+        return act(
+          "computer_drag",
+          {
+            pid: target.pid,
+            window_id: target.window_id,
+            from_x: start.x,
+            from_y: start.y,
+            to_x: end.x,
+            to_y: end.y,
+            delivery_mode: "foreground",
+          },
+          owner,
+        );
       }
       case "computer_open_app":
         if (typeof input.name !== "string" || !/^[\p{L}\p{N}_ .&'()+-]{1,80}$/u.test(input.name))
           throw new LiveToolError("Name the app to open.");
         frontCache = null;
-        return act("computer_launch_app", { name: input.name });
+        return act("computer_launch_app", { name: input.name }, owner);
       case "computer_get_state": {
         const target = currentDisplay();
         return {
@@ -680,6 +711,7 @@ function registerLiveBridge({
   }
 
   function tool(name, args) {
+    const owner = generation;
     // Ditto-window work never touches the shared mouse and keyboard, and a
     // prompt_agent may wait 75 s on a reply, so it skips the computer queue.
     const direct = {
@@ -695,7 +727,9 @@ function registerLiveBridge({
     pending += 1;
     const running = toolTail.then(async () => {
       try {
-        return { ok: true, result: await runTool(name, args) };
+        const result = await runTool(name, args, owner);
+        checkOwner(owner);
+        return { ok: true, result };
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
       } finally {
@@ -738,7 +772,9 @@ function registerLiveBridge({
 
   function startSession() {
     if (disposed) throw new Error("Live mode was shut down.");
+    generation += 1;
     active = true;
+    frontCache = null;
     watchMainWindow();
     setState("connecting");
     display = null;
@@ -747,7 +783,9 @@ function registerLiveBridge({
 
   function stopSession(reason = "stopped") {
     if (!active) return;
+    generation += 1;
     active = false;
+    frontCache = null;
     setState("idle");
     display = null;
     unwatchMainWindow();
