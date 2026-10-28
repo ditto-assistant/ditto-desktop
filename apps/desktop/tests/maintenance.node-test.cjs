@@ -191,3 +191,72 @@ test("a timed out engine updater drains its owned descendants and releases maint
   assert.equal(recovered.updatable, true);
   assert.equal(maintenance.active, null);
 });
+
+test("engine version and update errors preserve UTF-8 across output chunks", async () => {
+  const { EventEmitter } = require("node:events");
+  const { PassThrough } = require("node:stream");
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ditto-updater-utf8-")));
+  const pkg = path.join(root, "lib/node_modules/@anthropic-ai/claude-code");
+  try {
+    fs.mkdirSync(pkg, { recursive: true });
+    fs.mkdirSync(path.join(root, "bin"));
+    fs.writeFileSync(
+      path.join(pkg, "package.json"),
+      JSON.stringify({ name: "@anthropic-ai/claude-code" }),
+    );
+    const binary = path.join(pkg, "claude");
+    fs.writeFileSync(binary, "");
+    fs.writeFileSync(path.join(root, "bin/npm"), "");
+    const version = "Synthetic café 日本語 ✓";
+    const failure = "SYNTHETIC_UPDATE_ERROR café 日本語 ✓";
+    const sourcePath = path.join(__dirname, "../src/maintenance.cjs");
+    const load = createRequire(sourcePath);
+    const target = { exports: {} };
+    vm.runInNewContext(
+      fs.readFileSync(sourcePath, "utf8"),
+      {
+        module: target,
+        __dirname: path.dirname(sourcePath),
+        process,
+        setTimeout,
+        clearTimeout,
+        require(name) {
+          if (name !== "./local-task.cjs") return load(name);
+          return {
+            spawnLocalTask(_file, args) {
+              const child = new EventEmitter();
+              child.stdout = new PassThrough();
+              child.stderr = new PassThrough();
+              queueMicrotask(() => {
+                const inspect = args[0] === "--version";
+                const bytes = Buffer.from(inspect ? version : failure);
+                const cut = bytes.indexOf(Buffer.from("日本語")) + 1;
+                const stream = inspect ? child.stdout : child.stderr;
+                stream.write(bytes.subarray(0, cut));
+                stream.end(bytes.subarray(cut));
+                child.emit("close", inspect ? 0 : 42);
+              });
+              return child;
+            },
+            cancelLocalTask() {},
+          };
+        },
+      },
+      { filename: sourcePath },
+    );
+    const events = [];
+    const maintenance = new target.exports.EngineMaintenance({
+      resolveBinary: (id) => (id === "claude" ? binary : null),
+      onStatus: (event) => events.push(event),
+    });
+    assert.equal(
+      (await maintenance.status()).engines.find((engine) => engine.id === "claude").version,
+      version,
+    );
+    await assert.rejects(maintenance.update("claude"), (error) => error.message.includes(failure));
+    assert.ok(events.at(-1).detail.includes(failure));
+    assert.equal(maintenance.active, null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
