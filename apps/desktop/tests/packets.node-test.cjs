@@ -182,3 +182,96 @@ test("an incomplete existing packet is preserved and cannot count as a concurren
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("distinct attachments retain their own bytes when names and identifiers collide", async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ditto-packet-identities-"));
+  const ids = [
+    undefined,
+    undefined,
+    "same/a",
+    "same?a",
+    "x".repeat(80) + "a",
+    "x".repeat(80) + "b",
+  ];
+  const attachments = ids.map((id, index) => ({
+    ...(id === undefined ? {} : { id }),
+    filename: "notes.txt",
+    url: `https://cdn.discordapp.com/fixture-${index}`,
+  }));
+  const payloads = attachments.map((_, index) =>
+    Buffer.from(`Distinct document ${index} café 日本語`),
+  );
+  t.mock.method(globalThis, "fetch", async (url) => {
+    const index = attachments.findIndex((item) => item.url === String(url));
+    assert.ok(index >= 0);
+    return new Response(payloads[index]);
+  });
+  try {
+    const packet = await createKnowledgePacket(
+      dir,
+      {
+        conversations: async () => [{ id: "123", title: "Attachment identities" }],
+        messages: async () => [{ id: "m1", content: "Fixture", attachments }],
+      },
+      "googlemessages",
+      "123",
+    );
+    const manifest = JSON.parse(
+      await fs.readFile(path.join(packet.folder, "manifest.json"), "utf8"),
+    );
+    assert.equal(manifest.attachmentCount, attachments.length);
+    assert.equal(new Set(manifest.attachments.map((item) => item.path)).size, attachments.length);
+    for (const [index, attachment] of manifest.attachments.entries()) {
+      assert.equal(attachment.status, "localized");
+      const bytes = await fs.readFile(path.join(packet.folder, attachment.path));
+      assert.deepEqual(bytes, payloads[index]);
+      assert.equal(attachment.sha256, crypto.createHash("sha256").update(bytes).digest("hex"));
+      assert.equal(attachment.sizeBytes, bytes.length);
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("version 2 packet caches are preserved without reusing attachment paths", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ditto-packet-v2-"));
+  const messages = [{ id: "m1", content: "Fresh packet contents", attachments: [] }];
+  const digest = crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({ version: 2, service: "googlemessages", conversationId: "123", messages }),
+    )
+    .digest("hex")
+    .slice(0, 16);
+  const legacy = path.join(dir, "knowledge-packets", `googlemessages-Cached-chat-${digest}`);
+  const oldManifest = JSON.stringify({ version: 2, marker: "Preserve this packet" });
+  try {
+    await fs.mkdir(legacy, { recursive: true });
+    await fs.writeFile(path.join(legacy, "INDEX.md"), "Existing version 2 packet");
+    await fs.writeFile(path.join(legacy, "manifest.json"), oldManifest);
+    const packet = await createKnowledgePacket(
+      dir,
+      {
+        conversations: async () => [{ id: "123", title: "Cached chat" }],
+        messages: async () => messages,
+      },
+      "googlemessages",
+      "123",
+    );
+    assert.notEqual(packet.folder, legacy);
+    assert.ok(
+      JSON.parse(await fs.readFile(path.join(packet.folder, "manifest.json"), "utf8")).version > 2,
+    );
+    assert.match(
+      await fs.readFile(path.join(packet.folder, "transcript.md"), "utf8"),
+      /Fresh packet contents/,
+    );
+    assert.equal(await fs.readFile(path.join(legacy, "manifest.json"), "utf8"), oldManifest);
+    assert.equal(
+      await fs.readFile(path.join(legacy, "INDEX.md"), "utf8"),
+      "Existing version 2 packet",
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
