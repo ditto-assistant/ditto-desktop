@@ -129,3 +129,62 @@ for (const operation of ["timeout", "stop"]) {
     }
   });
 }
+
+for (const operation of ["success", "failure", "host-stdout", "host-stderr"]) {
+  test(`remote ${operation} preserves UTF-8 across pipe chunks`, async () => {
+    const { EventEmitter } = require("node:events");
+    const { PassThrough } = require("node:stream");
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    const sourcePath = path.join(__dirname, "../src/remote.cjs");
+    const load = createRequire(sourcePath);
+    const fixtureRequire = (name) =>
+      name === "./local-task.cjs"
+        ? { spawnLocalTask: () => child, cancelLocalTask() {} }
+        : load(name);
+    fixtureRequire.resolve = load.resolve;
+    const target = { exports: {} };
+    vm.runInNewContext(
+      fs.readFileSync(sourcePath, "utf8"),
+      {
+        module: target,
+        __dirname: path.dirname(sourcePath),
+        process,
+        require: fixtureRequire,
+        setTimeout,
+        clearTimeout,
+      },
+      { filename: sourcePath },
+    );
+    const isHost = operation.startsWith("host-");
+    const text = `${isHost ? "remote control on " : "Fixture "}café 日本語 ✓\n`;
+    const progress = [];
+    let completion;
+    let host;
+    if (isHost) {
+      host = new target.exports.RemoteHost((state) => progress.push(state.detail));
+      host.start("codex", { key: "synthetic-unused", cwd: os.tmpdir() });
+    } else {
+      completion = target.exports.runCli(["fixture"], {
+        key: "synthetic-unused",
+        cwd: os.tmpdir(),
+        onProgress: (part) => progress.push(part),
+      });
+    }
+    const stderr = operation === "failure" || operation === "host-stderr";
+    const stream = stderr ? child.stderr : child.stdout;
+    for (const byte of Buffer.from(text)) stream.write(Buffer.from([byte]));
+    child.stdout.end();
+    child.stderr.end();
+    child.emit("close", operation === "failure" ? 9 : 0);
+    if (isHost) {
+      assert.ok(progress.includes(text.trim()));
+      assert.equal(host.status().running, false);
+      assert.equal(host.child, null);
+    } else if (operation === "failure") {
+      await assert.rejects(completion, (error) => error.message === text.trim());
+      assert.equal(progress.join(""), text);
+    } else assert.equal(await completion, text.trim());
+  });
+}

@@ -32,6 +32,7 @@ class DesktopDevices {
     this.socket = null;
     this.enabled = false;
     this.paired = new Set();
+    this.pairingTokens = new Map();
     this.tunnels = new Map();
     this.replays = new Map();
     this.clients = new Set();
@@ -133,6 +134,7 @@ class DesktopDevices {
       this.socket = null;
       this.tunnels.clear();
       this.paired.clear();
+      this.pairingTokens.clear();
       if (this.enabled) {
         this.report(false, "Connection lost. Reconnecting…");
         this.reconnect = setTimeout(() => this.connect(), this.retry);
@@ -152,6 +154,7 @@ class DesktopDevices {
     this.clients.clear();
     this.tunnels.clear();
     this.paired.clear();
+    this.pairingTokens.clear();
     this.report(false, "Device network is off.");
     return this.status();
   }
@@ -166,6 +169,10 @@ class DesktopDevices {
     this.paired = new Set(
       Array.isArray(ids) ? ids.filter((id) => typeof id === "string" && UUID.test(id)) : [],
     );
+    for (const peer of this.pairingTokens.keys())
+      if (!this.paired.has(peer)) this.pairingTokens.delete(peer);
+    for (const peer of this.paired)
+      if (!this.pairingTokens.has(peer)) this.pairingTokens.set(peer, Symbol());
     for (const [id, tunnel] of this.tunnels)
       if (tunnel.peer && !this.paired.has(tunnel.peer))
         this.closeTunnel(id, "Device pairing removed.");
@@ -327,7 +334,18 @@ class DesktopDevices {
   async unpair(peer) {
     this.requireOnline();
     if (!UUID.test(peer) || !this.paired.has(peer)) throw new Error("Choose a paired device.");
-    return this.api(`/api/v5/hosts/${this.hostId}/pairings/${peer}`, "DELETE");
+    const hostId = this.hostId;
+    const socket = this.socket;
+    const pairing = this.pairingTokens.get(peer);
+    const result = await this.api(`/api/v5/hosts/${hostId}/pairings/${peer}`, "DELETE");
+    // An acknowledgement must not revoke a newer pairing, even on the same connection.
+    if (
+      this.hostId === hostId &&
+      this.socket === socket &&
+      this.pairingTokens.get(peer) === pairing
+    )
+      this.setPaired([...this.paired].filter((id) => id !== peer));
+    return result;
   }
   async request(peer, method, params) {
     this.requireOnline();

@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
+const QRCode = require("qrcode");
 const { GoogleMessagesLocal } = require("../src/googlemessages-local.cjs");
 const secureStorage = {
   isEncryptionAvailable: () => true,
@@ -126,6 +127,48 @@ test("cancelled Google Messages pairing cannot restore a late sign-in response",
   transport.cancelLogin();
   complete({ credentials: { session: "must-not-be-saved" }, displayName: "QA" });
   assert.equal((await attempt).connected, false);
+  assert.equal(fs.existsSync(transport.accountFile()), false);
+});
+
+test("cancelled Google Messages pairing cannot resume after QR rendering finishes", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ditto-googlemessages-qr-cancel-"));
+  const transport = new GoogleMessagesLocal(root, root, secureStorage, async () => ({
+    status: "cancelled",
+  }));
+  const rendering = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const render = QRCode.toDataURL.bind(QRCode);
+  t.mock.method(QRCode, "toDataURL", async (...args) => {
+    rendering.resolve();
+    await release.promise;
+    return render(...args);
+  });
+  t.after(() => {
+    release.resolve();
+    transport.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  let requests = 0;
+  transport.request = async (_route, { credentials }) => {
+    requests++;
+    return credentials.flowID
+      ? { credentials: { session: "must-not-be-restored" }, displayName: "QA" }
+      : {
+          challenge: {
+            kind: "qr",
+            prompt: "https://example.invalid/disposable-qr",
+            state: { flowID: "cancelled-qr-flow" },
+          },
+        };
+  };
+  const attempt = transport.login();
+  await rendering.promise;
+  transport.cancelLogin();
+  release.resolve();
+  const status = await attempt;
+  assert.equal(status.connected, false, "a cancelled QR flow must not reconnect");
+  assert.equal(status.loginPending, false);
+  assert.equal(requests, 1, "the cancelled flow must not be polled again");
   assert.equal(fs.existsSync(transport.accountFile()), false);
 });
 

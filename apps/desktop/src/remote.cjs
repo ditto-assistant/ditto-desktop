@@ -38,6 +38,8 @@ function runCli(args, { key, cwd, stateDir, timeoutMs = 120000, onProgress = () 
       expired = true;
       cancelLocalTask(child);
     }, timeoutMs);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
       stdout = (stdout + chunk.toString()).slice(-MAX_OUTPUT);
     });
@@ -103,6 +105,8 @@ class RemoteHost {
         this.onStatus(this.state);
       }
     };
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
     child.stdout.on("data", report);
     child.stderr.on("data", report);
     child.once("error", (error) => {

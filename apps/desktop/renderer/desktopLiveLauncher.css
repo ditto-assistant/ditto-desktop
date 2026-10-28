@@ -1,0 +1,68 @@
+/* ditto-app#3432's launcher and header Temporary chat styles (liveDock.css,
+   v2.css), for bundled ditto-apps that predate it. */
+.live-mode-button {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+}
+
+.live-mode-button > svg {
+  width: 22px;
+  height: 22px;
+}
+
+.live-mode-button[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* In the send slot it must not borrow Send's state colours (muted when the
+   field is empty, red while streaming): repeat the class to outrank them. */
+.v2-product-shell .v2-composer-send-slot .live-mode-button.live-mode-button.live-mode-button {
+  background: var(--v2-raised) !important;
+  color: var(--v2-ink) !important;
+  opacity: 1 !important;
+}
+
+.v2-product-shell
+  .v2-composer-send-slot
+  .live-mode-button.live-mode-button.live-mode-button[aria-disabled="true"] {
+  opacity: 0.5 !important;
+}
+
+.v2-product-shell
+  .v2-composer-send-slot
+  .live-mode-button.live-mode-button.live-mode-button[data-active="true"] {
+  background: var(--v2-ink) !important;
+  color: var(--v2-surface, var(--v2-bg)) !important;
+}
+
+.live-dock-kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--ditto-rule, var(--border));
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ditto-muted, var(--muted-foreground));
+}
+
+/* Add | field | Live + Send: the send slot holds both now that Temporary chat
+   is in the header. The doubled class outranks v2.css's four-column rule. */
+@media (min-width: 1024px) {
+  .v2-product-shell .composer-form-body.composer-form-body,
+  html:not(.dark) .v2-product-shell .composer-form-body.composer-form-body {
+    grid-template-columns: var(--v2-composer-control) minmax(0, 1fr) auto;
+  }
+
+  .v2-product-shell .v2-composer-send-slot.v2-composer-send-slot {
+    grid-column: 3;
+  }
+}
+
+.v2-product-shell .v2-header-temporary-toggle[data-active="true"] {
+  background: var(--v2-ink) !important;
+  color: var(--v2-surface, var(--v2-bg)) !important;
+}

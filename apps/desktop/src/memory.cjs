@@ -98,6 +98,7 @@ function parseTrajectoryLine(source, line) {
   } catch {
     return null;
   }
+  if (!record || typeof record !== "object" || Array.isArray(record)) return null;
   if (source === "codex") {
     if (record.type !== "response_item" || record.payload?.type !== "message") return null;
     const role = record.payload.role;
@@ -238,6 +239,11 @@ class MemoryStore {
         status TEXT NOT NULL,
         error TEXT NOT NULL DEFAULT ''
       );
+      CREATE TABLE IF NOT EXISTS code_threads (
+        id TEXT PRIMARY KEY,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        archived INTEGER NOT NULL DEFAULT 0
+      );
     `);
     if (
       !this.db
@@ -299,6 +305,57 @@ class MemoryStore {
         "SELECT id,started_at,finished_at,workspace,prompt,response,status,error,provider,session_id FROM pi_runs ORDER BY id DESC LIMIT ?",
       )
       .all(Math.max(1, Math.min(100, limit)));
+  }
+
+  codeThreads() {
+    return this.db
+      .prepare(`
+      WITH runs AS (
+        SELECT *, CASE WHEN session_id IS NOT NULL THEN 'session:' || session_id ELSE 'run:' || id END AS thread_id
+        FROM pi_runs
+      ), latest AS (SELECT thread_id, MAX(id) AS id, MIN(id) AS first_id FROM runs GROUP BY thread_id)
+      SELECT r.id, r.started_at, r.workspace, r.provider, r.status, r.session_id, r.thread_id AS threadId, first.prompt AS title,
+        COALESCE(t.pinned, 0) AS pinned, COALESCE(t.archived, 0) AS archived
+      FROM latest l JOIN runs r ON r.id=l.id JOIN runs first ON first.id=l.first_id
+      LEFT JOIN code_threads t ON t.id=r.thread_id
+      ORDER BY pinned DESC, r.id DESC
+    `)
+      .all();
+  }
+
+  codeThreadRuns(id) {
+    if (typeof id !== "string") throw new Error("Invalid Code conversation.");
+    if (id.startsWith("session:"))
+      return this.db
+        .prepare("SELECT * FROM pi_runs WHERE session_id=? ORDER BY id")
+        .all(id.slice(8));
+    if (/^run:\d+$/.test(id))
+      return this.db
+        .prepare("SELECT * FROM pi_runs WHERE id=? AND session_id IS NULL")
+        .all(Number(id.slice(4)));
+    return [];
+  }
+
+  updateCodeThread(id, patch) {
+    if (!this.codeThreadRuns(id).length) throw new Error("Code conversation not found.");
+    if (
+      !patch ||
+      !["pinned", "archived"].some((field) => typeof patch[field] === "boolean") ||
+      ["pinned", "archived"].some(
+        (field) => patch[field] !== undefined && typeof patch[field] !== "boolean",
+      )
+    )
+      throw new Error("Invalid Code conversation update.");
+    const current = this.db.prepare("SELECT * FROM code_threads WHERE id=?").get(id);
+    this.db
+      .prepare(`INSERT INTO code_threads(id,pinned,archived) VALUES(?,?,?)
+      ON CONFLICT(id) DO UPDATE SET pinned=excluded.pinned,archived=excluded.archived`)
+      .run(
+        id,
+        Number(patch.pinned ?? current?.pinned ?? false),
+        Number(patch.archived ?? current?.archived ?? false),
+      );
+    return this.codeThreads();
   }
 
   piSession(sessionId) {
@@ -557,22 +614,31 @@ class MemoryStore {
         if (this.fileIsFresh(source, file, stat)) continue;
         const stream = fs.createReadStream(file, { encoding: "utf8" });
         const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
-        for await (const line of lines) {
-          const item = parseTrajectoryLine(source, line);
-          if (!item) continue;
-          if (
-            this.addDoc(
-              source,
-              file,
-              part,
-              item.role,
-              `${source} · ${path.basename(file)} · ${item.role}`,
-              item.text,
-              item.timestamp || stat.mtime.toISOString(),
+        try {
+          for await (const line of lines) {
+            const item = parseTrajectoryLine(source, line);
+            if (!item) continue;
+            if (
+              this.addDoc(
+                source,
+                file,
+                part,
+                item.role,
+                `${source} · ${path.basename(file)} · ${item.role}`,
+                item.text,
+                item.timestamp || stat.mtime.toISOString(),
+              )
             )
-          )
-            counts[source]++;
-          part++;
+              counts[source]++;
+            part++;
+          }
+        } catch (error) {
+          if (error !== stream.errored) throw error;
+          counts.skipped++;
+          continue;
+        } finally {
+          lines.close();
+          stream.destroy();
         }
         this.db
           .prepare("DELETE FROM docs WHERE source=? AND path=? AND part>=?")

@@ -79,6 +79,4 @@ function createComputerControl({ execute = execFileAsync, getHelper = helperPath
   };
 }
 
-const computerAction = createComputerControl();
-
-module.exports = { computerAction, createComputerControl };
+module.exports = { createComputerControl };

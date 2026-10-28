@@ -19,6 +19,54 @@ test("unconfigured Telegram never attempts restoration or login", async () => {
   assert.deepEqual(calls, ["status", "status"]);
 });
 
+test("Telegram restores saved sign-in again after its channel component restarts", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ditto-telegram-restart-"));
+  fs.writeFileSync(
+    path.join(root, "ditto-telegram-sidecar"),
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const input = require("node:readline").createInterface({ input: process.stdin });
+let connected = false;
+input.on("line", line => {
+  const { id, method } = JSON.parse(line);
+  if (method === "connection.restore") {
+    fs.appendFileSync(path.join(process.argv[3], "restores"), "restored\\n");
+    connected = true;
+  }
+  console.log(JSON.stringify({ id, result: { configured: true, connected } }));
+});
+input.on("close", () => process.exit(0));
+`,
+    { mode: 0o700 },
+  );
+  const channels = new LocalChannels(root, root);
+  const children = new Set();
+  t.after(async () => {
+    if (channels.clients.telegram.child) children.add(channels.clients.telegram.child);
+    const closed = [...children].map((child) =>
+      child.exitCode === null && child.signalCode === null
+        ? once(child, "close")
+        : Promise.resolve(),
+    );
+    channels.close();
+    await Promise.all(closed);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  assert.equal((await channels.status("telegram")).restoring, true);
+  const first = channels.clients.telegram.child;
+  children.add(first);
+  await channels.telegramRestore;
+  assert.equal((await channels.status("telegram")).connected, true);
+  const exited = once(first, "close");
+  first.kill("SIGTERM");
+  await exited;
+  assert.equal((await channels.status("telegram")).restoring, true);
+  await channels.telegramRestore;
+  assert.equal((await channels.status("telegram")).connected, true);
+  assert.equal(fs.readFileSync(path.join(root, "restores"), "utf8"), "restored\nrestored\n");
+});
+
 test("concurrent Discord status checks share one restore operation", async () => {
   const channels = new LocalChannels("/unused", "/unused");
   const calls = [];

@@ -109,6 +109,8 @@ function runCommand(executable, args, { timeoutMs = 300000 } = {}) {
     const append = (chunk) => {
       output = (output + chunk.toString().replace(/\x1b\[[0-9;]*m/g, "")).slice(-10000);
     };
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
     child.stdout.on("data", append);
     child.stderr.on("data", append);
     const timer = setTimeout(() => {

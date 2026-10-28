@@ -25,6 +25,7 @@ class DesktopBrowser {
     this.onState = onState;
     this.view = null;
     this.visible = false;
+    this.error = "";
   }
 
   ensure() {
@@ -53,14 +54,19 @@ class DesktopBrowser {
         event.preventDefault();
       }
     });
-    for (const event of [
-      "did-navigate",
-      "did-navigate-in-page",
-      "page-title-updated",
-      "did-fail-load",
-    ]) {
+    for (const event of ["did-navigate", "did-navigate-in-page", "page-title-updated"]) {
       view.webContents.on(event, () => this.onState(this.status()));
     }
+    view.webContents.on("did-start-navigation", (details) => {
+      if (!details.isMainFrame || details.isSameDocument) return;
+      this.error = "";
+      this.onState(this.status());
+    });
+    view.webContents.on("did-fail-load", (_event, code, _description, _url, isMainFrame) => {
+      if (!isMainFrame || code === -3) return;
+      this.error = "This page could not load. Check the address or try Reload.";
+      this.onState(this.status());
+    });
     this.view = view;
     return view;
   }
@@ -71,6 +77,7 @@ class DesktopBrowser {
       visible: this.visible,
       url: contents?.getURL() || "",
       title: contents?.getTitle() || "Browser",
+      error: this.error,
       canGoBack: Boolean(contents?.navigationHistory.canGoBack()),
       canGoForward: Boolean(contents?.navigationHistory.canGoForward()),
     };
@@ -191,6 +198,7 @@ class DesktopBrowser {
     this.hide();
     this.view?.webContents.close();
     this.view = null;
+    this.error = "";
   }
 }
 

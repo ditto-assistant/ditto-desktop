@@ -6,6 +6,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { createRequire } = require("node:module");
 const childProcess = require("node:child_process");
+const net = require("node:net");
 const { updatePlan, EngineMaintenance } = require("../src/maintenance.cjs");
 
 test("updates the actual npm owner and leaves vendor bundles and unknown installs alone", () => {
@@ -80,9 +81,9 @@ test("a timed out engine updater drains its owned descendants and releases maint
     `
     const { spawn } = require('node:child_process');
     const child = spawn(process.execPath, ['-e',
-      "process.on('SIGTERM', () => {}); process.send('ready'); setInterval(() => {}, 1000);"
+      "const net = require('node:net'); process.on('SIGTERM', () => {}); const server = net.createServer(); server.listen(0, '127.0.0.1', () => process.send(server.address().port));"
     ], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
-    child.once('message', () => console.log('UPDATER_READY:' + child.pid));
+    child.once('message', port => console.log('UPDATER_READY:' + child.pid + ':' + port));
     setInterval(() => {}, 1000);
   `,
   );
@@ -93,6 +94,7 @@ test("a timed out engine updater drains its owned descendants and releases maint
   const ready = Promise.withResolvers();
   let child;
   let descendant;
+  let port;
   let expire;
   const capture =
     (spawn) =>
@@ -101,9 +103,10 @@ test("a timed out engine updater drains its owned descendants and releases maint
       let output = "";
       child.stdout.on("data", (chunk) => {
         output += chunk;
-        const match = /UPDATER_READY:(\d+)/.exec(output);
+        const match = /UPDATER_READY:(\d+):(\d+)/.exec(output);
         if (match) {
           descendant = Number(match[1]);
+          port = Number(match[2]);
           ready.resolve();
         }
       });
@@ -169,7 +172,15 @@ test("a timed out engine updater drains its owned descendants and releases maint
   assert.equal(rescued, false, "Updater descendants required rescue instead of production cleanup");
   assert.match(result.error?.message || "", /timed out/);
   assert.equal(maintenance.active, null);
-  assert.throws(() => process.kill(descendant, 0), { code: "ESRCH" });
+  // Linux can retain a killed descendant as a zombie until its new parent reaps it.
+  // This fixture keeps listening until killed, so refusal verifies actual cleanup.
+  const socket = net.connect({ host: "127.0.0.1", port });
+  t.after(() => socket.destroy());
+  const outcome = await new Promise((resolve) => {
+    socket.once("connect", () => resolve("connected"));
+    socket.once("error", (error) => resolve(error.code));
+  });
+  assert.equal(outcome, "ECONNREFUSED");
   descendant = null;
   // Retry through the real updater and version-inspection paths after cleanup.
   fs.writeFileSync(npm, "#!/bin/sh\nprintf 'QA_UPDATE_FINISHED\\n'\n");
@@ -179,4 +190,73 @@ test("a timed out engine updater drains its owned descendants and releases maint
   assert.equal(recovered.version, "Claude Code QA 1.0");
   assert.equal(recovered.updatable, true);
   assert.equal(maintenance.active, null);
+});
+
+test("engine version and update errors preserve UTF-8 across output chunks", async () => {
+  const { EventEmitter } = require("node:events");
+  const { PassThrough } = require("node:stream");
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ditto-updater-utf8-")));
+  const pkg = path.join(root, "lib/node_modules/@anthropic-ai/claude-code");
+  try {
+    fs.mkdirSync(pkg, { recursive: true });
+    fs.mkdirSync(path.join(root, "bin"));
+    fs.writeFileSync(
+      path.join(pkg, "package.json"),
+      JSON.stringify({ name: "@anthropic-ai/claude-code" }),
+    );
+    const binary = path.join(pkg, "claude");
+    fs.writeFileSync(binary, "");
+    fs.writeFileSync(path.join(root, "bin/npm"), "");
+    const version = "Synthetic café 日本語 ✓";
+    const failure = "SYNTHETIC_UPDATE_ERROR café 日本語 ✓";
+    const sourcePath = path.join(__dirname, "../src/maintenance.cjs");
+    const load = createRequire(sourcePath);
+    const target = { exports: {} };
+    vm.runInNewContext(
+      fs.readFileSync(sourcePath, "utf8"),
+      {
+        module: target,
+        __dirname: path.dirname(sourcePath),
+        process,
+        setTimeout,
+        clearTimeout,
+        require(name) {
+          if (name !== "./local-task.cjs") return load(name);
+          return {
+            spawnLocalTask(_file, args) {
+              const child = new EventEmitter();
+              child.stdout = new PassThrough();
+              child.stderr = new PassThrough();
+              queueMicrotask(() => {
+                const inspect = args[0] === "--version";
+                const bytes = Buffer.from(inspect ? version : failure);
+                const cut = bytes.indexOf(Buffer.from("日本語")) + 1;
+                const stream = inspect ? child.stdout : child.stderr;
+                stream.write(bytes.subarray(0, cut));
+                stream.end(bytes.subarray(cut));
+                child.emit("close", inspect ? 0 : 42);
+              });
+              return child;
+            },
+            cancelLocalTask() {},
+          };
+        },
+      },
+      { filename: sourcePath },
+    );
+    const events = [];
+    const maintenance = new target.exports.EngineMaintenance({
+      resolveBinary: (id) => (id === "claude" ? binary : null),
+      onStatus: (event) => events.push(event),
+    });
+    assert.equal(
+      (await maintenance.status()).engines.find((engine) => engine.id === "claude").version,
+      version,
+    );
+    await assert.rejects(maintenance.update("claude"), (error) => error.message.includes(failure));
+    assert.ok(events.at(-1).detail.includes(failure));
+    assert.equal(maintenance.active, null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

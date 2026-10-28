@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_PACKET_BYTES = 100 * 1024 * 1024;
+const PACKET_VERSION = 3;
 
 function safeName(value) {
   return (
@@ -58,7 +59,7 @@ async function createKnowledgePacket(dataDir, channels, service, conversationId)
   const messages = await channels.messages(service, conversationId, 80);
   const digest = crypto
     .createHash("sha256")
-    .update(JSON.stringify({ service, conversationId, messages }))
+    .update(JSON.stringify({ version: PACKET_VERSION, service, conversationId, messages }))
     .digest("hex")
     .slice(0, 16);
   const root = path.join(dataDir, "knowledge-packets");
@@ -90,7 +91,8 @@ async function createKnowledgePacket(dataDir, channels, service, conversationId)
         if (url && remaining > 0) {
           try {
             const bytes = await download(url, Math.min(MAX_ATTACHMENT_BYTES, remaining));
-            const filename = `${safeName(message.id)}-${safeName(attachment.id)}-${safeName(attachment.filename || "file")}`;
+            // Sources may omit IDs, or IDs can collide after filename normalization.
+            const filename = `${attachments.length + 1}-${safeName(message.id)}-${safeName(attachment.id)}-${safeName(attachment.filename || "file")}`;
             await fs.mkdir(path.join(staging, "attachments"), { recursive: true, mode: 0o700 });
             await fs.writeFile(path.join(staging, "attachments", filename), bytes, { mode: 0o600 });
             entry.status = "localized";
@@ -128,12 +130,10 @@ async function createKnowledgePacket(dataDir, channels, service, conversationId)
             : []),
         ].join("\n"),
       ),
-    ]
-      .join("\n")
-      .slice(0, 500000);
+    ].join("\n");
     await fs.writeFile(path.join(staging, "transcript.md"), transcript, { mode: 0o600 });
     const manifest = {
-      version: 1,
+      version: PACKET_VERSION,
       service,
       conversationId,
       title: conversation.title,

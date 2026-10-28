@@ -39,6 +39,7 @@ class Sidecar {
       } catch {
         return;
       }
+      if (!message || typeof message !== "object" || Array.isArray(message)) return;
       if (!message.id) {
         if (typeof message.event === "string") this.onEvent(message);
         return;
@@ -181,6 +182,7 @@ class LocalChannels {
     this.conversationVersions = new Map();
     this.telegramRestore = null;
     this.telegramRestoreSettled = false;
+    this.telegramRestoreChild = null;
     this.statusRequests = new Map();
     this.loginCodes = new Map();
   }
@@ -241,6 +243,12 @@ class LocalChannels {
         : client.request("connection.restore", undefined, 30000);
     }
     const current = await client.request("status");
+    // A replacement component starts disconnected even when its saved session remains valid.
+    if (this.telegramRestoreChild !== client.child) {
+      this.telegramRestoreChild = client.child;
+      this.telegramRestore = null;
+      this.telegramRestoreSettled = false;
+    }
     if (
       current.configured === false ||
       current.connected ||
@@ -249,11 +257,12 @@ class LocalChannels {
     )
       return current;
     if (!this.telegramRestore) {
+      const child = client.child;
       this.telegramRestore = client
         .request("connection.restore", undefined, 30000)
         .catch(() => null)
         .finally(() => {
-          this.telegramRestoreSettled = true;
+          if (this.telegramRestoreChild === child) this.telegramRestoreSettled = true;
         });
     }
     return { ...current, restoring: true, detail: "Checking saved Telegram sign-in…" };
