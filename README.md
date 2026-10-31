@@ -1,5 +1,15 @@
 # Ditto Desktop
 
+> [!IMPORTANT]
+> **This repository is deprecated and archived.** Ditto Desktop now lives in
+> [ditto-assistant/ditto-app](https://github.com/ditto-assistant/ditto-app)
+> (`desktop/`, see `docs/desktop-migration/README.md` for the per-file map back to
+> this repository). Signed macOS builds are published on
+> [ditto-assistant/ditto-desktop-releases](https://github.com/ditto-assistant/ditto-desktop-releases)
+> and linked from [heyditto.ai/downloads](https://heyditto.ai/downloads).
+> Existing releases here stay downloadable. Open issues and pull requests in
+> ditto-app instead. Tracking: DITTO-1606.
+
 Ditto Desktop combines the Ditto web interface with local Pi coding, private memory, local chat connections, browser use, and Mac control. This repository also retains Peyton’s T3-based coding workbench, providers, Ditto sign-in, host bridge, Teleport and update services.
 
 See [building Ditto Desktop](docs/operations/ditto-desktop.md) and [using Ditto Desktop](docs/user/ditto-desktop.md). The following upstream T3 guide describes the retained workbench.
